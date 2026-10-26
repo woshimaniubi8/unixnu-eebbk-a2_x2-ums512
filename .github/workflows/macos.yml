@@ -20,10 +20,17 @@ on:
           - kernel
           - kernel payload
         default: kernel payload
+      runner:
+        description: GitHub-hosted macOS runner image (macos-26 carries Xcode 26.6 / LLVM 21, macos-15 maxes at Xcode 26.3 / LLVM 17)
+        type: choice
+        options:
+          - macos-26
+          - macos-15
+        default: macos-26
       xcode:
-        description: Xcode version of the macos-15 image (/Applications/Xcode_<version>.app; 26.x is required, 16.x rejects -Wno-unnecessary-virtual-specifier under -Werror)
+        description: Xcode version on the selected runner (/Applications/Xcode_<version>.app; Xcode 16.x rejects -Wno-unnecessary-virtual-specifier under -Werror)
         required: true
-        default: "26.3"
+        default: "26.6"
       ipsw_url:
         description: IPSW URL (empty uses board.toml / OS profile)
         required: false
@@ -47,7 +54,7 @@ defaults:
 jobs:
   kernel:
     name: XNU kernel + payload
-    runs-on: macos-15
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 360
     env:
       UNIXNU_IPSW: ${{ inputs.ipsw_url }}
