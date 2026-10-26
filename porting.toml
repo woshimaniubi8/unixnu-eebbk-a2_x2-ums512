@@ -22,18 +22,20 @@ evidence = [{ kind = "source", reference = "board.toml", result = "Device identi
 
 [[area]]
 id = "firmware"
-status = "implemented"
+status = "host-verified"
 components = ["DarwinBoot"]
-paths = ["proprietary-files.txt", "uefi/**"]
-inputs = ["Boot chain: BootROM -> FDL -> splloader -> U-Boot 2015.07 + cboot -> boot partition. Vendor uboot.bin strings: 'U-Boot 2015.07 (Nov 30 2022) SHARKL5PRO', 'bootcmd=cboot normal', 'fastboot', 'verifiedboot', 'avb'.", "UEFI reference: Enceka/e5-xnu (UMS9621 EDK2 bring-up, real hardware) and UNISOC-WOA-DEV/Bootshim-sprd; EDK2 stack: microsoft/mu_basecore + mu_plus + mu_oem_sample + UniXNU/uefi-sheng Silicon/Silicium."]
-configuration = ["firmware.config = bbk-a2; firmware.dsc = Platforms/Unisoc/bbkA2Pkg/bbkA2.dsc; firmware.fd = Build/bbkA2Pkg/{target}_CLANGDWARF/FV/SILICIUM_UEFI.fd.", "BootShim entry 0x80080000 (cboot kernel load address), FD_BASE 0x80800000, FD_SIZE 0x400000.", "Firmware DSC/FDF must embed UniXNU.inf, UniXNUDxe.inf, DarwinBoot.inf, UniXNURamDiskDxe.inf, DiskIoDxe.inf and Fat.inf per the official required-integration table."]
-procedure = ["./unixnu build firmware --uefi uefi (requires clang/lld + mu_basecore workspace).", "Then ./unixnu bootimg --uefi uefi --dtb <firmware.dtb> --ramdisk none."]
-findings = ["Unisoc devices have no UEFI firmware; BootShim is the trampoline from the stock bootloader into EDK2. The cboot load address and x0 = FDT handoff follow the same pattern as the UMS9621 E5 port.", "ArmPkg timer defaults 29/30/27/26 do not match the vendor FDT (13/14/11/10) and leave DXE stuck on the first timer event; the platform DSC must override PcdArmArchTimer*IntrNum.", "The stock U-Boot logobuffer is at 0x9e000000 (string 'logobuffer@9e000000'); the platform GOP can reuse it instead of initialising DPU/DSI."]
+paths = ["proprietary-files.txt", "uefi/**", ".github/workflows/build.yml"]
+inputs = ["Boot chain: BootROM -> FDL -> splloader -> U-Boot 2015.07 + cboot -> boot partition. Vendor uboot.bin strings: 'U-Boot 2015.07 (Nov 30 2022) SHARKL5PRO', 'bootcmd=cboot normal', 'fastboot', 'verifiedboot', 'avb'.", "EDK2 stack: microsoft/mu_basecore release/202608 (26bfddb2), mu_plus (566cf5c8), mu_oem_sample (9292f925), UniXNU/uefi-sheng sheng branch Silicon/Silicium (0eb4514d).", "UniXNU core checkout for UniXNUPkg and DarwinBootPkg, selected by BBK_A2_UNIXNU."]
+configuration = ["firmware.config = bbk-a2; firmware.dsc = Platforms/Unisoc/bbkA2Pkg/bbkA2.dsc; firmware.fd = Build/bbkA2Pkg/{target}_CLANGDWARF/FV/SILICIUM_UEFI.fd.", "BootShim entry 0x80080000 (cboot kernel load address), FD_BASE 0x80800000, FD_SIZE 0x400000.", "Firmware DSC/FDF embed UniXNU.efi, UniXNUDxe, UniXNURamDiskDxe, DarwinBoot, DiskIoDxe and Fat; PcdBbkA2ResetAtEndOfDxe=FALSE so BDS reaches the UniXNU menu."]
+procedure = ["CI: push to main runs .github/workflows/build.yml; the firmware job clones the pinned EDK2 deps plus UniXNU, builds BaseTools, runs uefi/build-bbk-a2.sh DEBUG and uploads the firmware artifact.", "Local: export BBK_A2_UNIXNU=<UniXNU checkout>; export BBK_A2_DEPS=<deps>; . uefi/env-linux.sh; make -C \/Source/C -j; sh uefi/build-bbk-a2.sh DEBUG."]
+findings = ["Unisoc devices have no UEFI firmware; BootShim is the trampoline from the stock bootloader into EDK2. cboot loads the kernel field at 0x80080000 and passes x0 = merged FDT (static evidence: cboot image 0x1B2B0 mov x4,#0x80080000; 0x1DB10 mov x0,#0x82000000).", "ArmPkg timer defaults 29/30/27/26 do not match the vendor FDT (13/14/11/10) and leave DXE stuck on the first timer event; the platform DSC overrides PcdArmArchTimer*IntrNum.", "The stock U-Boot logobuffer is at 0x9e000000 (string 'logobuffer@9e000000'); SprdGopDxe publishes GOP over it instead of initialising DPU/DSI.", "GitHub Actions run 40338889538 builds the FD (4,194,304 B) with UniXNU.efi 126,976 B, UniXNUDxe 32,768 B, UniXNURamDiskDxe 36,864 B and DarwinBoot.efi 45,056 B in the FV; FVMAIN is auto-sized 99% and FVMAIN_COMPACT uses 13% of the 4 MiB FD."]
 completion = ["Firmware image builds, enters UniXNU, publishes the framebuffer and preserves the documented memory reservations."]
-limits = ["The EDK2 workspace has not been built in this session (disk and toolchain limits); uefi-bbk-a2 is a scaffold based on the E5 port.", "No real hardware: BootShim handoff address, FDT in x0 and framebuffer state are unverified for cboot on UMS512."]
-next_action = ["Build uefi-bbk-a2 with the mu_basecore workspace, then run the bring-up order in the UniXNU bring-up order."]
-evidence = [{ kind = "source", reference = "uefi/Platforms/Unisoc/bbkA2Pkg/bbkA2.dsc", result = "BootShim and platform scaffold with TODO-marked hardware inputs." }]
-
+limits = ["No real hardware: BootShim handoff address, FDT in x0, UART baud and framebuffer state are unverified for cboot on UMS512.", "An empty boot.img ramdisk means the UniXNU menu has no payload entries; a payload FAT (kernel.macho + .adt + unixnu.toml) needs a macOS XNU build."]
+next_action = ["fastboot boot the CI boot.img artifact on hardware, capture UART1/ramoops, then record the first menu frame."]
+evidence = [
+  { kind = "host", command = "gh run view 40338889538 --repo woshimaniubi8/unixnu-eebbk-a2_x2-ums512", revision = "556f28af2a1b9f781cd7201ef4a1115ed7472181", reference = "https://github.com/woshimaniubi8/unixnu-eebbk-a2_x2-ums512/actions/runs/40338889538", result = "firmware/bootimg/selftest jobs green; the FD contains UniXNU.efi, UniXNUDxe, UniXNURamDiskDxe and DarwinBoot.efi" },
+  { kind = "source", reference = "uefi/Platforms/Unisoc/bbkA2Pkg/bbkA2.dsc", result = "Platform DSC with the four UniXNU/DarwinBoot INFs and UniXNULib." },
+]
 [[area]]
 id = "cpu"
 status = "implemented"
