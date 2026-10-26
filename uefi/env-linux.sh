@@ -25,8 +25,10 @@ export WORKSPACE=${WORKSPACE:-$BBK_A2_DEPS/work}
 # honoured so builds also work where WORKSPACE/BaseTools cannot be a symlink
 # (drvfs mounts, or a dependency tree cloned outside the workspace).
 export EDK_TOOLS_PATH=${EDK_TOOLS_PATH:-$WORKSPACE/BaseTools}
-if [ ! -d "$EDK_TOOLS_PATH" ] && [ -d "$BBK_A2_DEPS/probe/BaseTools" ]; then
-  export EDK_TOOLS_PATH=$BBK_A2_DEPS/probe/BaseTools
+if [ ! -d "$EDK_TOOLS_PATH" ]; then
+  for candidate in "$BBK_A2_DEPS/mu_basecore/BaseTools" "$BBK_A2_DEPS/probe/BaseTools"; do
+    if [ -d "$candidate" ]; then export EDK_TOOLS_PATH=$candidate; break; fi
+  done
 fi
 export EDK_TOOLS_BIN=$EDK_TOOLS_PATH/Source/C/bin
 
