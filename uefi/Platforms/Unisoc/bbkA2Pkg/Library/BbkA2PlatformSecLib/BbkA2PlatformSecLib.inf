@@ -1,0 +1,31 @@
+## @file
+#  BbkA2 platform specific SEC hooks.
+#
+#  Two entry points are used as stage markers while SEC is being brought up on
+#  the board: the assembly hook paints the panel cyan and the C hook paints it
+#  magenta. The colour left on screen therefore says how far SEC got before it
+#  died.  TODO(hardware): the panel pixel format is not confirmed (see
+#  Ums512.h); the hook writes RGB565 halfwords at 0x9e000000.
+#
+#  Derived from the e5-xnu project (BSD-2-Clause-Patent).
+#  Copyright (c) 2026, UniXNU bbk-a2 contributors. SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = BbkA2PlatformSecLib
+  FILE_GUID                      = 7C41E0A9-2B6D-4F83-9A57-3E0D1C8B45F2
+  MODULE_TYPE                    = SEC
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = PlatformSecLib
+
+[Sources]
+  BbkA2PlatformSec.c
+
+[Sources.AArch64]
+  AArch64/BbkA2PlatformSecHelper.S
+
+[Packages]
+  ArmPkg/ArmPkg.dec
+  MdePkg/MdePkg.dec
+  SiliciumPkg/SiliciumPkg.dec

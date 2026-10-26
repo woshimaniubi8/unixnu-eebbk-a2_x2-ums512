@@ -1,0 +1,46 @@
+## @file
+#  Bring-up probe for the BBK A2 / X2 / X2P (Unisoc UMS512).
+#
+#  At the end of DXE dispatch it dumps the GOP mode and the full UEFI memory
+#  map, then (PcdBbkA2ResetAtEndOfDxe) resets back into cboot/Android so the
+#  ramoops log can be read without a physical power cycle.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = BbkA2BringupDxe
+  FILE_GUID                      = 8C1D4F62-3B7A-4E59-9D08-2A6C5F1B7E43
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = BbkA2BringupInitialize
+
+[Sources]
+  BbkA2BringupDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  UMS512Pkg/UMS512Pkg.dec
+
+[LibraryClasses]
+  BaseMemoryLib
+  DebugLib
+  MemoryAllocationLib
+  PcdLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiRuntimeServicesTableLib
+
+[Guids]
+  gEfiEndOfDxeEventGroupGuid                     ## CONSUMES
+
+[Protocols]
+  gEfiGraphicsOutputProtocolGuid                 ## CONSUMES
+
+[FixedPcd]
+  gUms512PkgTokenSpaceGuid.PcdBbkA2ResetAtEndOfDxe
+
+[Depex]
+  TRUE

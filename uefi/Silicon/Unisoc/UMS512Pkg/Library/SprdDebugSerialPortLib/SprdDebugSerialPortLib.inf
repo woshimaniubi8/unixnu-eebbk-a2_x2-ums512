@@ -1,0 +1,14 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = SprdDebugSerialPortLib
+  FILE_GUID                      = C7F4A1E8-5B92-4D36-8A0C-6E2F9B3D7C41
+  MODULE_TYPE                    = BASE
+  VERSION_STRING                 = 1.0
+  LIBRARY_CLASS                  = SerialPortLib
+  CONSTRUCTOR                    = SprdDebugSerialPortLibConstructor
+
+[Sources]
+  SprdDebugSerialPortLib.c
+
+[Packages]
+  MdePkg/MdePkg.dec

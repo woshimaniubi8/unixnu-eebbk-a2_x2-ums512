@@ -1,0 +1,263 @@
+name: build
+
+# Builds the two missing layers of the BBK/EEBBK A2 · X2 · X2P UniXNU port:
+#   1. firmware : SILICIUM_UEFI.fd (EDK2 + Project Silicium, UMS512 platform)
+#                 + BootShim.bin + bbk-a2-uefi.bin
+#   2. bootimg  : dist/boot.img (stock Android v2 layout, raw BootShim+FD kernel,
+#                 device tree in the header dtb fields) + static verification
+# A third job re-checks the device repository with the official UniXNU tooling
+# (defconfig / status) so configuration errors fail the run before flashing.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DEPS: ${{ github.workspace }}/deps
+
+jobs:
+  firmware:
+    name: firmware (EDK2 + Silicium)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free runner disk
+        uses: rokibhasansagar/slimhub_actions@main
+        with:
+          # BaseTools is built with the host gcc; everything else is removed.
+          retain: "compiler_gcc"
+
+      - name: Install toolchain
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang-15 lld-15 llvm-15 uuid-dev nasm acpica-tools device-tree-compiler bc
+          for t in clang clang++ ld.lld llvm-ar llvm-objcopy llvm-rc llvm-nm llvm-objdump llvm-readelf; do
+            sudo ln -sf "/usr/bin/${t}-15" "/usr/bin/$t"
+          done
+          clang --version | head -1
+          iasl -v | head -2 || true
+          df -h /
+
+      - name: Clone pinned EDK2 dependencies
+        run: |
+          set -eux
+          mkdir -p "$DEPS"
+          # partial clone (no blobs) + explicit commit checkout: works even when
+          # the pinned commit is not the branch tip.
+          clone_pin() {
+            name=$1; url=$2; branch=$3; pin=$4
+            dir="$DEPS/$name"
+            rm -rf "$dir"
+            git clone -q --filter=blob:none --no-checkout --single-branch --branch "$branch" "$url" "$dir"
+            if git -C "$dir" checkout -q "$pin" 2>/dev/null; then
+              echo "$name: $pin"
+            else
+              echo "WARN: $name pin $pin not in $branch, using branch tip"
+              git -C "$dir" checkout -q "$branch"
+            fi
+            git -C "$dir" rev-parse --short HEAD
+          }
+          clone_pin probe https://github.com/microsoft/mu_basecore release/202608 26bfddb2194b2058f7ac6163b00a2d94a9b7eac6
+          clone_pin mu_plus https://github.com/microsoft/mu_plus release/202608 566cf5c8c2c8adf8e1a337ced1d147bc6246856f
+          clone_pin mu_oem_sample https://github.com/microsoft/mu_oem_sample release/202608 9292f9254adb94c5e5bb09a370b9662fcd66a953
+
+          # uefi-sheng: only Silicon/Silicium is used, and it MUST be the sheng
+          # branch (it carries gSiliciumEntryArgHobGuid and the x0 handoff).
+          git clone -q --filter=blob:none --no-checkout https://github.com/UniXNU/uefi-sheng "$DEPS/uefi-sheng"
+          cd "$DEPS/uefi-sheng"
+          git sparse-checkout init --cone
+          git sparse-checkout set Silicon/Silicium
+          git fetch -q --depth 1 origin sheng
+          git checkout -q 0eb4514db0744b8136a3897ab1af93b713c2c27b 2>/dev/null || git checkout -q sheng
+          git rev-parse --short HEAD
+          ls -d Silicon/Silicium
+
+          # mu_basecore submodules required by package parsing
+          cd "$DEPS/probe"
+          git submodule update --init --depth 1 \
+            BaseTools/Source/C/BrotliCompress/brotli \
+            MdeModulePkg/Library/BrotliCustomDecompressLib/brotli \
+            MdePkg/Library/MipiSysTLib/mipisyst \
+            MdePkg/Library/BaseFdtLib/libfdt \
+            SecurityPkg/DeviceSecurity/SpdmLib/libspdm
+          df -h /
+
+      - name: Build firmware
+        run: |
+          set -eux
+          export BBK_A2_DEPS="$DEPS"
+          export BBK_A2_REPO="$GITHUB_WORKSPACE/uefi"
+          export BBK_A2_ENV="$GITHUB_WORKSPACE/uefi/env-linux.sh"
+          mkdir -p "$DEPS/work"
+          [ -e "$DEPS/work/BaseTools" ] || ln -s "$DEPS/probe" "$DEPS/work/BaseTools"
+          # shellcheck disable=SC1090
+          . "$BBK_A2_ENV"
+          echo "WORKSPACE=$WORKSPACE"
+          make -C "$EDK_TOOLS_PATH/Source/C" -j"$(nproc)" 2>&1 | tee "$GITHUB_WORKSPACE/basetools-build.log"
+          cd "$GITHUB_WORKSPACE/uefi"
+          sh ./build-bbk-a2.sh DEBUG 2>&1 | tee "$GITHUB_WORKSPACE/firmware-build.log"
+
+      - name: Verify firmware artifacts
+        run: |
+          set -eux
+          test -f uefi/build/SILICIUM_UEFI.fd
+          test "$(stat -c%s uefi/build/SILICIUM_UEFI.fd)" = "$((0x400000))"
+          test -f uefi/build/BootShim.bin
+          test -f uefi/build/bbk-a2-uefi.bin
+          python3 - <<'PY'
+          import pathlib, struct
+          shim = pathlib.Path('uefi/build/BootShim.bin').read_bytes()
+          fd = pathlib.Path('uefi/build/SILICIUM_UEFI.fd').read_bytes()
+          assert shim[56:60] == b'ARM\x64', 'ARM64 image magic missing'
+          base, size = struct.unpack_from('<QQ', shim, 8)
+          assert base == 0x80800000, hex(base)
+          assert size == len(shim) + 0x400000, (hex(size), hex(len(shim) + 0x400000))
+          assert len(fd) == 0x400000, hex(len(fd))
+          print('shim header + FD size contract OK')
+          PY
+          sha256sum uefi/build/SILICIUM_UEFI.fd uefi/build/BootShim.bin uefi/build/bbk-a2-uefi.bin
+
+      - name: Build log in job summary
+        if: always()
+        run: |
+          {
+            echo '## firmware build'
+            echo '```'
+            tail -120 "$GITHUB_WORKSPACE/firmware-build.log" 2>/dev/null || echo 'no firmware log'
+            echo '```'
+            echo '## basetools build (tail)'
+            echo '```'
+            tail -40 "$GITHUB_WORKSPACE/basetools-build.log" 2>/dev/null || echo 'no basetools log'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: |
+            uefi/build/SILICIUM_UEFI.fd
+            uefi/build/BootShim.bin
+            uefi/build/bbk-a2-uefi.bin
+          if-no-files-found: error
+
+  bootimg:
+    name: boot.img (stock layout)
+    needs: firmware
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free runner disk
+        uses: rokibhasansagar/slimhub_actions@main
+        with:
+          retain: "compiler_gcc"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install packing tools
+        run: |
+          set -eux
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang-15 lld-15 llvm-15 device-tree-compiler
+          for t in clang ld.lld llvm-ar llvm-objcopy llvm-rc llvm-nm; do
+            sudo ln -sf "/usr/bin/${t}-15" "/usr/bin/$t"
+          done
+          python3 --version
+          clang --version | head -1
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: uefi/build
+
+      - name: Clone UniXNU core (BootShim compiler + mkbootimg contract)
+        run: git clone -q --depth 1 https://github.com/UniXNU/UniXNU.git UniXNU
+
+      - name: Build boot image
+        run: |
+          set -eux
+          export UNIXNU_TREE="$GITHUB_WORKSPACE/UniXNU"
+          sh tools/build-bootimg.sh uefi/build/SILICIUM_UEFI.fd dist/boot.img
+
+      - name: Verify boot image
+        run: |
+          set -eux
+          python3 tools/verify-bootimg.py dist/boot.img
+          sha256sum dist/boot.img | tee dist/boot.img.sha256
+
+      - name: Pack report in job summary
+        if: always()
+        run: |
+          {
+            echo '## boot image'
+            echo '```'
+            sha256sum dist/boot.img 2>/dev/null || true
+            python3 tools/verify-bootimg.py dist/boot.img 2>&1 | tail -40 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bootimg
+          path: |
+            dist/boot.img
+            dist/boot.img.sha256
+          if-no-files-found: error
+
+  selftest:
+    name: device repo selftest (unixnu defconfig/status)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free runner disk
+        uses: rokibhasansagar/slimhub_actions@main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dtc
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends device-tree-compiler
+
+      - name: Clone UniXNU core
+        run: git clone -q --depth 1 https://github.com/UniXNU/UniXNU.git UniXNU
+
+      - name: defconfig + status
+        run: |
+          set -eux
+          cd UniXNU
+          python ./unixnu defconfig bbk-a2_defconfig -D "$GITHUB_WORKSPACE" --out "$GITHUB_WORKSPACE/out"
+          python ./unixnu status -D "$GITHUB_WORKSPACE" --out "$GITHUB_WORKSPACE/out" | tee "$GITHUB_WORKSPACE/status.txt"
+          grep -q "profile  soc" "$GITHUB_WORKSPACE/status.txt"
+
+      - name: Compile device tree
+        run: |
+          set -eux
+          mkdir -p build
+          dtc -I dts -O dtb -i soc/UniXNU-ums512-common/dts -o build/bbk-a2-device-tree.dtb dts/bbk-a2.dts
+          dtc -I dtb -O dts build/bbk-a2-device-tree.dtb | grep -q 'eebbk,ums512-1h190'
+          ls -l build/bbk-a2-device-tree.dtb
+
+      - name: Status in job summary
+        if: always()
+        run: |
+          {
+            echo '## unixnu status'
+            echo '```'
+            sed -n '1,40p' "$GITHUB_WORKSPACE/status.txt" 2>/dev/null || echo 'no status output'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

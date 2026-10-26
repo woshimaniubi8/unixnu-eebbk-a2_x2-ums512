@@ -1,0 +1,13 @@
+# XNU patch series for Unisoc UMS512 / SharkL5Pro.
+#
+# Empty for the first bring-up: the T610YP tree (hxzbaka/UniXNU-t610yp) carries
+# its SoC patches in patches/ums512/*.patch inside the device repository, and we
+# mirror that layout here once the first real-hardware result exists.
+#
+# Candidate patches to import from UniXNU-t610yp (see analysis/unixnu-spec/):
+#   ums512-uart.patch              polled SPRD UART console (0x70100000)
+#   ums512-open-machine-layer.patch  non-Apple machine layer / DT platform glue
+#   ios-sweet-0011-physmap-alignment.patch
+#
+# One file name per line; '#' starts a comment.  Relative paths resolve from
+# this directory.

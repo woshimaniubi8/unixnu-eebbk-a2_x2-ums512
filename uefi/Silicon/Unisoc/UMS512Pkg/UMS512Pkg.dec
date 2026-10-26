@@ -1,0 +1,43 @@
+##
+#  Unisoc UMS512 (SharkL5Pro, T610 family) package.
+#
+#  The SoC layer carries everything that is identical between Unisoc boards
+#  built on this SoC: GICv3 addresses, CPU topology, architectural-timer PPI
+#  numbers, the sprd debug UART library and the display GOP.  Board specifics
+#  (memory map, panel geometry, watchdog policy) live in Platforms/Unisoc/
+#  bbkA2Pkg.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  DEC_SPECIFICATION              = 0x00010005
+  PACKAGE_NAME                   = UMS512Pkg
+  PACKAGE_GUID                   = 6E3B1C74-9A21-4E8F-9C0D-1B7A2F5E4D32
+  PACKAGE_VERSION                = 0.1
+
+[Includes]
+  Include
+
+[Guids]
+  #
+  # Signaled from PlatformBootManagerAfterConsole when the platform wants the
+  # Shell / UniXNU payload launched.  Kept from the UMS9621 port so the
+  # bring-up driver logic is identical.
+  #
+  gBbkA2ShellLaunchEventGuid = { 0x9A48E983, 0xAB52, 0x4043, { 0x82, 0x8C, 0x53, 0x66, 0xDC, 0xDA, 0xDB, 0x27 } }
+
+  #
+  # Token space for the platform PCDs this package introduces.
+  #
+  gUms512PkgTokenSpaceGuid = { 0x2B7C4E19, 0x8D3A, 0x4F62, { 0x9A, 0x1C, 0x5E, 0x7B, 0x04, 0xD8, 0x63, 0x30 } }
+
+[PcdsFixedAtBuild]
+  #
+  # Bring-up behaviour: when TRUE, BbkA2BringupDxe resets the machine at the
+  # end of DXE dispatch instead of falling into BDS.  A blind firmware that
+  # parks in the BDS front page waiting for a key press is indistinguishable
+  # from a hang and costs a physical power cycle to escape, so during
+  # bring-up we always want to come back to Android on our own.
+  #
+  gUms512PkgTokenSpaceGuid.PcdBbkA2ResetAtEndOfDxe|TRUE|BOOLEAN|0x00010001

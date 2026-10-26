@@ -1,0 +1,12 @@
+schema_version = 2
+
+[soc]
+name = "ums512"
+description = "Unisoc UMS512 / SharkL5Pro (T610/T616/T618 family), 8x ARM64 (2xA75 + 6xA55), GICv3"
+source_repository = "https://github.com/hxzbaka/UniXNU-t610yp"
+
+[components]
+# Shared implementations from the UniXNU component catalog.  The A2/X2 bring-up
+# only needs the device-tree platform expert and the ARM CPU / timer / GIC
+# driver, exactly like UniXNU-e5 (Enceka/UniXNU-e5) does for UMS9621.
+include = ["ArmCpu", "ArmDTPlatform"]

@@ -1,0 +1,94 @@
+/*
+ * BBK / EEBBK A2, X2, X2P tablet device tree.
+ *
+ * Board: ums512_1h190 (TWRP device tree: hxzbaka/twrp_device_eebbk_ums512_1h190-A2)
+ * SoC:   Unisoc UMS512 / SharkL5Pro (T610 family), 2 GiB DRAM at 0x80000000
+ *
+ * All values below come from the vendor boot.bin appended DTB
+ * (analysis/extracted/boot/boot-dtb.dtb, decompiled to boot-dtb.dts).
+ */
+
+/dts-v1/;
+/include/ "ums512.dtsi"
+
+/ {
+	model = "BBK A2 / X2 / X2P (ums512_1h190)";
+	compatible = "eebbk,ums512-1h190", "sprd,ums512";
+
+	/* Vendor FDT: memory { reg = <0 0x80000000 0 0x80000000> } -> 2 GiB */
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0 0x80000000 0 0x80000000>;
+	};
+
+	chosen {
+		stdout-path = "/soc/serial@70100000";
+		bootargs = "console=ttyS1,115200n8";
+	};
+
+	/*
+	 * Reserved regions from the vendor FDT.  The UEFI MemoryMapLib must
+	 * describe these as reserved/ACPI-reclaim-free so EDK2 never allocates
+	 * on top of the TEE, modem, DSP or ramoops regions.
+	 */
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		ddrbist: ddrbist-mem@80000000 {
+			reg = <0 0x80000000 0 0x1000>;
+		};
+		rebootescrow: rebootescrow@81ff0000 {
+			no-map;
+			reg = <0 0x81ff0000 0 0x10000>;
+		};
+		audio: audio-mem@87500000 {
+			reg = <0 0x87500000 0 0x300000>;
+		};
+		sipc: sipc-mem@87800000 {
+			reg = <0 0x87800000 0 0x800000>;
+		};
+		sensorhub: sensorhub-mem@88000000 {
+			reg = <0 0x88000000 0 0x1000000>;
+		};
+		audiodsp: audiodsp-mem@89000000 {
+			reg = <0 0x89000000 0 0x600000>;
+		};
+		cp: cp-mem@89600000 {
+			reg = <0 0x89600000 0 0x4900000>;
+		};
+		iq: iq-mem@90000000 {
+			compatible = "sprd,iq-mem";
+			reg = <0 0x90000000 0 0x4000000>;
+		};
+		sml: sml-mem@94000000 {
+			reg = <0 0x94000000 0 0x40000>;
+		};
+		tos: tos-mem@94040000 {
+			reg = <0 0x94040000 0 0x400000>;
+		};
+		ramoops: ramoops@fff80000 {
+			compatible = "ramoops";
+			reg = <0 0xfff80000 0 0x40000>;
+			record-size = <0x8000>;
+			console-size = <0x8000>;
+			pmsg-size = <0x8000>;
+		};
+		debug: debug-mem@100000000 {
+			reg = <0x1 0x0 0 0x1000>;
+		};
+	};
+
+	/* Display: vendor DPU/DSI + 1200x1920 portrait MIPI panel, Goodix touch.
+	 * Not exported to the ADT yet (status disabled) - first bring-up relies on
+	 * the framebuffer left by the stock bootloader. */
+	soc {
+		dpu@20300000 {
+			status = "disabled";
+		};
+		dsi@20400000 {
+			status = "disabled";
+		};
+	};
+};

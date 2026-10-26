@@ -1,0 +1,10 @@
+# Local overrides and build products are never committed.
+/local.toml
+/build/
+/out/
+/dist/
+/deps/
+/UniXNU/
+__pycache__/
+*.pyc
+.DS_Store

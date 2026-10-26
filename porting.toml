@@ -1,0 +1,189 @@
+schema_version = 1
+
+[device]
+name = "bbk-a2"
+soc = "UMS512"
+os_profile = "ipados-17.7.11-21H461"
+summary = "BBK/EEBBK A2, X2 and X2P tablet (ums512_1h190, Unisoc UMS512 / SharkL5Pro). Community port; no real-hardware result yet. This record separates what is proven from source (vendor firmware dumps, DTS, boot image headers) from what still needs a device."
+
+[[area]]
+id = "configuration"
+status = "implemented"
+components = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "XnuPrelink", "DarwinBoot"]
+paths = ["board.toml", "feeds.toml", "configs/**", ".github/**", ".gitignore"]
+inputs = ["Vendor partition dump A2&X2&X2P_Package/bak (boot.bin, vendor_boot.bin, dtbo.bin, uboot.bin, super.bin), TWRP device tree hxzbaka/twrp_device_eebbk_ums512_1h190-A2, UniXNU format-2 device template."]
+configuration = ["board.soc = UMS512, board.soc_source = ums512, board.os_profile = ipados-17.7.11-21H461, schema_version = 2.", "config_fragments = arch common + soc:configs/ums512.config + os:configs/ipados.config; patch_series has the four standard roots.", "The SoC source is selected locally through local.toml ([[source]] kind=soc name=ums512) until soc/UniXNU-ums512-common is published."]
+procedure = ["From the UniXNU core checkout: cp ../UniXNU-bbk-a2/local.toml.example ../UniXNU-bbk-a2/local.toml", "./unixnu defconfig bbk-a2_defconfig -D ../UniXNU-bbk-a2", "./unixnu status --json and ./unixnu tree; inspect the resolved SoC source, components and patch order."]
+findings = ["The device is ums512_1h190: TWRP README says 'Android device tree for EEBBK X2 (ums512_1h190)' and the vendor boot.bin DTB is compatible 'sprd,ums512', model 'Unisoc UMS512 SoC'.", "Unisoc T610 is the marketing name of the UMS512/SharkL5Pro family; uboot.bin contains 'SHARKL5PRO'.", "The official device template requires schema_version = 2 and a 40-character SoC commit pin; the local override is recorded in local.toml and must be replaced by a published pin before release."]
+completion = ["All source pins resolve; every selected component has a record; status shows the intended overrides and patch order."]
+limits = ["The SoC repository has no published commit yet, so feeds.toml keeps REPLACE_ME/REQUIRED_SOC_COMMIT and builds rely on local.toml.", "The os_profile is a placeholder until an IPSW identity is chosen for the DarwinBoot milestone."]
+next_action = ["Publish soc/UniXNU-ums512-common, pin its commit, then re-run defconfig/status and record the resolved output."]
+evidence = [{ kind = "source", reference = "board.toml", result = "Device identity, SoC source, defconfig, firmware and boot image parameters." }]
+
+[[area]]
+id = "firmware"
+status = "implemented"
+components = ["DarwinBoot"]
+paths = ["proprietary-files.txt", "uefi/**"]
+inputs = ["Boot chain: BootROM -> FDL -> splloader -> U-Boot 2015.07 + cboot -> boot partition. Vendor uboot.bin strings: 'U-Boot 2015.07 (Nov 30 2022) SHARKL5PRO', 'bootcmd=cboot normal', 'fastboot', 'verifiedboot', 'avb'.", "UEFI reference: Enceka/e5-xnu (UMS9621 EDK2 bring-up, real hardware) and UNISOC-WOA-DEV/Bootshim-sprd; EDK2 stack: microsoft/mu_basecore + mu_plus + mu_oem_sample + UniXNU/uefi-sheng Silicon/Silicium."]
+configuration = ["firmware.config = bbk-a2; firmware.dsc = Platforms/Unisoc/bbkA2Pkg/bbkA2.dsc; firmware.fd = Build/bbkA2Pkg/{target}_CLANGDWARF/FV/SILICIUM_UEFI.fd.", "BootShim entry 0x80080000 (cboot kernel load address), FD_BASE 0x80800000, FD_SIZE 0x400000.", "Firmware DSC/FDF must embed UniXNU.inf, UniXNUDxe.inf, DarwinBoot.inf, UniXNURamDiskDxe.inf, DiskIoDxe.inf and Fat.inf per the official required-integration table."]
+procedure = ["./unixnu build firmware --uefi uefi (requires clang/lld + mu_basecore workspace).", "Then ./unixnu bootimg --uefi uefi --dtb <firmware.dtb> --ramdisk none."]
+findings = ["Unisoc devices have no UEFI firmware; BootShim is the trampoline from the stock bootloader into EDK2. The cboot load address and x0 = FDT handoff follow the same pattern as the UMS9621 E5 port.", "ArmPkg timer defaults 29/30/27/26 do not match the vendor FDT (13/14/11/10) and leave DXE stuck on the first timer event; the platform DSC must override PcdArmArchTimer*IntrNum.", "The stock U-Boot logobuffer is at 0x9e000000 (string 'logobuffer@9e000000'); the platform GOP can reuse it instead of initialising DPU/DSI."]
+completion = ["Firmware image builds, enters UniXNU, publishes the framebuffer and preserves the documented memory reservations."]
+limits = ["The EDK2 workspace has not been built in this session (disk and toolchain limits); uefi-bbk-a2 is a scaffold based on the E5 port.", "No real hardware: BootShim handoff address, FDT in x0 and framebuffer state are unverified for cboot on UMS512."]
+next_action = ["Build uefi-bbk-a2 with the mu_basecore workspace, then run the bring-up order in the UniXNU bring-up order."]
+evidence = [{ kind = "source", reference = "uefi/Platforms/Unisoc/bbkA2Pkg/bbkA2.dsc", result = "BootShim and platform scaffold with TODO-marked hardware inputs." }]
+
+[[area]]
+id = "cpu"
+status = "implemented"
+components = ["ArmDTPlatform", "ArmCpu"]
+paths = ["dts/**", "soc/UniXNU-ums512-common/dts/**", "soc/UniXNU-ums512-common/configs/**"]
+inputs = ["Vendor DTB: cpus/cpu@0..700, 6x Cortex-A55 + 2x Cortex-A75, PSCI smc, GICv3 0x12000000/0x12040000 stride 0x20000, timer PPI 13/14/11/10, 26 MHz."]
+configuration = ["soc dtsi exports GIC as unixnu,adt-name = intc with #interrupt-cells = 3 and redistributor-stride = <0 0x20000>.", "CPUs carry unixnu,cluster-type E (A55, cpu0-5) and P (A75, cpu6-7); MPIDR affinities 0x0..0x700.", "ums512.config enables CONFIG_XNU_ARM_DT_PLATFORM / ARMCPU / NATIVE_ARCH_TIMER / NATIVE_PAN."]
+procedure = ["dtc -I dts -O dtb -i ../UniXNU-ums512-common/dts -o /tmp/bbk-a2.dtb ../UniXNU-bbk-a2/dts/bbk-a2.dts", "python3 scripts/make-adt.py --dtb /tmp/bbk-a2.dtb --os-profile profiles/os/ipados-17.7.11-21H461/profile.toml --board ../UniXNU-bbk-a2/board.toml --unique-chip-id <hex> --output /tmp/kernel.macho.adt"]
+findings = ["The vendor FDT uses #interrupt-cells = 3 and timer flags 4 (level high); the SoC dtsi follows it.", "The A55 cluster is 6 cores and the A75 cluster 2 cores, unlike the E5 (8x A53); cluster-type values are per CPU, not per cluster index."]
+completion = ["Every enabled CPU reaches its entry checkpoint and timer/IPI handling works on each enabled CPU."]
+limits = ["No hardware run: SMP release and per-CPU entry are unverified."]
+next_action = ["Compile the DTB and ADT on the host, then verify with the first serial log on hardware."]
+evidence = [{ kind = "source", reference = "dts/bbk-a2.dts", result = "Board memory, reserved regions and board identity; SoC topology comes from the SoC dtsi." }]
+
+[[area]]
+id = "memory"
+status = "implemented"
+components = []
+paths = ["dts/**", "proprietary-files.txt", "uefi/**/MemoryMapLib/**"]
+inputs = ["Vendor DTB memory { 0x80000000, 0x80000000 } (2 GiB) and reserved-memory: ddrbist 0x1000, rebootescrow 0x10000 @0x81ff0000, audio 0x300000 @0x87500000, sipc 0x800000 @0x87800000, sensorhub 0x1000000 @0x88000000, audiodsp 0x600000 @0x89000000, cp 0x4900000 @0x89600000, iq 0x4000000 @0x90000000, sml 0x40000 @0x94000000, tos 0x400000 @0x94040000, ramoops 0x40000 @0xfff80000, debug 0x1000 @0x100000000."]
+configuration = ["board payload.adt.dram_size = 0x80000000; owned_memory_size = 0x10000000 (256 MiB, 2 MiB aligned).", "Reserved regions are documented in dts/bbk-a2.dts; the UEFI MemoryMapLib must mark them reserved so EDK2 never allocates over TEE/modem/DSP/ramoops."]
+procedure = ["Compare vendor FDT reserved-memory with the EDK2 MemoryMapLib table before every firmware build."]
+findings = ["TEE (tos-mem) and SML regions start at 0x94000000; the firmware volume at 0x80800000 and the UEFI stack at 0x80480000 are below them and do not overlap.", "The U-Boot logobuffer at 0x9e000000 is not in reserved-memory; it is a bootloader-owned allocation and must be reserved by the firmware/platform."]
+completion = ["All handoff regions are accounted for and each enabled DMA engine accesses its allocated range with the documented cache policy."]
+limits = ["Memory sizing beyond 2 GiB variants is unverified; A2/X2/X2P may ship different DRAM sizes."]
+next_action = ["Read the actual memory size from a hardware unit or from the bootloader log before trusting the 2 GiB value."]
+evidence = [{ kind = "source", reference = "dts/bbk-a2.dts", result = "Reserved-memory table extracted from the vendor DTB." }]
+
+[[area]]
+id = "storage"
+status = "planned"
+components = []
+paths = ["drivers/**", "scripts/*storage*", "scripts/*userdata*"]
+inputs = ["Stock storage is eMMC HS400ES (SDHCI 0x71400000; fstab: /dev/block/by-name/*, mmcblk0boot0/1 for spl), dynamic partitions in super (system/system_ext/vendor/product, non-A/B).", "Partition list and sizes: boot 0x2300000 (35 MiB), recovery 0x2800000, vendor_boot 0x6400000, dtbo 0x800000, super 8.00 GiB (sparse dump expands to 0x200000000; the 0x12693F9E8 file size is the sparse file, not the partition), userdata (see flash/partitions.csv)."]
+configuration = ["No storage component selected for the first milestone: the UniXNU payload arrives as the boot image ramdisk and is published by UniXNURamDiskDxe."]
+procedure = ["First milestone: confirm the payload FAT volume appears through the initrd block device (UNIXNURAMDISK log).", "Later: add a native eMMC driver component and userdata windows (board.toml [userdata]) after repartitioning."]
+findings = ["The boot partition is only 35 MiB, which caps the FAT payload; iOS kernel payloads need a larger boot partition (see the UniXNU documentation)."]
+completion = ["Host: register, clock, link and SMMU facts match the board inventory.", "Root: the configured volume mounts and launchd starts."]
+limits = ["eMMC controller registers, PHY/clock programming and DMA attributes are not yet extracted from the vendor kernel."]
+next_action = ["Extract the eMMC host controller programming sequence from the vendor kernel sources for ums512_1h190."]
+evidence = []
+
+[[area]]
+id = "display"
+status = "planned"
+components = []
+paths = ["package/*Display*", "package/*Framebuffer*", "uefi/**/Gop*/**"]
+inputs = ["Vendor DTB: dpu@20300000, dsi@20400000, generic MIPI panel, Goodix gt9xx touch with touchscreen-size-x = 1200, touchscreen-size-y = 1920.", "U-Boot logobuffer at 0x9e000000."]
+configuration = ["First milestone reuses the framebuffer left by the stock bootloader (GOP over 0x9e000000); DPU/DSI re-initialisation is deferred.", "panel resolution is expected to be 1200x1920 portrait (density 320 in the TWRP device tree)."]
+procedure = ["Confirm GOP mode and framebuffer bytes on hardware (fill test), then hand the framebuffer to DarwinBoot."]
+findings = ["Silicium SimpleFbDxe requires at least 640x475; 1200x1920 satisfies that, so the E5 custom GOP workaround is not needed if the bootloader framebuffer is usable."]
+completion = ["A known frame appears with correct geometry and colors, then userland presentation and backlight controls work."]
+limits = ["Whether cboot leaves DPU scanning out 0x9e000000 at handoff is unverified; the backlight state is also unknown."]
+next_action = ["Read the panel timing from the vendor kernel dts (dsi panel node) and confirm the framebuffer state on hardware."]
+evidence = []
+
+[[area]]
+id = "input"
+status = "planned"
+components = []
+paths = ["drivers/**", "package/*Touch*", "package/*Button*"]
+inputs = ["Goodix gt9xx at i2c address 0x14, max touch 10, interrupt GPIO from vendor DTB; physical buttons via PMIC/GPIO (vendor DTB key nodes)."]
+configuration = ["No input component for the first milestone; the UniXNU menu can be driven over UART serial."]
+procedure = ["Later: add a Goodix touch driver and HID mapping after the display path works."]
+findings = ["The TWRP device tree blacklists hbtp_vm, i.e. the stock touch driver is the Goodix hbtp virtual-machine variant."]
+completion = ["Touches map to the display, simultaneous contacts keep stable IDs, release events arrive, and buttons produce expected HID reports."]
+limits = ["Touch firmware/config blob is not extracted yet."]
+next_action = ["Extract the gt9xx config and GPIO/interrupt wiring from the vendor DTB and kernel."]
+evidence = []
+
+[[area]]
+id = "gpu"
+status = "planned"
+components = []
+paths = ["package/*Gpu*", "scripts/*gpu*"]
+inputs = ["UMS512 uses a Mali GPU (not Adreno); no Mali/Metal component exists in the UniXNU catalog for this SoC."]
+configuration = []
+procedure = []
+findings = ["GPU acceleration is out of scope for the boot milestone; Adreno740/AdrenoMetal components from the SM8550 port do not apply."]
+completion = ["GPU submissions complete, mapping/fence handling is correct, a known image renders, and the selected Metal client presents it."]
+limits = ["No Mali driver component or firmware path exists yet."]
+next_action = ["Inventory the Mali model and firmware from the vendor DTB/kernel before selecting a component."]
+evidence = []
+
+[[area]]
+id = "network"
+status = "planned"
+components = []
+paths = []
+inputs = ["Vendor DTB has WCN (Unisoc combo Wi-Fi/BT) and SDIO; no PCIe Wi-Fi."]
+configuration = []
+procedure = []
+findings = ["The Ath12kWifi/MHI components from the Qualcomm port do not apply."]
+completion = ["Scanning, association, address configuration and sustained receive/transmit traffic pass with the selected firmware."]
+limits = ["WCN firmware and SDIO power sequencing are not extracted."]
+next_action = ["Extract the WCN model and firmware files from the vendor super/vendor partitions."]
+evidence = []
+
+[[area]]
+id = "audio"
+status = "planned"
+components = []
+paths = []
+inputs = ["Vendor DTB: audiodsp-mem, audio-mem, sprd audio card with 70 dai links, sia81xx speaker amplifiers."]
+configuration = []
+procedure = []
+findings = ["Audio DSP bring-up is out of scope for the boot milestone."]
+completion = ["Each declared route carries the selected audio format through playback or capture and handles start/stop correctly."]
+limits = ["DSP firmware and ABI are not extracted."]
+next_action = ["Inventory the audio DSP firmware and codec wiring when audio work starts."]
+evidence = []
+
+[[area]]
+id = "power"
+status = "planned"
+components = []
+paths = []
+inputs = ["PMIC on SPI (pmic@0 under spi@32100000), bq2560x charger, sprd backlight, thermal zones."]
+configuration = []
+procedure = []
+findings = ["The stock bootloader keeps regulators/backlight on; the first milestone does not touch PMIC state."]
+completion = ["Declared power controls and battery readings match observations; each claimed sleep/resume transition restores its dependent peripherals."]
+limits = ["PMIC model and regulator map are not extracted yet."]
+next_action = ["Extract the PMIC/charger nodes and regulator names from the vendor DTB."]
+evidence = []
+
+[[area]]
+id = "packaging"
+status = "implemented"
+components = ["SoftwareAES", "XnuPrelink"]
+paths = ["configs/**", "patches/**", "package/**", "scripts/**", "board.toml"]
+inputs = ["Vendor boot.bin header: ANDROID! v2, pagesize 2048, kernel_addr 0x8000, ramdisk_addr 0x5400000, cmdline console=ttyS1,115200n8 buildvariant=user.", "TWRP BoardConfig: BOARD_KERNEL_TAGS_OFFSET 0x100, BOARD_KERNEL_BASE 0, BOARD_BOOTIMG_HEADER_VERSION 2."]
+configuration = ["board [bootimg.image]: base 0, kernel_offset 0x8000, ramdisk_offset 0x5400000, tags_offset 0x100, pagesize 2048, header_version 2.", "Payload FAT volume 8 MiB (boot partition limit 35 MiB); boot image for fastboot RAM boot during bring-up."]
+procedure = ["./unixnu build payload (optional) and ./unixnu bootimg --uefi uefi --dtb <firmware.dtb> --ramdisk none", "python3 tools/verify-bootimg.py dist/boot.img (host-side structural verification)."]
+findings = ["unixnu bootimg gzips BootShim+FD, appends the DTB and writes an Android header v2 image with the configured offsets; it verifies the round-trip itself.", "The vendor boot.img also carries a DTB and a recovery_dtbo section; our boot.img has an empty ramdisk and a single appended DTB, which is sufficient for the BootShim handoff."]
+completion = ["Kernel and prelink succeed, payload contains all declared inputs, and the boot image matches the bootloader format and size limit."]
+limits = ["The XNU kernel/prelink step is not exercised in this workspace (needs Apple xnu sources and the payload kernel); only the BootShim+FD+DTB boot image path is built."]
+next_action = ["Build the full payload with an XNU kernel once an OS profile/IPSW identity is selected."]
+evidence = [{ kind = "host", command = "python3 tools/verify-bootimg.py dist/boot.img", reference = "tools/build-bootimg.sh", result = "Boot image header, gzip, FD size and DTB round-trip checks." }]
+
+[[area]]
+id = "diagnostics"
+status = "implemented"
+components = []
+paths = ["tools/**", "uefi/**", "soc/**"]
+inputs = ["Vendor partition dumps, DTB, boot image headers, TWRP device tree."]
+configuration = ["Serial console UART1 0x70100000 115200n8; ramoops console region 0xfff80000 (0x40000) for post-mortem logs."]
+procedure = ["tools/verify-bootimg.py reproduces the static checks.", "tools/verify-bootimg.py checks boot image structure; uefi-bbk-a2 build script checks FD size/base."]
+findings = ["No USB stack in the UEFI firmware for the first milestone; serial UART and ramoops are the only log channels.", "The UART test point may not be physically accessible on the tablet; ramoops pstore is the fallback after Android boots again."]
+completion = ["Each claimed milestone has a reproducible command, a matching source/image revision and an accessible result."]
+limits = ["No device: no boot log has been captured from the target hardware."]
+next_action = ["Prepare the UART access and a ramoops collection script before the first flash attempt."]
+evidence = [{ kind = "host", command = "python3 tools/verify-bootimg.py dist/boot.img", reference = "dts/bbk-a2.dts", result = "Boot image structure and DTB facts." }]

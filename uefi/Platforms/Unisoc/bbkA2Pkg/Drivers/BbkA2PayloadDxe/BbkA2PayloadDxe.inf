@@ -1,0 +1,55 @@
+## @file
+#  Publish the Android boot image ramdisk as a read-only block device.
+#
+#  cboot (U-Boot 2015.07) is expected to load the boot image ramdisk into DRAM
+#  and record it in the device tree it hands over in x0 (/chosen
+#  linux,initrd-start and linux,initrd-end); TODO(hardware): confirm that. The
+#  UniXNU payload (a FAT image holding the kernel, its .adt, the trust cache
+#  and the Data seed) travels in that ramdisk, so DarwinBoot can only read it
+#  once something publishes a block device over it. Nothing in this driver
+#  knows a hardware address: both ends come from the device tree.
+#
+#  NOT WIRED INTO THE FV YET.  It is in [Components] so it keeps compiling, but
+#  the INF is only added to bbkA2.fdf after the DXE core is confirmed running:
+#  a fault here would hide the EndOfDxe marker the bring-up driver prints.
+#
+#  @par Revision Reference:
+#  Mirrors Platforms/Xiaomi/shengPkg/Drivers/ShengBootMemoryDxe/PublishInitrd
+#  and the UMS9621 port's BbkA2PayloadDxe (e5-xnu, BSD-2-Clause-Patent).
+##
+
+[Defines]
+  INF_VERSION                    = 0x0001001B
+  BASE_NAME                      = BbkA2PayloadDxe
+  FILE_GUID                      = 5D3E8A17-42C6-4B0F-9D85-6A1C7E93B204
+  MODULE_TYPE                    = DXE_DRIVER
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = BbkA2PayloadInitialize
+
+[Sources]
+  BbkA2PayloadDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+  SiliciumPkg/SiliciumPkg.dec
+  UMS512Pkg/UMS512Pkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  FdtLib
+  HobLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+
+[Guids]
+  gSiliciumEntryArgHobGuid                       ## CONSUMES
+
+[Protocols]
+  gEfiBlockIoProtocolGuid                        ## PRODUCES
+  gEfiDevicePathProtocolGuid                     ## PRODUCES
+
+[Depex]
+  TRUE

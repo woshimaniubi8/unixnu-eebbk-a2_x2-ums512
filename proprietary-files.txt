@@ -1,0 +1,29 @@
+# Required firmware inputs: relative path | source | SHA-256 | consumer
+#
+# The A2/X2/X2P package shipped by the vendor (A2&X2&X2P_Package) is the only
+# source of these files.  They are *not* committed here: the .cache/firmware
+# directory holds them locally and the vendor Flash.exe / spd_dump flow writes
+# them there.  SHA-256 values are the measured dumps in
+# flash/checksums-original.sha256.
+#
+# Paths are relative to .cache/firmware/.  Prefix a path with - when optional.
+#
+# --- UEFI firmware inputs ---------------------------------------------------
+# The UEFI platform (uefi-bbk-a2) needs the board DRAM/reserved-memory map and
+# the panel timing.  For the first milestone the hard requirement is the base
+# FDT that is embedded in the stock boot image.
+boot/boot-dtb.dtb|A2&X2&X2P_Package/bak/boot.bin (DTB section: 1-entry DTBO table, base FDT inside)|4f413d7f7e01db110179d9718e1cbb9fc0f45fa02248840c0dd0e1176e2ad4c1|firmware FDT, MemoryMapLib, ADT cross-check
+-dtbo/dtbo.bin|A2&X2&X2P_Package/bak/dtbo.bin (5 board variants)|18bee62abdc38ae79669caedbb1027620b289c1dfe4ae5c114ebf26d2f1176d2|board-variant DTB overlay (1h10/1h180/1h190/2h10)
+-vendor_boot/vendor_boot.bin|A2&X2&X2P_Package/bak/vendor_boot.bin (all zero, unused)|20492a4d0d84f8beb1767f6616229f85d44c2827b64bdbfb260ee12fa1109e0e|none (recorded for completeness)
+
+# --- Stock boot chain references (read-only evidence, not shipped) ----------
+uboot/uboot.bin|A2&X2&X2P_Package/bak/uboot.bin|a3fc7018fbb6d6a9add43b31b7b8ce171d3e9fbc466ba2fa882b08dcc7e40509|boot chain analysis (cboot 0x80080000 / x0=0x82000000, fastboot)
+uboot/splloader.bin|A2&X2&X2P_Package/bak/splloader.bin|9b25a617869d80158804d77c4c795d7b26f26b78b1179d768329188a725cdada|BootROM/FDL recovery
+vbmeta/vbmeta.bin|A2&X2&X2P_Package/bak/vbmeta.bin|438779c496e7dcf6891c8b5dfd41fb4178839d9c7f146464a472b4f2150b899a|AVB flags (SHA256_RSA4096, flags=0: verity+verification on)
+vbmeta/vbmeta_system.bin|A2&X2&X2P_Package/bak/vbmeta_system.bin|64a48255cd261c2aabcb779d874b8c9b611ed7bc02f2c4bd12de3a302be73533|AVB chain partition
+vbmeta/vbmeta_vendor.bin|A2&X2&X2P_Package/bak/vbmeta_vendor.bin|bab0458aa32abb2c8135909f06da1a4a9946ac3265863ef986fd1fe2e6eaa3b2|AVB chain partition
+
+# SHA-256 of every original partition dump: flash/checksums-original.sha256.
+# Boot image header measured values (analysis/extracted/boot): v2, pagesize 2048,
+# kernel_addr 0x8000, ramdisk_addr 0x5400000, tags_addr 0x100, kernel = raw
+# AArch64 Image (not gzip), dtb_size 157748, dtb_addr 0x1f00000.

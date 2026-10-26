@@ -1,0 +1,122 @@
+##
+#  Flash description for BBK/EEBBK A2 / X2 / X2P (Unisoc UMS512).
+#
+#  FD_BASE, FD_SIZE and FD_BLOCKS are supplied on the build command line:
+#    -D FD_BASE=0x80800000 -D FD_SIZE=0x400000 -D FD_BLOCKS=0x400
+#  They must match [uefi_fd] in Resources/Configs/bbk-a2.toml, because that is
+#  what BootShim was compiled with and what the boot-image packer verifies.
+#
+#  FD_BASE is 0x80800000: cboot loads the boot image to 0x80080000, BootShim
+#  sits there with the whole FD appended right behind it, so the copy
+#  destination has to clear the shim + 4 MiB source window.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[FD.SILICIUM_UEFI]
+BaseAddress   = $(FD_BASE)|gArmTokenSpaceGuid.PcdFdBaseAddress
+Size          = $(FD_SIZE)|gArmTokenSpaceGuid.PcdFdSize
+ErasePolarity = 1
+
+# BlockSize * NumBlocks must equal Size
+BlockSize     = 0x1000
+NumBlocks     = $(FD_BLOCKS)
+
+0x00000000|$(FD_SIZE)
+gArmTokenSpaceGuid.PcdFvBaseAddress|gArmTokenSpaceGuid.PcdFvSize
+FV = FVMAIN_COMPACT
+
+[FV.FvMain]
+FvNameGuid         = CD8D4C84-20AD-4073-8A28-3400FAE05942
+BlockSize          = 0x1000
+NumBlocks          = 0
+FvAlignment        = 8
+ERASE_POLARITY     = 1
+MEMORY_MAPPED      = TRUE
+STICKY_WRITE       = TRUE
+LOCK_CAP           = TRUE
+LOCK_STATUS        = TRUE
+WRITE_DISABLED_CAP = TRUE
+WRITE_ENABLED_CAP  = TRUE
+WRITE_STATUS       = TRUE
+WRITE_LOCK_CAP     = TRUE
+WRITE_LOCK_STATUS  = TRUE
+READ_DISABLED_CAP  = TRUE
+READ_ENABLED_CAP   = TRUE
+READ_STATUS        = TRUE
+READ_LOCK_CAP      = TRUE
+READ_LOCK_STATUS   = TRUE
+
+  !include Include/APRIORI.inc
+  !include Include/DXE.inc
+
+  # RAM Manager: turns the MemoryMapLib table into HOBs and installs the
+  # memory attribute regions DXE core needs.
+  INF SiliciumPkg/Drivers/RamManagerDxe/RamManagerDxe.inf
+
+  # SMBIOS
+  INF MdeModulePkg/Universal/SmbiosDxe/SmbiosDxe.inf
+  INF SiliciumPkg/Drivers/SmBiosTableDxe/SmBiosTableDxe.inf
+
+  # ACPI: table infrastructure only, no platform tables yet.
+  INF MdeModulePkg/Universal/Acpi/AcpiTableDxe/AcpiTableDxe.inf
+  INF MdeModulePkg/Universal/Acpi/AcpiPlatformDxe/AcpiPlatformDxe.inf
+  INF MdeModulePkg/Universal/Acpi/BootGraphicsResourceTableDxe/BootGraphicsResourceTableDxe.inf
+
+  # Device tree: consumes the merged vendor FDT that cboot passes in x0, via
+  # the gSiliciumEntryArgHobGuid HOB that SEC records.
+  INF EmbeddedPkg/Drivers/DtPlatformDxe/DtPlatformDxe.inf
+
+  # Bring-up probe: at the end of DXE dispatch it dumps the memory map and the
+  # GOP mode, then resets so cboot rolls back to Android and the ramoops log
+  # can be read.  Without it a firmware that reaches BDS just sits there
+  # waiting for a key press, which is indistinguishable from a hang.
+  INF bbkA2Pkg/Drivers/BbkA2BringupDxe/BbkA2BringupDxe.inf
+
+  # Payload volume: publish the boot image ramdisk (/chosen initrd) as a
+  # read-only block device so Fat can mount the UniXNU payload.
+  # TODO(enable-after-dxe): keep it out of the FV until the DXE core has been
+  # confirmed on hardware - a fault during dispatch would hide the EndOfDxe
+  # marker that BbkA2BringupDxe prints.
+  # INF bbkA2Pkg/Drivers/BbkA2PayloadDxe/BbkA2PayloadDxe.inf
+
+  # UEFI Shell: a UEFI_APPLICATION that BDS launches by FILE_GUID.  It has to
+  # be in FvMain so GetFileDevicePathFromAnyFv can find it.
+  INF ShellPkg/Application/Shell/Shell.inf
+
+  # startup.nsh: a raw FFS file the Shell can auto-run.  With
+  # FvSimpleFileSystemDxe the FV shows up as fs0: and the Shell runs this
+  # script from it.  The file is copied into $WORKSPACE by build-bbk-a2.sh so
+  # the FDF stays workspace-relative.
+  FILE FREEFORM = 8BE44E4D-9A33-4BEE-9A57-0F0A5D3E7A12 {
+    SECTION UI = "startup.nsh"
+    SECTION RAW = bbk-a2-startup.nsh
+  }
+
+[FV.FVMAIN_COMPACT]
+FvAlignment        = 8
+ERASE_POLARITY     = 1
+MEMORY_MAPPED      = TRUE
+STICKY_WRITE       = TRUE
+LOCK_CAP           = TRUE
+LOCK_STATUS        = TRUE
+WRITE_DISABLED_CAP = TRUE
+WRITE_ENABLED_CAP  = TRUE
+WRITE_STATUS       = TRUE
+WRITE_LOCK_CAP     = TRUE
+WRITE_LOCK_STATUS  = TRUE
+READ_DISABLED_CAP  = TRUE
+READ_ENABLED_CAP   = TRUE
+READ_STATUS        = TRUE
+READ_LOCK_CAP      = TRUE
+READ_LOCK_STATUS   = TRUE
+
+  INF SiliciumPkg/Sec/Sec.inf
+
+  FILE FV_IMAGE = 9E21FD93-9C72-4c15-8C4B-E77F1DB2D792 {
+    SECTION GUIDED EE4E5898-3914-4259-9D6E-DC7BD79403CF PROCESSING_REQUIRED = TRUE {
+      SECTION FV_IMAGE = FVMAIN
+    }
+  }
+
+  !include SiliciumPkg/Common.fdf.inc

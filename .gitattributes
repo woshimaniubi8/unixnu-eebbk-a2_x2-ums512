@@ -1,0 +1,15 @@
+# Normalize line endings: every script and source file must be LF for the
+# Linux CI runners.  Binary artifacts are never committed.
+* text=auto eol=lf
+*.sh text eol=lf
+*.S text eol=lf
+*.s text eol=lf
+*.py text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.bin binary
+*.fd binary
+*.dtb binary
+*.img binary

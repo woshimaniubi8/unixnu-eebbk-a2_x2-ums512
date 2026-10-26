@@ -1,0 +1,11 @@
+# Copy to local.toml (ignored by Git) to point whole categories at local directories.
+# Each subdirectory is one module. The command line (--local, --local-drivers, ...) takes precedence.
+#
+# The SoC source is embedded at soc/UniXNU-ums512-common and selected through
+# feeds.toml, so no local override is needed for a normal build.
+#
+# This device has no board-owned driver submodules yet.  Uncomment when board
+# drivers appear:
+# [local]
+# drivers = "~/Code/dev/drivers"
+# kits = "~/Code/dev/kits"

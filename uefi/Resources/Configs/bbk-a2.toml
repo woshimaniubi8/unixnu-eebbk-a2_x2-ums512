@@ -1,0 +1,83 @@
+# Device configuration for BBK/EEBBK A2 / X2 / X2P (ums512_1h190).
+#
+# This file is read by two different consumers:
+#
+#   * `./unixnu bootimg --uefi ../uefi-bbk-a2` (UniXNU scripts/unixnu/bootimg.py)
+#     reads [boot_shim], [uefi_fd] and [boot_image];
+#   * the Mu-Silicium-style build path (and build/pack-device-bootimg.py) reads
+#     the same keys plus [boot_image_kernel] to decide how the boot image is
+#     packed.
+#
+# All values below are either measured from the stock firmware or explicitly
+# marked TODO.  Sources:
+#   * boot.bin header parsed at D:\PROJECT\a2_x2-ios\analysis\extracted\boot:
+#     header v2, pagesize 2048, kernel_addr 0x8000, ramdisk_addr 0x05400000,
+#     tags_addr 0x01000000 (field value), dtb_size 157748, dtb_addr 0x01f00000,
+#     cmdline "console=ttyS1,115200n8 buildvariant=user", kernel = raw Image.
+#   * U-Boot 2015.07 cboot image (bak/uboot.bin, DHTB payload): kernel field is
+#     loaded to 0x80080000 and start_linux is entered with x0 = 0x82000000
+#     (the merged FDT).  TODO: confirm both on hardware.
+#   * device/UniXNU-bbk-a2/board.toml [bootimg.image] carries the same values
+#     and overrides this file for `./unixnu bootimg`.
+
+[boot_shim]
+# The stock kernel field is a bare AArch64 Image (no gzip), and cboot checks
+# the "ARM\x64" magic at offset 56 before jumping, so the shim must carry a
+# valid Image header.  BootShim.S emits one unconditionally; this flag is what
+# UniXNU passes as -DREQUIRES_KERNEL_HEADER=1.
+requires_kernel_header = true
+
+[uefi_fd]
+# Where BootShim relocates SILICIUM_UEFI.fd.  Must clear the cboot load window
+# 0x80080000 + 4 MiB = 0x80480000 (the shim copies forward with ldp/stp and
+# would otherwise overwrite source bytes it has not read yet).
+#
+# TODO: 0x80800000 is the UMS9621 E5 value, chosen for exactly the same
+# 0x80080000/4 MiB layout.  On UMS512 it has to be confirmed against the
+# reserved-memory map (it sits between the UEFI stack at 0x80480000 and the
+# FDT at 0x82000000, and does not collide with any vendor reserved node) and
+# against cboot: if cboot relocates the kernel elsewhere, both this and
+# BootShim's SHIM_BASE have to move together.
+base = 0x80800000
+size = 0x400000
+
+[boot_image_kernel]
+# How the kernel field is packed.
+#   * "none": the field is the raw BootShim + firmware volume, which is what
+#     this cboot expects (it does not gunzip; the stock kernel is a raw Image).
+#   * "gzip" is only for the Mu-Silicium/UniXNU generic path
+#     (`./unixnu bootimg` always gzips); do NOT flash that variant on this
+#     device unless a raw-kernel variant has been verified first.
+kernel_compression = "none"
+# The device tree is NOT appended to the kernel field.  Header v2 carries it
+# in dtb_size/dtb_addr (stock layout, dtb_size=157748 at 0x01f00000), which is
+# what build/pack-device-bootimg.py produces.  TODO: verify cboot actually
+# merges that dtb + dtbo and passes the result in x0 (string evidence:
+# load_and_merge_dtbo / merge_dtbo / fdt_fixup_* in the cboot image).
+append_dtb = false
+
+[boot_image]
+# Stock boot.bin header values.  `header_version = 2` selects the v2 layout in
+# AOSP mkbootimg; `base + kernel_offset` etc. are what the header records.
+#   base            = 0x00000000
+#   kernel_addr     = 0x00008000
+#   ramdisk_addr    = 0x05400000
+#   tags_addr       = 0x00000100  (stock field = 0x100, matches the TWRP
+#                                   BoardConfig BOARD_KERNEL_TAGS_OFFSET, no
+#                                   conflict -- measured from boot.bin offset 32)
+#   dtb_addr        = 0x01f00000  (header LOAD address; the DTB bytes live
+#                                   inside the file after kernel+ramdisk+padding,
+#                                   measured near file offset 0x13E9840.  The
+#                                   packer only has to write the header fields,
+#                                   AOSP mkbootimg semantics.)
+header_version = 2
+base = 0x00000000
+kernel_offset = 0x8000
+ramdisk_offset = 0x05400000
+tags_offset = 0x100
+dtb_offset = 0x01f00000
+pagesize = 2048
+# Stock cmdline.  The DTB's /chosen says console=ttyS1,921600n8 while this
+# header and the U-Boot env say 115200/921600 respectively; the effective baud
+# at handoff is a TODO (probe both when a UART pad is found).
+cmdline = "console=ttyS1,115200n8 buildvariant=user"

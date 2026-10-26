@@ -1,0 +1,6 @@
+# Board patch paths, one per line in application order.
+#
+# Empty for the first bring-up.  The UMS512 SoC patches (polled SPRD UART
+# console, open machine layer, physmap alignment) live in the SoC repository
+# and are listed in its patches/xnu/series.  Import them here only if a board
+# specific variant is needed.
