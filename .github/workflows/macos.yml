@@ -21,9 +21,9 @@ on:
           - kernel payload
         default: kernel payload
       xcode:
-        description: Xcode version of the macos-26 image (/Applications/Xcode_<version>.app)
+        description: Xcode version of the macos-15 image (/Applications/Xcode_<version>.app; 26.x is required, 16.x rejects -Wno-unnecessary-virtual-specifier under -Werror)
         required: true
-        default: "26.6"
+        default: "26.3"
       ipsw_url:
         description: IPSW URL (empty uses board.toml / OS profile)
         required: false
