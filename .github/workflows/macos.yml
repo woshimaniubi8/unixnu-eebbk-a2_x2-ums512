@@ -182,7 +182,9 @@ jobs:
           retention-days: 7
 
       - name: Upload payload image (Apple-derived)
-        if: ${{ inputs.upload_images == 'true' && hashFiles('**/payload/payload.img') != '' }}
+        # boolean inputs compare as booleans, not strings; hashFiles is not
+        # needed (if-no-files-found reports a missing payload instead).
+        if: ${{ inputs.upload_images }}
         uses: actions/upload-artifact@v4
         with:
           name: payload
@@ -190,5 +192,5 @@ jobs:
             UniXNU/out/*/*/*/payload/payload.img
             UniXNU/out/*/*/*/payload/payload.json
             UniXNU/out/*/*/*/kernel/kernel.macho
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 3
