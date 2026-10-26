@@ -74,10 +74,12 @@ header_version = 2
 # XNU kernel inside this volume; enlarge the boot partition (see
 # docs/DUAL-BOOT.md) before that.
 volume = "UNIXNU"
-# 28 MiB is the largest FAT payload that still fits the 35 MiB boot partition
-# next to the 4.2 MiB BootShim+firmware kernel field.  Raise it only after
-# repartitioning (docs/DUAL-BOOT.md).
-size_mib = 28
+# The prelinked kernel.macho is ~49 MiB, so the FAT payload needs 52 MiB.
+# That does NOT fit the 35 MiB boot partition next to the 4.2 MiB BootShim+
+# firmware kernel field: the payload is a separate artifact for now and needs
+# either a bigger boot partition (repartition) or a FAT partition delivered
+# through userdata (see docs/DUAL-BOOT.md).
+size_mib = 52
 loader = "firmware"
 title = "UniXNU BBK A2"
 dram_size = "0x80000000"
