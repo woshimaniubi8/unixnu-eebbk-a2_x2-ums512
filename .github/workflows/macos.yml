@@ -47,10 +47,9 @@ defaults:
 jobs:
   kernel:
     name: XNU kernel + payload
-    runs-on: macos-26
+    runs-on: macos-latest
     timeout-minutes: 360
     env:
-      DEVELOPER_DIR: /Applications/Xcode_${{ inputs.xcode }}.app/Contents/Developer
       UNIXNU_IPSW: ${{ inputs.ipsw_url }}
       UNIXNU_UNIQUE_CHIP_ID: ${{ inputs.unique_chip_id }}
     steps:
@@ -70,6 +69,20 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+
+      - name: Select Xcode
+        run: |
+          set -eux
+          preferred="/Applications/Xcode_${{ inputs.xcode }}.app"
+          if [ -d "$preferred" ]; then
+            chosen="$preferred"
+          else
+            chosen=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -n 1)
+          fi
+          test -n "$chosen"
+          echo "DEVELOPER_DIR=$chosen/Contents/Developer" >> "$GITHUB_ENV"
+          echo "Selected Xcode: $chosen"
+          xcodebuild -version
 
       - name: Check inputs
         run: |
