@@ -1,0 +1,99 @@
+diff --git a/osfmk/kern/kalloc.c b/osfmk/kern/kalloc.c
+index dbddc01..ada897e 100644
+--- a/osfmk/kern/kalloc.c
++++ b/osfmk/kern/kalloc.c
+@@ -950,6 +950,8 @@ kalloc_type_view_copy(
+ 	}
+ }
+ 
++__attribute__((used)) const uint32_t kalloc_sparse_prelink_index_version = 1;
++
+ __startup_func
+ static uint64_t
+ kalloc_type_view_parse(const kalloc_type_variant_t type)
+@@ -1032,10 +1034,46 @@ kalloc_type_view_parse(const kalloc_type_variant_t type)
+ 		cur = prelink_sect->addr;
+ 		end = prelink_sect->addr + prelink_sect->size;
+ 
+-		while (cur < end) {
++		/* A sparse native prelink supplies its actual component headers.
++		 * Keep the original contiguous KCGEN format when no index exists.
++		 */
++		kernel_section_t *macho_list = getsectbynamefromheader(
++			xnu_mh, kPrelinkTextSegment, "__macho_list");
++		uint64_t list_index = 0, list_count = 0;
++		uintptr_t previous_header = 0;
++		if (macho_list) {
++			kernel_segment_command_t *prelink_segment =
++			    getsegbynamefromheader(xnu_mh, kPrelinkTextSegment);
++			if (!macho_list->size || macho_list->size % sizeof(uintptr_t) ||
++			    macho_list->addr % sizeof(uintptr_t) ||
++			    macho_list->size > prelink_segment->vmsize ||
++			    macho_list->addr < prelink_segment->vmaddr ||
++			    macho_list->addr - prelink_segment->vmaddr >
++			    prelink_segment->vmsize - macho_list->size) {
++				panic("kalloc_type_view_parse: invalid sparse prelink index");
++			}
++			list_count = macho_list->size / sizeof(uintptr_t);
++		}
++
++		while (macho_list ? list_index < list_count : cur < end) {
++			if (macho_list) {
++				uintptr_t unslid = ((const uintptr_t *)macho_list->addr)[list_index++];
++				if ((list_index > 1 && unslid <= previous_header) ||
++				    __builtin_add_overflow(unslid, vm_kernel_slide, &cur) ||
++				    cur % sizeof(uintptr_t) || cur < prelink_sect->addr ||
++				    cur > end || end - cur < sizeof(kernel_mach_header_t)) {
++					panic("kalloc_type_view_parse: sparse header outside prelink text");
++				}
++				previous_header = unslid;
++			}
+ 			uint64_t kext_text_sz = 0;
+ 			kernel_mach_header_t *kext_mh = (kernel_mach_header_t *) cur;
+ 
++			if (macho_list && (kext_mh->magic != MH_MAGIC_64 ||
++			    kext_mh->sizeofcmds > end - cur - sizeof(*kext_mh) ||
++			    kext_mh->ncmds > kext_mh->sizeofcmds / sizeof(struct load_command))) {
++				panic("kalloc_type_view_parse: malformed sparse component header");
++			}
+ 			if (kext_mh->magic == 0) {
+ 				/*
+ 				 * Assert that we have processed all kexts and all that is left
+@@ -1058,6 +1096,15 @@ kalloc_type_view_parse(const kalloc_type_variant_t type)
+ 
+ 			for (uint32_t i = 0; i < kext_mh->ncmds && (vm_offset_t)lc < end;
+ 			    i++, lc = (struct load_command *)((vm_offset_t)lc + lc->cmdsize)) {
++				if (macho_list) {
++					vm_offset_t header_end = cur + sizeof(*kext_mh) + kext_mh->sizeofcmds;
++					if ((vm_offset_t)lc > header_end ||
++					    header_end - (vm_offset_t)lc < sizeof(*lc) ||
++					    lc->cmdsize < sizeof(*lc) || lc->cmdsize % sizeof(uintptr_t) ||
++					    lc->cmdsize > header_end - (vm_offset_t)lc) {
++						panic("kalloc_type_view_parse: malformed sparse load command");
++					}
++				}
+ 				if (lc->cmd == LC_SEGMENT_SPLIT_INFO) {
+ 					isSplitKext = true;
+ 					continue;
+@@ -1067,6 +1114,10 @@ kalloc_type_view_parse(const kalloc_type_variant_t type)
+ 
+ 				kernel_segment_command_t *seg_cmd =
+ 				    (struct segment_command_64 *)(vm_offset_t)lc;
++				if (macho_list && (lc->cmdsize < sizeof(*seg_cmd) ||
++				    seg_cmd->nsects > (lc->cmdsize - sizeof(*seg_cmd)) / sizeof(kernel_section_t))) {
++					panic("kalloc_type_view_parse: malformed sparse segment");
++				}
+ 				/*
+ 				 * Parse kalloc_type section
+ 				 */
+@@ -1100,7 +1151,9 @@ kalloc_type_view_parse(const kalloc_type_variant_t type)
+ 				break;
+ 			}
+ 
+-			cur += ((kext_text_sz + (KEXT_ALIGN_BYTES - 1)) & (~KEXT_ALIGN_MASK));
++			if (!macho_list) {
++				cur += ((kext_text_sz + (KEXT_ALIGN_BYTES - 1)) & (~KEXT_ALIGN_MASK));
++			}
+ 		}
+ 	} else {
+ 		/*

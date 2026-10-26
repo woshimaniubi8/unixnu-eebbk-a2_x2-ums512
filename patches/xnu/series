@@ -1,6 +1,9 @@
-# Board patch paths, one per line in application order.
+# Device patch series (format 2).
 #
-# Empty for the first bring-up.  The UMS512 SoC patches (polled SPRD UART
-# console, open machine layer, physmap alignment) live in the SoC repository
-# and are listed in its patches/xnu/series.  Import them here only if a board
-# specific variant is needed.
+# board.toml [kernel] patch_series replaces the OS profile's series with this
+# one: the profile's first entry, zzz-boot-progress.patch, is generated against
+# the SM8550/sheng XNU_SHENG_PMGR context and cannot apply to this Unisoc
+# kernel.  The two XnuPrelink patches are SoC independent and are required by
+# the prelink step, so they are carried here instead.
+xnu-10063.141.1-security-init.patch
+xnu-10063.141.1-sparse-index.patch

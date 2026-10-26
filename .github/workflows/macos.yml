@@ -131,11 +131,9 @@ jobs:
         if: always()
         run: |
           set -eux
-          WORK=$(python3 - <<'PY'
-          import json, pathlib
-          print(json.loads(pathlib.Path('UniXNU/out/state.json').read_text()).get('work', ''))
-          PY
-          )
+          # state.json does not record the work directory; the format-2 output is
+          # out/<device>/<os_profile>/<config>/.
+          WORK=$(ls -d UniXNU/out/*/*/* 2>/dev/null | head -n 1 || true)
           echo "work=$WORK" | tee -a "$GITHUB_ENV"
           {
             echo "## kernel/payload artifacts"
@@ -148,6 +146,21 @@ jobs:
             sha256sum "$WORK"/kernel/*.macho "$WORK"/payload/payload.img 2>/dev/null || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify the boot image would fit the 35 MiB boot partition
+        if: always() && contains(inputs.steps, 'payload')
+        run: |
+          set -eux
+          WORK=$(ls -d UniXNU/out/*/*/* 2>/dev/null | head -n 1 || true)
+          PAYLOAD="$WORK/payload/payload.img"
+          if [ ! -f "$PAYLOAD" ]; then echo "no payload image (build failed before it)"; exit 0; fi
+          PAYLOAD_BYTES=$(stat -f%z "$PAYLOAD")
+          # boot.img = header + raw BootShim+FD (4,194,624) + payload ramdisk + DTB
+          TOTAL=$((4202496 + PAYLOAD_BYTES))
+          echo "payload=$PAYLOAD_BYTES boot.img_estimate=$TOTAL boot_partition=36700160" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$TOTAL" -gt 36700160 ]; then
+            echo "::warning::boot.img estimate $TOTAL exceeds the 35 MiB boot partition; repartition or shrink the payload"
+          fi
 
       - name: Upload build logs
         if: always()

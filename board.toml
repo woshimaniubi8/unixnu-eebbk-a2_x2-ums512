@@ -18,7 +18,11 @@ include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "XnuPrelink", "DarwinBoot"]
 [kernel]
 defconfig = "bbk-a2_defconfig"
 config_fragments = ["arch:configs/common.config", "soc:configs/ums512.config", "os:configs/ipados.config"]
-patch_series = ["arch:patches/xnu/series", "soc:patches/xnu/series", "os:patches/xnu/series", "device:patches/xnu/series"]
+# The OS profile series is intentionally replaced: its zzz-boot-progress.patch
+# depends on the sheng (SM8550) XNU_SHENG_PMGR context and cannot apply to the
+# Unisoc kernel.  The SoC-independent XnuPrelink patches it also carried are
+# listed in the device series instead (patches/xnu/series).
+patch_series = ["arch:patches/xnu/series", "soc:patches/xnu/series", "device:patches/xnu/series"]
 
 [device_tree]
 source = "device:dts/bbk-a2.dts"
