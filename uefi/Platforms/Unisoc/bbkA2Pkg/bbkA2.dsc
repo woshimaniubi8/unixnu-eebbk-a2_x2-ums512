@@ -90,9 +90,13 @@
   # end of DXE dispatch (PSCI SYSTEM_RESET via ResetSystemRuntimeDxe), so every
   # experiment ends with the tablet back in Android and the ramoops log
   # readable instead of parked in BDS waiting for a key that does not exist.
-  # Set to FALSE once a boot target (Shell/UniXNU) is confirmed to come up.
   #
-  gUms512PkgTokenSpaceGuid.PcdBbkA2ResetAtEndOfDxe|TRUE
+  # FALSE now that UniXNU.efi + UniXNUDxe are in the FV: the registrar driver
+  # moves its Boot#### option to the front of BootOrder, so BDS starts the
+  # UniXNU menu instead of the firmware resetting.  Set it back to TRUE when
+  # testing a firmware change that might hang before BDS.
+  #
+  gUms512PkgTokenSpaceGuid.PcdBbkA2ResetAtEndOfDxe|FALSE
 
   #
   # SMBIOS.
@@ -127,6 +131,13 @@
   # UART1 before the serial library is up.  Overrides the SiliciumNull default.
   #
   PlatformSecLib|bbkA2Pkg/Library/BbkA2PlatformSecLib/BbkA2PlatformSecLib.inf
+
+  #
+  # UniXNU boot manager core, shared by UniXNU.efi and the DXE drivers below.
+  # The package comes from the UniXNU core checkout on PACKAGES_PATH
+  # (BBK_A2_UNIXNU in env-linux.sh).
+  #
+  UniXNULib|UniXNUPkg/Library/UniXNULib/UniXNULib.inf
 
   #
   # UEFI Shell libraries.  These three are the only ShellPkg libraries the
@@ -178,14 +189,11 @@
   }
 
   #
-  # TODO(integration): the UniXNU boot application and DarwinBoot are NOT in
-  # this skeleton because they live in UniXNU's package/ and drivers/DarwinBoot
-  # checkouts, which are assembled by `./unixnu build firmware` through
-  # PACKAGES_PATH.  Add them here once the UniXNU tree is in place:
+  # UniXNU boot manager and XNU loader (from the UniXNU core checkout).
+  # UniXNUDxe registers a Boot#### option for UniXNU.efi and moves it to the
+  # front of BootOrder, so BDS starts the menu automatically.
   #
-  #   UniXNUPkg/Application/UniXNU/UniXNU.inf
-  #   UniXNUPkg/Driver/UniXNUDxe/UniXNUDxe.inf
-  #   UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf
-  #   DarwinBootPkg/Driver/DarwinBoot.inf
-  #
-  # and mirror them into bbkA2.fdf.  See analysis/uefi/FEASIBILITY.md §6.
+  UniXNUPkg/Application/UniXNU/UniXNU.inf
+  UniXNUPkg/Driver/UniXNUDxe/UniXNUDxe.inf
+  UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf
+  DarwinBootPkg/Driver/DarwinBoot.inf

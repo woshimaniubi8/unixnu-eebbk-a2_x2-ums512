@@ -75,10 +75,21 @@ READ_LOCK_STATUS   = TRUE
 
   # Payload volume: publish the boot image ramdisk (/chosen initrd) as a
   # read-only block device so Fat can mount the UniXNU payload.
-  # TODO(enable-after-dxe): keep it out of the FV until the DXE core has been
-  # confirmed on hardware - a fault during dispatch would hide the EndOfDxe
-  # marker that BbkA2BringupDxe prints.
-  # INF bbkA2Pkg/Drivers/BbkA2PayloadDxe/BbkA2PayloadDxe.inf
+  INF bbkA2Pkg/Drivers/BbkA2PayloadDxe/BbkA2PayloadDxe.inf
+
+  # UniXNU: the boot manager itself (UniXNU.efi), its boot-option registrar
+  # (UniXNUDxe) and the ramdisk block-device driver that discovers the payload
+  # FAT volume from the initrd handoff.  These INFs come from the UniXNU core
+  # checkout selected by BBK_A2_UNIXNU (package/ and drivers/DarwinBoot on
+  # PACKAGES_PATH).
+  INF UniXNUPkg/Application/UniXNU/UniXNU.inf
+  INF UniXNUPkg/Driver/UniXNUDxe/UniXNUDxe.inf
+  INF UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf
+
+  # DarwinBoot: the XNU loader.  It implements gUniXNULoaderProtocolGuid, which
+  # UniXNU uses for `type = "xnu"` menu entries; it needs the GOP, the payload
+  # FAT volume and the ADT sidecar produced by the payload step.
+  INF DarwinBootPkg/Driver/DarwinBoot.inf
 
   # UEFI Shell: a UEFI_APPLICATION that BDS launches by FILE_GUID.  It has to
   # be in FvMain so GetFileDevicePathFromAnyFv can find it.

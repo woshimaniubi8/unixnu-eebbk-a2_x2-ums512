@@ -50,6 +50,16 @@ fi
 echo "== environment: $ENV_SH"
 . "$ENV_SH"
 
+# UniXNU.efi, UniXNUDxe, UniXNURamDiskDxe and DarwinBoot are part of the FV.
+if [ -z "${BBK_A2_UNIXNU:-}" ]; then
+  echo "== BBK_A2_UNIXNU is not set ==" >&2
+  echo "   point it at a UniXNU core checkout (package/ + drivers/DarwinBoot submodule):" >&2
+  echo "   git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/UniXNU/UniXNU.git" >&2
+  echo "   export BBK_A2_UNIXNU=\$PWD/UniXNU" >&2
+  exit 1
+fi
+echo "== UniXNU tree: $BBK_A2_UNIXNU"
+
 LLVM=${BBK_A2_LLVM_BIN:-${CLANGDWARF_BIN:-/usr/bin}}
 LLVM=${LLVM%/}
 PYTHON=${BBK_A2_PYTHON:-`command -v python3 || echo /usr/bin/python3`}

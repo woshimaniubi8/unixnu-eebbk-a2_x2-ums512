@@ -49,6 +49,8 @@ fi
 #   mu_oem_sample    (referenced by SiliciumPkg.dsc.inc)
 #   uefi-sheng       Silicon/Silicium (SEC, RamManagerDxe, SMBIOS, GOP helper)
 #   this repository  Platforms/Unisoc and Silicon/Unisoc
+#   UniXNU core      package/ (UniXNUPkg) and drivers/DarwinBoot (DarwinBootPkg)
+#                    selected by BBK_A2_UNIXNU
 export PACKAGES_PATH=$WORKSPACE\
 :$BBK_A2_DEPS/mu_basecore\
 :$BBK_A2_DEPS/mu_plus\
@@ -56,6 +58,21 @@ export PACKAGES_PATH=$WORKSPACE\
 :$BBK_A2_DEPS/uefi-sheng/Silicon/Silicium\
 :$BBK_A2_REPO/Platforms/Unisoc\
 :$BBK_A2_REPO/Silicon/Unisoc
+
+# UniXNU boot manager + DarwinBoot come from a UniXNU core checkout.  The
+# platform DSC/FDF list UniXNUPkg and DarwinBootPkg unconditionally, so this
+# tree is required (not optional) for a firmware build.
+if [ -n "${BBK_A2_UNIXNU:-}" ]; then
+  if [ ! -d "$BBK_A2_UNIXNU/package/UniXNUPkg" ]; then
+    echo "env-linux.sh: BBK_A2_UNIXNU=$BBK_A2_UNIXNU has no package/UniXNUPkg" >&2
+    return 1 2>/dev/null || exit 1
+  fi
+  if [ ! -f "$BBK_A2_UNIXNU/drivers/DarwinBoot/DarwinBootPkg/Driver/DarwinBoot.inf" ]; then
+    echo "env-linux.sh: BBK_A2_UNIXNU=$BBK_A2_UNIXNU has no drivers/DarwinBoot (submodule not initialised?)" >&2
+    return 1 2>/dev/null || exit 1
+  fi
+  export PACKAGES_PATH=$PACKAGES_PATH:$BBK_A2_UNIXNU/package:$BBK_A2_UNIXNU/drivers/DarwinBoot
+fi
 
 # clang/llvm for CLANGDWARF.  On Ubuntu clang, llvm-ar, llvm-objcopy, llvm-rc
 # and ld.lld all live in /usr/bin; the builder symlinks versioned names into

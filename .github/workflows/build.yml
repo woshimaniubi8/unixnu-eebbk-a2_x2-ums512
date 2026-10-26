@@ -97,12 +97,23 @@ jobs:
             SecurityPkg/DeviceSecurity/SpdmLib/libspdm
           df -h /
 
+      - name: Clone UniXNU core (UniXNU.efi + UniXNUDxe + DarwinBoot)
+        run: |
+          set -eux
+          git clone -q --depth 1 --recurse-submodules --shallow-submodules https://github.com/UniXNU/UniXNU.git UniXNU
+          test -f UniXNU/package/UniXNUPkg/Application/UniXNU/UniXNU.inf
+          test -f UniXNU/package/UniXNUPkg/Driver/UniXNUDxe/UniXNUDxe.inf
+          test -f UniXNU/package/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe.inf
+          test -f UniXNU/drivers/DarwinBoot/DarwinBootPkg/Driver/DarwinBoot.inf
+          du -sh UniXNU
+
       - name: Build firmware
         run: |
           set -euxo pipefail
           export BBK_A2_DEPS="$DEPS"
           export BBK_A2_REPO="$GITHUB_WORKSPACE/uefi"
           export BBK_A2_ENV="$GITHUB_WORKSPACE/uefi/env-linux.sh"
+          export BBK_A2_UNIXNU="$GITHUB_WORKSPACE/UniXNU"
           # Explicit BaseTools path: do not depend on a WORKSPACE/BaseTools symlink.
           export EDK_TOOLS_PATH="$DEPS/mu_basecore/BaseTools"
           export WORKSPACE="$DEPS/work"
@@ -114,6 +125,7 @@ jobs:
           . "$BBK_A2_ENV"
           echo "WORKSPACE=$WORKSPACE"
           echo "EDK_TOOLS_PATH=$EDK_TOOLS_PATH"
+          echo "BBK_A2_UNIXNU=$BBK_A2_UNIXNU"
           make -C "$EDK_TOOLS_PATH/Source/C" -j"$(nproc)" 2>&1 | tee "$GITHUB_WORKSPACE/basetools-build.log"
           cd "$GITHUB_WORKSPACE/uefi"
           sh ./build-bbk-a2.sh DEBUG 2>&1 | tee "$GITHUB_WORKSPACE/firmware-build.log"
@@ -136,6 +148,13 @@ jobs:
           assert len(fd) == 0x400000, hex(len(fd))
           print('shim header + FD size contract OK')
           PY
+          # The UniXNU boot manager and the XNU loader must be in the build.
+          BUILT="$DEPS/work/Build/bbkA2Pkg/DEBUG_CLANGDWARF/AARCH64"
+          test -f "$BUILT/UniXNUPkg/Application/UniXNU/UniXNU/OUTPUT/UniXNU.efi"
+          test -f "$BUILT/UniXNUPkg/Driver/UniXNUDxe/UniXNUDxe/OUTPUT/UniXNUDxe.efi"
+          test -f "$BUILT/UniXNUPkg/Driver/UniXNURamDiskDxe/UniXNURamDiskDxe/OUTPUT/UniXNURamDiskDxe.efi"
+          test -f "$BUILT/DarwinBootPkg/Driver/DarwinBoot/OUTPUT/DarwinBoot.efi"
+          echo 'UniXNU.efi + UniXNUDxe + UniXNURamDiskDxe + DarwinBoot built'
           sha256sum uefi/build/SILICIUM_UEFI.fd uefi/build/BootShim.bin uefi/build/bbk-a2-uefi.bin
 
       - name: Build log in job summary
