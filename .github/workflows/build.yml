@@ -255,7 +255,7 @@ jobs:
       - name: Install dtc
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends device-tree-compiler
 
-      - name: Clone UniXNU core (with submodules: status resolves kits/ and drivers/)
+      - name: Clone UniXNU core with submodules (status resolves kits and drivers)
         run: git clone -q --depth 1 --recurse-submodules --shallow-submodules https://github.com/UniXNU/UniXNU.git UniXNU
 
       - name: defconfig + status
