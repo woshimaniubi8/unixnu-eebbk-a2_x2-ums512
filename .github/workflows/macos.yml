@@ -1,0 +1,161 @@
+name: macOS kernel + payload
+
+# Builds the two Apple-derived layers on a macOS runner:
+#   kernel  : XNU 10063.141.1 from apple-oss-distributions + UniXNU patch series,
+#             prelinked against the iPadOS 17.7.11 (21H461) kernelcache
+#   payload : FAT volume with kernel.macho + kernel.macho.adt + EFI/UniXNU/unixnu.toml
+#
+# Adapted from UniXNU's own .github/workflows/macos.yml (the only supported way to
+# build the kernel: Xcode + macOS).  Apple-derived images are NOT uploaded by
+# default; set upload_images=true on a manual dispatch to also get the payload
+# artifact (your call: it contains Apple kernel/kernelcache-derived bytes).
+
+on:
+  workflow_dispatch:
+    inputs:
+      steps:
+        description: Steps to build
+        type: choice
+        options:
+          - kernel
+          - kernel payload
+        default: kernel payload
+      xcode:
+        description: Xcode version of the macos-26 image (/Applications/Xcode_<version>.app)
+        required: true
+        default: "26.6"
+      ipsw_url:
+        description: IPSW URL (empty uses board.toml / OS profile)
+        required: false
+        default: ""
+      unique_chip_id:
+        description: Platform seed for the ADT (hex)
+        required: true
+        default: "0x554d533531325041"
+      upload_images:
+        description: Upload the payload artifact (Apple-derived; normally keep off)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  kernel:
+    name: XNU kernel + payload
+    runs-on: macos-26
+    timeout-minutes: 360
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_${{ inputs.xcode }}.app/Contents/Developer
+      UNIXNU_IPSW: ${{ inputs.ipsw_url }}
+      UNIXNU_UNIQUE_CHIP_ID: ${{ inputs.unique_chip_id }}
+    steps:
+      - name: Check out the device repository
+        uses: actions/checkout@v4
+        with:
+          path: device
+
+      - name: Clone UniXNU core
+        run: |
+          set -eux
+          git clone -q --depth 1 --recurse-submodules --shallow-submodules https://github.com/UniXNU/UniXNU.git UniXNU
+          test -f UniXNU/scripts/unixnu/cli.py
+          test -f UniXNU/package/UniXNUPkg/Application/UniXNU/UniXNU.inf
+          du -sh UniXNU
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Check inputs
+        run: |
+          set -eux
+          test -d "$DEVELOPER_DIR"
+          test -f device/board.toml
+          test -f device/configs/bbk-a2_defconfig
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          df -h "$GITHUB_WORKSPACE"
+
+      - name: Install host tools
+        run: |
+          set -eux
+          brew install llvm lld mtools dtc
+          command -v unifdef || brew install unifdef
+          export PATH="$(brew --prefix llvm)/bin:$(brew --prefix lld)/bin:$PATH"
+          clang --version | head -n 1
+          ld.lld --version | head -n 1
+          mformat --version 2>/dev/null | head -n 1 || true
+          dtc --version
+
+      - name: defconfig + status
+        working-directory: UniXNU
+        run: |
+          set -eux
+          ./unixnu defconfig bbk-a2_defconfig -D "$GITHUB_WORKSPACE/device"
+          ./unixnu status -D "$GITHUB_WORKSPACE/device" | tee "$GITHUB_WORKSPACE/status.txt"
+
+      - name: Build kernel
+        working-directory: UniXNU
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          ./unixnu build kernel 2>&1 | tee "$GITHUB_WORKSPACE/kernel.log"
+
+      - name: Build payload
+        if: contains(inputs.steps, 'payload')
+        working-directory: UniXNU
+        run: |
+          set -euxo pipefail
+          ./unixnu build payload 2>&1 | tee "$GITHUB_WORKSPACE/payload.log"
+
+      - name: Report artifacts
+        if: always()
+        run: |
+          set -eux
+          WORK=$(python3 - <<'PY'
+          import json, pathlib
+          print(json.loads(pathlib.Path('UniXNU/out/state.json').read_text()).get('work', ''))
+          PY
+          )
+          echo "work=$WORK" | tee -a "$GITHUB_ENV"
+          {
+            echo "## kernel/payload artifacts"
+            echo '```'
+            ls -l "$WORK/kernel" 2>/dev/null || true
+            ls -l "$WORK/payload" 2>/dev/null || true
+            echo '```'
+            echo "## hashes"
+            echo '```'
+            sha256sum "$WORK"/kernel/*.macho "$WORK"/payload/payload.img 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-logs
+          path: |
+            kernel.log
+            payload.log
+            status.txt
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload payload image (Apple-derived)
+        if: ${{ inputs.upload_images == 'true' && hashFiles('**/payload/payload.img') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: payload
+          path: |
+            UniXNU/out/*/*/*/payload/payload.img
+            UniXNU/out/*/*/*/payload/payload.json
+            UniXNU/out/*/*/*/kernel/kernel.macho
+          if-no-files-found: warn
+          retention-days: 3
