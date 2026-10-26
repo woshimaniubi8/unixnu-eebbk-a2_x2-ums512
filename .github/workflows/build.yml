@@ -54,13 +54,15 @@ jobs:
         run: |
           set -eux
           mkdir -p "$DEPS"
-          # partial clone (no blobs) + explicit commit checkout: works even when
-          # the pinned commit is not the branch tip.
+          # shallow clone of the branch + explicit commit checkout: works even
+          # when the pinned commit is not the branch tip, and avoids the
+          # partial-clone checkout quirks seen on the runner.
           clone_pin() {
             name=$1; url=$2; branch=$3; pin=$4
             dir="$DEPS/$name"
             rm -rf "$dir"
-            git clone -q --filter=blob:none --no-checkout --single-branch --branch "$branch" "$url" "$dir"
+            git clone -q --depth 1 --branch "$branch" "$url" "$dir"
+            git -C "$dir" fetch -q --depth 1 origin "$pin" 2>/dev/null || true
             if git -C "$dir" checkout -q "$pin" 2>/dev/null; then
               echo "$name: $pin"
             else
@@ -68,6 +70,7 @@ jobs:
               git -C "$dir" checkout -q "$branch"
             fi
             git -C "$dir" rev-parse --short HEAD
+            test -d "$dir/.git"
           }
           clone_pin mu_basecore https://github.com/microsoft/mu_basecore release/202608 26bfddb2194b2058f7ac6163b00a2d94a9b7eac6
           clone_pin mu_plus https://github.com/microsoft/mu_plus release/202608 566cf5c8c2c8adf8e1a337ced1d147bc6246856f
@@ -96,15 +99,21 @@ jobs:
 
       - name: Build firmware
         run: |
-          set -eux
+          set -euxo pipefail
           export BBK_A2_DEPS="$DEPS"
           export BBK_A2_REPO="$GITHUB_WORKSPACE/uefi"
           export BBK_A2_ENV="$GITHUB_WORKSPACE/uefi/env-linux.sh"
-          mkdir -p "$DEPS/work"
-          [ -e "$DEPS/work/BaseTools" ] || ln -s "$DEPS/mu_basecore" "$DEPS/work/BaseTools"
+          # Explicit BaseTools path: do not depend on a WORKSPACE/BaseTools symlink.
+          export EDK_TOOLS_PATH="$DEPS/mu_basecore/BaseTools"
+          export WORKSPACE="$DEPS/work"
+          mkdir -p "$WORKSPACE"
+          echo "== dependency tree"; ls "$DEPS"
+          echo "== mu_basecore"; ls "$DEPS/mu_basecore" | head -20
+          test -d "$EDK_TOOLS_PATH/Source/C"
           # shellcheck disable=SC1090
           . "$BBK_A2_ENV"
           echo "WORKSPACE=$WORKSPACE"
+          echo "EDK_TOOLS_PATH=$EDK_TOOLS_PATH"
           make -C "$EDK_TOOLS_PATH/Source/C" -j"$(nproc)" 2>&1 | tee "$GITHUB_WORKSPACE/basetools-build.log"
           cd "$GITHUB_WORKSPACE/uefi"
           sh ./build-bbk-a2.sh DEBUG 2>&1 | tee "$GITHUB_WORKSPACE/firmware-build.log"
@@ -246,8 +255,8 @@ jobs:
       - name: Install dtc
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends device-tree-compiler
 
-      - name: Clone UniXNU core
-        run: git clone -q --depth 1 https://github.com/UniXNU/UniXNU.git UniXNU
+      - name: Clone UniXNU core (with submodules: status resolves kits/ and drivers/)
+        run: git clone -q --depth 1 --recurse-submodules --shallow-submodules https://github.com/UniXNU/UniXNU.git UniXNU
 
       - name: defconfig + status
         run: |
