@@ -47,7 +47,7 @@ defaults:
 jobs:
   kernel:
     name: XNU kernel + payload
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 360
     env:
       UNIXNU_IPSW: ${{ inputs.ipsw_url }}
