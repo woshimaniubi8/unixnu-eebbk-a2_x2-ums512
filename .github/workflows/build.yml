@@ -168,8 +168,6 @@ jobs:
             /opt/hostedtoolcache/Ruby /opt/hostedtoolcache/go /opt/hostedtoolcache/Nodejs \
             /opt/hostedtoolcache/PyPy /usr/local/lib/node_modules 2>/dev/null || true
           df -h /
-        with:
-          retain: "compiler_gcc"
 
       - uses: actions/setup-python@v5
         with:
