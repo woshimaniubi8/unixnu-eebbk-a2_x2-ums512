@@ -23,6 +23,11 @@
   INF MdeModulePkg/Universal/HiiDatabaseDxe/HiiDatabaseDxe.inf
   INF ArmPkg/Drivers/ArmGicDxe/ArmGicDxe.inf
   INF ArmPkg/Drivers/TimerDxe/TimerDxe.inf
+  # eMMC: SDHCI takeover host driver + EmbeddedPkg MMC bus.  The bus publishes
+  # a whole-device BlockIo; PartitionDxe/Fat below then expose the FAT payload
+  # volume written to the socko partition (docs/PAYLOAD-SOCKO.md).
+  INF UMS512Pkg/Drivers/SprdSdhciMmcHostDxe/SprdSdhciMmcHostDxe.inf
+  INF EmbeddedPkg/Universal/MmcDxe/MmcDxe.inf
   INF MdeModulePkg/Universal/Disk/DiskIoDxe/DiskIoDxe.inf
   INF MdeModulePkg/Universal/Disk/PartitionDxe/PartitionDxe.inf
   INF MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe.inf

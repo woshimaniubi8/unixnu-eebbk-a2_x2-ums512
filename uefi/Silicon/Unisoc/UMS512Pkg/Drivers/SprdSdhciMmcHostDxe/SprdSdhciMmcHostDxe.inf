@@ -1,0 +1,50 @@
+## @file
+#  Unisoc UMS512 (SharkL5Pro) SDHCI eMMC host driver for the EmbeddedPkg MMC
+#  stack.  It implements EFI_MMC_HOST_PROTOCOL (EmbeddedPkg/Universal/MmcDxe),
+#  which then produces the BlockIo handle that PartitionDxe + Fat consume.
+#
+#  The controller is the SDHCI-compatible "sprd,sdhc-r11p1" block at
+#  0x71400000 (vendor DT: sdio@71400000, 8-bit non-removable eMMC, HS400ES).
+#  cboot has already initialised the card and the controller, so this driver
+#  runs in "takeover" mode: it does not touch the Unisoc clock/power/PMIC
+#  trees, it only resets the CMD/DAT lines and programs the SDHCI clock
+#  divider from the CAP base clock.  Data transfers use PIO (no ADMA), which
+#  is slow but needs no DMA programming and no SMMU setup.
+#
+#  SPDX-License-Identifier: BSD-2-Clause-Patent
+##
+
+[Defines]
+  INF_VERSION                    = 0x00010019
+  BASE_NAME                      = SprdSdhciMmcHostDxe
+  FILE_GUID                      = 7C2E4A51-9B3D-4F68-8E21-5A4D3C6B1F90
+  MODULE_TYPE                    = UEFI_DRIVER
+  VERSION_STRING                 = 0.1
+  ENTRY_POINT                    = SprdSdhciMmcHostEntry
+
+[Sources]
+  SprdSdhciMmcHostDxe.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  EmbeddedPkg/EmbeddedPkg.dec
+  UMS512Pkg/UMS512Pkg.dec
+
+[LibraryClasses]
+  BaseLib
+  BaseMemoryLib
+  DebugLib
+  DevicePathLib
+  IoLib
+  MemoryAllocationLib
+  UefiBootServicesTableLib
+  UefiDriverEntryPoint
+  UefiLib
+
+[Protocols]
+  gEmbeddedMmcHostProtocolGuid   ## PRODUCES
+
+[Guids]
+
+[Depex]
+  TRUE

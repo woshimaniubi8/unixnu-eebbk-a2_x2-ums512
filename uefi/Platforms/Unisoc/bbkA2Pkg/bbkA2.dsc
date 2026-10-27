@@ -155,6 +155,14 @@
   UMS512Pkg/Drivers/SprdGopDxe/SprdGopDxe.inf
 
   #
+  # eMMC: SDHCI takeover host driver + EmbeddedPkg MMC bus.  The bus publishes
+  # the whole-device BlockIo; PartitionDxe + Fat then expose the FAT payload
+  # volume written to the socko partition (docs/PAYLOAD-SOCKO.md).
+  #
+  UMS512Pkg/Drivers/SprdSdhciMmcHostDxe/SprdSdhciMmcHostDxe.inf
+  EmbeddedPkg/Universal/MmcDxe/MmcDxe.inf
+
+  #
   # FV as a read-only file system, so the Shell can auto-run startup.nsh.
   #
   MdeModulePkg/Universal/FvSimpleFileSystemDxe/FvSimpleFileSystemDxe.inf

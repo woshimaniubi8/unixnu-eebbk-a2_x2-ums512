@@ -78,8 +78,13 @@
 // Vendor DT (boot-dtb.dts): sdio@71400000, compatible "sprd,sdhc-r11p1",
 //   sprd,name = "sdio_emmc", no-sdio/no-sd (HS400 class part).
 // Kernel cmdline also carries androidboot.boot_devices=soc/soc:ap-apb/71400000.sdio.
-// There is no EDK2 host driver for this controller in the first milestone, so
-// SdDxe/EmmcDxe are deliberately NOT in the FV (same decision as the E5 port).
+//
+// SprdSdhciMmcHostDxe drives this controller in takeover mode (see that file):
+// it resets only the CMD/DAT lines, keeps the cboot clock/power/delay setup and
+// uses PIO for data.  EmbeddedPkg/Universal/MmcDxe then produces the BlockIo
+// handle that PartitionDxe + Fat use to expose the payload FAT volume stored in
+// the socko partition (the Android vendor kernel-module partition, unused when
+// booting UniXNU/iOS).  UNVERIFIED on hardware.
 //
 #define UMS512_EMMC_BASE    0x71400000
 #define UMS512_EMMC_SIZE    0x00001000
