@@ -4,7 +4,7 @@ schema_version = 1
 name = "bbk-a2"
 soc = "UMS512"
 os_profile = "ipados-17.7.11-21H461"
-summary = "BBK/EEBBK A2, X2 and X2P tablet (ums512_1h190, Unisoc UMS512 / SharkL5Pro). Community port; no real-hardware result yet. This record separates what is proven from source (vendor firmware dumps, DTS, boot image headers) from what still needs a device."
+summary = "BBK(EEBBK) A2/X2/X2P , ums512. Community port; no real-hardware result yet. This record separates what is proven from source (vendor firmware dumps, DTS, boot image headers) from what still needs a device."
 
 [[area]]
 id = "configuration"

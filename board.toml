@@ -6,7 +6,7 @@ soc = "UMS512"
 soc_source = "ums512"
 os_profile = "ipados-17.7.11-21H461"
 kit = "bbk-a2"
-description = "BBK/EEBBK A2, X2 and X2P tablet (ums512_1h190, Unisoc T610 / UMS512 SharkL5Pro)"
+description = "BBK(EEBBK) A2/X2/A2P"
 
 [components]
 # Minimal first-bring-up set, same shape as UniXNU-e5 (Unisoc UMS9621):
@@ -81,7 +81,7 @@ volume = "UNIXNU"
 # through userdata (see docs/DUAL-BOOT.md).
 size_mib = 64
 loader = "firmware"
-title = "UniXNU BBK A2"
+title = "UniXNU BBK A2/X2"
 dram_size = "0x80000000"
 panic_screen = false
 timeout = 0
