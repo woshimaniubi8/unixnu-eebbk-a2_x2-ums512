@@ -1,22 +1,14 @@
-diff --git a/pexpert/pexpert/arm/protos.h b/pexpert/pexpert/arm/protos.h
---- a/pexpert/pexpert/arm/protos.h
-+++ b/pexpert/pexpert/arm/protos.h
-@@ -47,6 +47,7 @@ typedef enum serial_device {
- 	SERIAL_PI3_UART=0x4,
- 	SERIAL_VMAPPLE_UART=0x8,
--	SERIAL_DCC_UART=0x10
-+	SERIAL_DCC_UART=0x10,
-+	SERIAL_SPRD_UART=0x20
- } serial_device_t;
- 
- kern_return_t serial_irq_enable(serial_device_t device);
+warning: in the working copy of 'pexpert/arm/pe_serial.c', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'pexpert/pexpert/arm/protos.h', LF will be replaced by CRLF the next time Git touches it
 diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
+index f5bae27..5d404b9 100644
 --- a/pexpert/arm/pe_serial.c
 +++ b/pexpert/arm/pe_serial.c
-@@ -697,4 +697,85 @@ register_serial_functions(struct pe_serial_functions *fns)
+@@ -747,6 +747,88 @@ register_serial_functions(struct pe_serial_functions *fns)
  	gPESF = fns;
  }
  
++
 +/* UMS512/SC9832E polled UART. UEFI leaves the clock and baud configured. */
 +#define SPRD_UART_BASE       0x70100000ULL
 +#define SPRD_UART_TXD        0x00
@@ -99,10 +91,27 @@ diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
 +}
 +
  #if HIBERNATION
-@@ -919,5 +1004,6 @@ serial_init(void)
+ /**
+  * Transitions the serial driver into a mode that can be run in the hibernation
+@@ -828,6 +910,7 @@ serial_init(void)
  
  	PE_parse_boot_argn("disable-uart-irq", &disable_uart_irq, sizeof(disable_uart_irq));
  
 +	sprd_uart_probe();
  #ifdef PI3_UART
  	if (SecureDTFindEntry("name", "gpio", &entryP) == kSuccess) {
+ 		SecureDTGetProperty(entryP, "reg", (void const **)&reg_prop, &prop_size);
+diff --git a/pexpert/pexpert/arm/protos.h b/pexpert/pexpert/arm/protos.h
+index 404b50b..73a20b9 100644
+--- a/pexpert/pexpert/arm/protos.h
++++ b/pexpert/pexpert/arm/protos.h
+@@ -47,7 +47,8 @@ typedef enum serial_device {
+ 	SERIAL_DOCKCHANNEL=0x2,
+ 	SERIAL_PI3_UART=0x4,
+ 	SERIAL_VMAPPLE_UART=0x8,
+-	SERIAL_DCC_UART=0x10
++	SERIAL_DCC_UART=0x10,
++	SERIAL_SPRD_UART=0x20
+ } serial_device_t;
+ 
+ kern_return_t serial_irq_enable(serial_device_t device);

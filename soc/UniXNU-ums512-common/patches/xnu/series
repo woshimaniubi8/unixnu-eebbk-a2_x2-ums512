@@ -1,15 +1,18 @@
 # XNU patch series for Unisoc UMS512 / SharkL5Pro.
 #
-# Mirrors hxzbaka/UniXNU-t610yp (patches/ums512/*.patch), which is the reference
-# first-boot tree for this SoC family:
-#   ios-sweet-0001/0002/0005/0011 - build fixes for the current clang + the
-#                                   physmap alignment the non-PPL kernel needs
-#   ums512-open-machine-layer    - non-Apple machine layer (no AMCC/KPC/PPL)
-#   ums512-uart                  - polled SPRD UART console (0x70100000), which
-#                                   is what makes XNU print at all on this board
-ios-sweet-0001-new-clang-drop-removed-auto-var-init-flag.patch
-ios-sweet-0002-new-clang-backport-UIO_STACKBUF.patch
-ios-sweet-0005-non-pac-build-fixes.patch
-ios-sweet-0011-physmap-alignment.patch
-ums512-open-machine-layer.patch
+# The kernel source is xnu-10063.141.1 (the iPadOS 17.7.11 profile pins it).
+# Two patches are needed on top of the UniXNU core series:
+#
+#   ums512-uart                  - polled SPRD UART console (0x70100000). Without
+#                                  it the kernel enters and prints nothing at all,
+#                                  because it has no console driver on this SoC.
+#   ios-sweet-0011-physmap-alignment
+#                                - reserve the PTOV twig padding for the sliding
+#                                  physmap of the non-PPL (non-Apple) kernel.
+#
+# The reference first-boot tree hxzbaka/UniXNU-t610yp also carries
+# ios-sweet-0001/0002/0005 and ums512-open-machine-layer; those are already part
+# of xnu-10063 / the UniXNU core series (source-machine-layer.patch), so they are
+# deliberately not repeated here.
 ums512-uart.patch
+ios-sweet-0011-physmap-alignment.patch
