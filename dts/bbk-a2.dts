@@ -15,10 +15,12 @@
 	model = "BBK A2 / X2 / X2P (ums512_1h190)";
 	compatible = "eebbk,ums512-1h190", "sprd,ums512";
 
-	/* Vendor FDT: memory { reg = <0 0x80000000 0 0x80000000> } -> 2 GiB */
+	/* 1 GiB: U-Boot reports "DRAM: 1 GiB" (two 512 MiB banks) and the UEFI
+ * MemoryMapLib only maps 0x80000000..0xC0000000.  The vendor FDT template
+ * says 2 GiB, which does not match this board. */
 	memory@80000000 {
 		device_type = "memory";
-		reg = <0 0x80000000 0 0x80000000>;
+		reg = <0 0x80000000 0 0x40000000>;
 	};
 
 	chosen {
