@@ -96,8 +96,8 @@ arm_io = node('arm-io', [prop('device_type', b'arm-io\0'), prop('#address-cells'
     node('pmu', [prop('compatible', b'arm,armv8-pmuv3\0'),
         prop('interrupts', struct.pack('<24I', 0, 0x70, 4, 0, 0x71, 4, 0, 0x72, 4, 0, 0x73, 4,
                                        0, 0x74, 4, 0, 0x75, 4, 0, 0x76, 4, 0, 0x77, 4))]),
-    node('uart0', [prop('compatible', b'sprd,ums512-uart\0'),
-        prop('reg', struct.pack('<QQ', 0x5e100000, 0x1000)), prop('clock-always-on', u32(1))]),
+    node('uart0', [prop('compatible', b'sprd,sc9836-uart\0'),
+        prop('reg', struct.pack('<QQ', 0x70100000, 0x100)), prop('clock-always-on', u32(1))]),
     node('framebuffer', [prop('compatible', b'uefi,framebuffer\0'),
         prop('reg', struct.pack('<QQ', 0x9e000000, 0x01000000))])])
 
