@@ -1,13 +1,15 @@
 # XNU patch series for Unisoc UMS512 / SharkL5Pro.
 #
-# Empty for the first bring-up: the T610YP tree (hxzbaka/UniXNU-t610yp) carries
-# its SoC patches in patches/ums512/*.patch inside the device repository, and we
-# mirror that layout here once the first real-hardware result exists.
-#
-# Candidate patches to import from UniXNU-t610yp (see analysis/unixnu-spec/):
-#   ums512-uart.patch              polled SPRD UART console (0x70100000)
-#   ums512-open-machine-layer.patch  non-Apple machine layer / DT platform glue
-#   ios-sweet-0011-physmap-alignment.patch
-#
-# One file name per line; '#' starts a comment.  Relative paths resolve from
-# this directory.
+# Mirrors hxzbaka/UniXNU-t610yp (patches/ums512/*.patch), which is the reference
+# first-boot tree for this SoC family:
+#   ios-sweet-0001/0002/0005/0011 - build fixes for the current clang + the
+#                                   physmap alignment the non-PPL kernel needs
+#   ums512-open-machine-layer    - non-Apple machine layer (no AMCC/KPC/PPL)
+#   ums512-uart                  - polled SPRD UART console (0x70100000), which
+#                                   is what makes XNU print at all on this board
+ios-sweet-0001-new-clang-drop-removed-auto-var-init-flag.patch
+ios-sweet-0002-new-clang-backport-UIO_STACKBUF.patch
+ios-sweet-0005-non-pac-build-fixes.patch
+ios-sweet-0011-physmap-alignment.patch
+ums512-open-machine-layer.patch
+ums512-uart.patch

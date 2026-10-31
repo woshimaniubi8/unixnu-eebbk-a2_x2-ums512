@@ -1,18 +1,20 @@
 # BBK A2 / X2 / X2P (ums512_1h190) first-bring-up kernel configuration.
 #
-# Mirrors the UniXNU-e5 first-bring-up shape: device-tree platform, ARM CPU
-# (GICv3 + architectural timer), prelinked crypto bootstrap.  Storage, display,
-# GPU and trust-cache paths are enabled only after the UART/framebuffer/XNU
-# entry path is confirmed on hardware.
+# Mirrors hxzbaka/UniXNU-t610yp (t610yp_defconfig), the reference first-boot
+# tree for this SoC: device-tree platform expert, ARM CPU (GICv3 +
+# architectural timer), source crypto bootstrap and the non-Apple machine
+# layer from patches/ums512.  Storage, display, GPU and trust cache stay out
+# until UART/framebuffer/XNU entry is confirmed on hardware.
 CONFIG_XNU_BUILD_ARCHIVES=y
-CONFIG_XNU_ARMVIRT_PLATFORM=n
+CONFIG_XNU_MACHINE_CONFIG="BCM2837"
+CONFIG_XNU_ARMVIRT_PLATFORM=y
 CONFIG_XNU_ARM_DT_PLATFORM=y
 CONFIG_XNU_ARMCPU=y
 CONFIG_XNU_NATIVE_ARCH_TIMER=y
 CONFIG_XNU_NATIVE_PAN=y
 CONFIG_XNU_SOURCE_CORECRYPTO14=y
 CONFIG_XNU_SOURCE_PTHREAD=y
-CONFIG_XNU_CRYPTO_BOOTSTRAP="prelinked"
+CONFIG_XNU_CRYPTO_BOOTSTRAP="source"
 CONFIG_XNU_NATIVE_TRUST_CACHE=0
 CONFIG_XNU_NATIVE_UFS=n
 CONFIG_XNU_NATIVE_MOBILE_DISPLAY=n

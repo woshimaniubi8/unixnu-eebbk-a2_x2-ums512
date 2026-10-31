@@ -1,0 +1,108 @@
+diff --git a/pexpert/pexpert/arm/protos.h b/pexpert/pexpert/arm/protos.h
+--- a/pexpert/pexpert/arm/protos.h
++++ b/pexpert/pexpert/arm/protos.h
+@@ -47,6 +47,7 @@ typedef enum serial_device {
+ 	SERIAL_PI3_UART=0x4,
+ 	SERIAL_VMAPPLE_UART=0x8,
+-	SERIAL_DCC_UART=0x10
++	SERIAL_DCC_UART=0x10,
++	SERIAL_SPRD_UART=0x20
+ } serial_device_t;
+ 
+ kern_return_t serial_irq_enable(serial_device_t device);
+diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
+--- a/pexpert/arm/pe_serial.c
++++ b/pexpert/arm/pe_serial.c
+@@ -697,4 +697,85 @@ register_serial_functions(struct pe_serial_functions *fns)
+ 	gPESF = fns;
+ }
+ 
++/* UMS512/SC9832E polled UART. UEFI leaves the clock and baud configured. */
++#define SPRD_UART_BASE       0x70100000ULL
++#define SPRD_UART_TXD        0x00
++#define SPRD_UART_RXD        0x04
++#define SPRD_UART_STS1       0x0c
++#define SPRD_UART_IEN        0x10
++#define SPRD_UART_ICLR       0x14
++#define SPRD_UART_TX_COUNT   0xff00
++#define SPRD_UART_RX_COUNT   0x00ff
++
++static volatile uint8_t *sprd_uart_base;
++
++static inline uint32_t
++sprd_uart_read(uint32_t offset)
++{
++	return *(volatile uint32_t *)(sprd_uart_base + offset);
++}
++
++static inline void
++sprd_uart_write(uint32_t offset, uint32_t value)
++{
++	*(volatile uint32_t *)(sprd_uart_base + offset) = value;
++}
++
++static void
++sprd_uart_init(void)
++{
++	/* Do not change the firmware-selected clock or baud rate. */
++	sprd_uart_write(SPRD_UART_IEN, 0);
++	sprd_uart_write(SPRD_UART_ICLR, 0xffffffff);
++}
++
++static unsigned int
++sprd_uart_transmit_ready(void)
++{
++	return (sprd_uart_read(SPRD_UART_STS1) & SPRD_UART_TX_COUNT) == 0;
++}
++
++static void
++sprd_uart_transmit_data(uint8_t c)
++{
++	while (!sprd_uart_transmit_ready()) { }
++	sprd_uart_write(SPRD_UART_TXD, c);
++}
++
++static unsigned int
++sprd_uart_receive_ready(void)
++{
++	return (sprd_uart_read(SPRD_UART_STS1) & SPRD_UART_RX_COUNT) != 0;
++}
++
++static uint8_t
++sprd_uart_receive_data(void)
++{
++	while (!sprd_uart_receive_ready()) { }
++	return (uint8_t)sprd_uart_read(SPRD_UART_RXD);
++}
++
++SECURITY_READ_ONLY_LATE(static struct pe_serial_functions) sprd_uart_serial_functions = {
++	.init = sprd_uart_init,
++	.transmit_ready = sprd_uart_transmit_ready,
++	.transmit_data = sprd_uart_transmit_data,
++	.receive_ready = sprd_uart_receive_ready,
++	.receive_data = sprd_uart_receive_data,
++	.enable_irq = NULL,
++	.disable_irq = NULL,
++	.acknowledge_irq = NULL,
++	.has_irq = false,
++	.device = SERIAL_SPRD_UART
++};
++
++static void
++sprd_uart_probe(void)
++{
++	/* Fixed fallback also works before ADT parsing. */
++	sprd_uart_base = (volatile uint8_t *)ml_io_map(SPRD_UART_BASE, 0x1000);
++	if (sprd_uart_base != NULL) {
++		register_serial_functions(&sprd_uart_serial_functions);
++	}
++}
++
+ #if HIBERNATION
+@@ -919,5 +1004,6 @@ serial_init(void)
+ 
+ 	PE_parse_boot_argn("disable-uart-irq", &disable_uart_irq, sizeof(disable_uart_irq));
+ 
++	sprd_uart_probe();
+ #ifdef PI3_UART
+ 	if (SecureDTFindEntry("name", "gpio", &entryP) == kSuccess) {
