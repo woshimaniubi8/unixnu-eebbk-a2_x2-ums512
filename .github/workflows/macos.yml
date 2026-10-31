@@ -127,6 +127,14 @@ jobs:
           set -euxo pipefail
           ./unixnu build kernel 2>&1 | tee "$GITHUB_WORKSPACE/kernel.log"
 
+      - name: Apply BBK A2 bring-up kernel patches
+        working-directory: UniXNU
+        run: |
+          set -euxo pipefail
+          KERNEL=$(ls out/*/*/*/kernel/kernel.macho | head -n 1)
+          test -f "$KERNEL"
+          python3 "$GITHUB_WORKSPACE/device/scripts/patch-bringup-kernel.py" "$KERNEL"
+
       - name: Build payload
         if: contains(inputs.steps, 'payload')
         working-directory: UniXNU

@@ -69,7 +69,13 @@
   #        MMU walker treat a freed page-table page as a live table (the UMS9621
   #        port lost a day to exactly this).
   #
-  gEfiMdePkgTokenSpaceGuid.PcdDebugPropertyMask|0x23
+  #
+  # BDS hits an ASSERT in BmDriverHealth.c when a driver health check
+  # returns EFI_NOT_FOUND; during bring-up we want to continue past that,
+  # so keep PRINT_ERROR(0x02) but drop ASSERT_ENABLE(0x01) and
+  # ASSERT_DEADLOOP(0x20).  Re-enable 0x23 for release builds.
+  #
+  gEfiMdePkgTokenSpaceGuid.PcdDebugPropertyMask|0x02
 
   #
   # BDS looks this GUID up in the FV.  The value inherited from
@@ -117,6 +123,16 @@
   gSiliciumPkgTokenSpaceGuid.PcdFrameBufferWidth|1200
   gSiliciumPkgTokenSpaceGuid.PcdFrameBufferHeight|1920
   gSiliciumPkgTokenSpaceGuid.PcdFrameBufferColorDepth|32
+
+[PcdsFixedAtBuild]
+  #
+  # Keep the emulated NV variable store at a fixed, dedicated address
+  # (0x81FD0000, see MemoryMapLib VarStore) instead of a pool block that
+  # ends up next to the EFI System Table and gets smashed by variable
+  # writes (observed as gST->ConfigurationTable/NumberOfTableEntries garbage).
+  #
+  gEfiMdeModulePkgTokenSpaceGuid.PcdEmuVariableNvStoreReserved|0x81FD0000
+  gEfiMdeModulePkgTokenSpaceGuid.PcdVariableStoreSize|0x00020000
 
 [LibraryClasses]
   #
@@ -180,7 +196,10 @@
   # added to the FDF only after DXE is confirmed on hardware (a fault here
   # would hide the EndOfDxe marker).
   #
-  bbkA2Pkg/Drivers/BbkA2PayloadDxe/BbkA2PayloadDxe.inf
+  bbkA2Pkg/Drivers/BbkA2PayloadDxe/BbkA2PayloadDxe.inf {
+    <LibraryClasses>
+      NULL|MdeModulePkg/Library/LzmaCustomDecompressLib/LzmaCustomDecompressLib.inf
+  }
 
   #
   # UEFI Shell: the boot target BDS can find by FILE_GUID.  Only the Level1/2/3

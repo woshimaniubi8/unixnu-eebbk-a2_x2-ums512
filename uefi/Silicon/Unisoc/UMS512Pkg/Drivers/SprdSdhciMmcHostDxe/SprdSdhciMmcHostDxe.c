@@ -242,6 +242,7 @@ SdhciSetClock (
 
   MmioWrite16 (Host->Base + SDHCI_CLOCK_CONTROL, (UINT16)(ClockControl | SDHCI_CLK_SD_EN));
   gBS->Stall (1000);
+
   return EFI_SUCCESS;
 }
 
@@ -294,6 +295,7 @@ SdhciControllerInit (
 
   Host->Initialized = TRUE;
   DEBUG ((DEBUG_INFO, "SprdSdhci: CAP=%08x baseClock=%u MHz\n", Host->Capabilities, Host->BaseClockMhz));
+
   return EFI_SUCCESS;
 }
 
@@ -418,6 +420,7 @@ SdhciSendCommandNow (
   }
 
   MmioWrite16 (Host->Base + SDHCI_NORMAL_INT_STATUS, SDHCI_INT_CMD_COMPLETE);
+
   return EFI_SUCCESS;
 }
 
@@ -478,6 +481,7 @@ SprdSdhciReceiveResponse (
     Buffer[0] = Host->Response[0];
   }
 
+
   return EFI_SUCCESS;
 }
 
@@ -514,6 +518,7 @@ SdhciTransferComplete (
   }
 
   MmioWrite16 (Host->Base + SDHCI_NORMAL_INT_STATUS, SDHCI_INT_ALL);
+
   return EFI_SUCCESS;
 }
 
@@ -688,6 +693,7 @@ SprdSdhciSetIos (
     }
   }
 
+
   return EFI_SUCCESS;
 }
 
@@ -698,7 +704,17 @@ SprdSdhciIsCardPresent (
   IN EFI_MMC_HOST_PROTOCOL  *This
   )
 {
-  return TRUE; // sdio_emmc is non-removable (vendor DT: non-removable)
+  //
+  // TODO(hardware): the Unisoc SDHCI block reports CAP base clock = 0, so the
+  // standard SDHCI clock divider cannot be programmed and the card does not
+  // answer after cboot hands over (the first hardware log showed CMD5/CMD8/
+  // CMD1/CMD55 timeouts, then MmcDxe's identification retry loop stalled DXE
+  // dispatch).  Until the Unisoc clock-gate/clock-source setup ("emmc-eb",
+  // "emmc-2x-clk", ap-emmc-rtc-eb in the U-Boot clock table) is implemented,
+  // report no card so the MMC stack stays idle and the rest of the firmware
+  // can boot.  Flip back to TRUE together with the clock implementation.
+  //
+  return FALSE;
 }
 
 STATIC
@@ -737,6 +753,7 @@ SprdSdhciBuildDevicePath (
   Node->EndingAddress     = Host->Base + UMS512_EMMC_SIZE - 1;
 
   *DevicePath = (EFI_DEVICE_PATH_PROTOCOL *)Node;
+
   return EFI_SUCCESS;
 }
 
@@ -754,6 +771,7 @@ SprdSdhciNotifyState (
   if (State == MmcHwInitializationState) {
     return SdhciControllerInit (Host);
   }
+
 
   return EFI_SUCCESS;
 }
@@ -799,7 +817,13 @@ SprdSdhciMmcHostInit (
     Host->Capabilities,
     Host->BaseClockMhz
     ));
+
   return EFI_SUCCESS;
+}
+
+STATIC VOID DbgGst (IN CONST CHAR8 *W) {
+  DEBUG ((DEBUG_ERROR, "GSTDBG-sdhci[%a]: entries=%u table=0x%lx sig=0x%x\n", W,
+          (UINT32)gST->NumberOfTableEntries, (UINT64)(UINTN)gST->ConfigurationTable, gST->Hdr.Signature));
 }
 
 EFI_STATUS
@@ -813,6 +837,7 @@ SprdSdhciMmcHostEntry (
   EFI_HANDLE           Handle;
   SPRD_SDHCI_MMC_HOST  *Host;
 
+  DbgGst ("enter");
   Host = AllocateZeroPool (sizeof (SPRD_SDHCI_MMC_HOST));
   if (Host == NULL) {
     return EFI_OUT_OF_RESOURCES;
@@ -837,5 +862,7 @@ SprdSdhciMmcHostEntry (
     return Status;
   }
 
+
+  DbgGst ("exit");
   return EFI_SUCCESS;
 }

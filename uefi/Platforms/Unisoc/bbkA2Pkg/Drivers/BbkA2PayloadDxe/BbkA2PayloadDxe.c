@@ -30,13 +30,41 @@
 #include <Library/DebugLib.h>
 #include <Library/FdtLib.h>
 #include <Library/HobLib.h>
+#include <Library/MemoryAllocationLib.h>
 #include <Library/UefiBootServicesTableLib.h>
 
 #include <Protocol/BlockIo.h>
+
+//
+// EDK2's LzmaCustomDecompressLib exposes these two entry points but ships no
+// public header for them; declare them here and pull the library in through a
+// NULL library class in the INF.
+//
+extern
+RETURN_STATUS
+EFIAPI
+LzmaUefiDecompressGetInfo (
+  IN  CONST VOID  *Source,
+  IN  UINT32      SourceSize,
+  OUT UINT32      *DestinationSize,
+  OUT UINT32      *ScratchSize
+  );
+
+extern
+RETURN_STATUS
+EFIAPI
+LzmaUefiDecompress (
+  IN CONST VOID  *Source,
+  IN UINTN       SourceSize,
+  IN OUT VOID    *Destination,
+  IN OUT VOID    *Scratch
+  );
 #include <Protocol/DevicePath.h>
 
 #define RAM_BLOCK_SIZE  512
 #define DEBUG_TAG       "BBKA2PAYLOAD: "
+
+STATIC VOID DumpGst (IN CONST CHAR8 *Where);
 
 #pragma pack(1)
 typedef struct {
@@ -196,6 +224,67 @@ PublishInitrd (
             (UINT32)((End - Start) % RAM_BLOCK_SIZE)));
   }
 
+  //
+  // The boot image can carry an LZMA-alone compressed payload image instead of
+  // the stock Android ramdisk.  The uncompressed payload (64 MiB FAT image) is
+  // expanded into the reserved Initrd window at 0x83000000 and published as a
+  // RAM disk, which the FAT driver then mounts for UniXNU.
+  //
+  if (((End - Start) > 0x100000) &&
+      (((UINT8 *)(UINTN)Start)[0] == 0x5D) &&
+      (((UINT8 *)(UINTN)Start)[1] == 0x00))
+  {
+    EFI_STATUS  Status;
+    UINT32      DestSize;
+    UINT32      ScratchSize;
+    VOID        *Scratch;
+
+    DestSize    = 0;
+    ScratchSize = 0;
+    Status = LzmaUefiDecompressGetInfo (
+               (CONST VOID *)(UINTN)Start,
+               (UINT32)(End - Start),
+               &DestSize,
+               &ScratchSize
+               );
+    DEBUG ((DEBUG_ERROR, DEBUG_TAG "LZMA payload: size %u scratch %u (%r)\n", DestSize, ScratchSize, Status));
+    if (!EFI_ERROR (Status) && (DestSize != 0) && (DestSize <= 0x05000000)) {
+      Scratch = AllocatePool (ScratchSize);
+      if (Scratch != NULL) {
+        Status = LzmaUefiDecompress (
+                   (CONST VOID *)(UINTN)Start,
+                   (UINTN)(End - Start),
+                   (VOID *)(UINTN)0x83000000,
+                   Scratch
+                   );
+        FreePool (Scratch);
+        DEBUG ((DEBUG_ERROR, DEBUG_TAG "LZMA payload decompressed: %r\n", Status));
+        if (!EFI_ERROR (Status)) {
+          UINT8  *P = (UINT8 *)(UINTN)0x83000000;
+
+          {
+            CHAR8  Label[12];
+
+            CopyMem (Label, P + 71, 11);
+            Label[11] = 0;
+            DEBUG ((DEBUG_ERROR, DEBUG_TAG "payload head %02x %02x %02x %02x %02x %02x %02x %02x, label '%a'\n",
+                    P[0], P[1], P[2], P[3], P[4], P[5], P[6], P[7], Label));
+          }
+          DEBUG ((DEBUG_ERROR, DEBUG_TAG "payload bps=%u spc=%u fatsz=%u rootclus=%u total=%u\n",
+                  (UINT32)(P[11] | (P[12] << 8)), (UINT32)P[13],
+                  (UINT32)(P[36] | (P[37] << 8) | (P[38] << 16) | (P[39] << 24)),
+                  (UINT32)(P[44] | (P[45] << 8) | (P[46] << 16) | (P[47] << 24)),
+                  (UINT32)(P[32] | (P[33] << 8) | (P[34] << 16) | (P[35] << 24))));
+          PublishRamDisk (P, DestSize);
+          DEBUG ((DEBUG_ERROR, DEBUG_TAG "published media block=%u last=%lu\n",
+                  (UINT32)mMedia.BlockSize, (UINT64)mMedia.LastBlock));
+          DumpGst ("payload-done");
+          return;
+        }
+      }
+    }
+  }
+
   PublishRamDisk ((UINT8 *)(UINTN)Start, (UINTN)(End - Start));
 }
 
@@ -232,6 +321,17 @@ PublishRamDisk (
   DEBUG ((DEBUG_ERROR, DEBUG_TAG "ramdisk block device published: %r\n", Status));
 }
 
+STATIC
+VOID
+DumpGst (
+  IN CONST CHAR8  *Where
+  )
+{
+  DEBUG ((DEBUG_ERROR, DEBUG_TAG "gST[%a]: entries=%u table=0x%lx sig=0x%x\n",
+          Where, (UINT32)gST->NumberOfTableEntries,
+          (UINT64)(UINTN)gST->ConfigurationTable, gST->Hdr.Signature));
+}
+
 EFI_STATUS
 EFIAPI
 BbkA2PayloadInitialize (
@@ -254,6 +354,7 @@ BbkA2PayloadInitialize (
     return EFI_SUCCESS;
   }
 
+  DumpGst ("payload-enter");
   DEBUG ((DEBUG_ERROR, DEBUG_TAG "device tree at 0x%lx, %u bytes\n", Fdt, (UINT32)FdtTotalSize ((VOID *)(UINTN)Fdt)));
 
   //

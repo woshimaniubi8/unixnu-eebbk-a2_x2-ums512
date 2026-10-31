@@ -59,12 +59,17 @@ gMemoryDescriptor[] = {
   {"SEC Heap",           0x80680000, 0x00100000, AddMem,  SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK_XN},
   {"MMU PageTables",     0x80780000, 0x00040000, AddMem,  SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK_XN},
   {"UEFI FD",            0x80800000, 0x00400000, AddMem,  SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK},
-  // DXE heap: 0x80C00000..0x82000000.  It has to stop at the FDT cboot passes
-  // in x0 ([CB] start_linux x0 = 0x82000000) and at the Initrd window below.
-  // 20 MiB is enough for SEC/DXE + Shell + FAT + the payload block device; it
-  // is NOT enough for a large DarwinBoot kernel window, which is what the
+  // DXE heap: 0x80C00000..0x81FF0000.  It has to stop at the FDT cboot passes
+  // in x0 ([CB] start_linux x0 = 0x82000000), at the Initrd window below and
+  // at the vendor RebootEscrow reservation at 0x81FF0000 (0x10000 long) which
+  // sits just under the FDT; the Silicium MemoryPeim rejects overlapping
+  // regions with a CpuDeadLoop, and the first hardware boot died exactly on
+  // "DXE Heap" vs "RebootEscrow" (0x81FF0000 inside 0x80C00000..0x82000000).
+  // 19.94 MiB is enough for SEC/DXE + Shell + FAT + the payload block device;
+  // it is NOT enough for a large DarwinBoot kernel window, which is what the
   // "High RAM" donor further down is for.
-  {"DXE Heap",           0x80C00000, 0x01400000, AddMem,  SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK_XN},
+  {"DXE Heap",           0x80C00000, 0x013D0000, AddMem,  SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK_XN},
+  {"VarStore",           0x81FD0000, 0x00020000, AddMem,  MEM_RES, UNCACHEABLE,   Reserv, WRITE_BACK},
 
   // [CB] merged vendor FDT handed over in x0.  Size: the stock boot.img dtb is
   // 157748 bytes and the dtbo overlays add a few KiB, so 1 MiB is generous.
@@ -99,6 +104,20 @@ gMemoryDescriptor[] = {
 
   // [DT] display / boot logo buffer, still scanned out by the DPU after
   // handoff.  This is the framebuffer the GOP driver publishes.
+  //
+  // DRAM holes that the vendor map leaves unclaimed.  DarwinBoot needs ~50 MiB
+  // for kernel.macho plus room for the boot args and XNU itself, which the
+  // 19 MiB DXE heap cannot provide (AllocatePoolPages: failed to allocate
+  // 12692 pages).  These are handed to the UEFI allocator as Conventional.
+  //
+  //
+  // Everything above the vendor carve-outs is plain DRAM: U-Boot reports 1 GiB
+  // starting at 0x80000000, so 0xA0000000..0xC0000000 is real memory that the
+  // vendor map simply does not mention.  This is where DarwinBoot can get its
+  // multi-megabyte contiguous window from.
+  //
+  {"Darwin E",           0xA0000000, 0x20000000, AddMem,  SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK_XN},
+
   {"Display Reserved",   0x9E000000, 0x009E4000, AddMem,  MEM_RES, SYS_MEM_CAP,   Reserv, WRITE_THROUGH_XN},
 
   // [DT] ramoops: persistent log the firmware writes and Android reads back
@@ -111,7 +130,12 @@ gMemoryDescriptor[] = {
   {"AP AHB",             0x20100000, 0x00010000, AddDev,  MMAP_IO, UNCACHEABLE,   MmIO,   NS_DEVICE},
   {"DPU/GSP",            0x20300000, 0x00002000, AddDev,  MMAP_IO, UNCACHEABLE,   MmIO,   NS_DEVICE},
   {"DSI",                0x20400000, 0x00001000, AddDev,  MMAP_IO, UNCACHEABLE,   MmIO,   NS_DEVICE},
-  {"UART0-3",            0x70000000, 0x00040000, AddDev,  MMAP_IO, UNCACHEABLE,   MmIO,   NS_DEVICE},
+  // UART0/1/2/3 live at 0x70000000 / 0x70100000 / 0x70200000 / 0x70300000
+  // (stride 0x10000).  The region must span all four: SEC/DXE write the
+  // debug console on UART1 (0x70100000), and the old 0x40000 length only
+  // covered UART0, which caused a level-3 translation fault at 0x70100008
+  // the moment the MMU came on.
+  {"UART0-3",            0x70000000, 0x00400000, AddDev,  MMAP_IO, UNCACHEABLE,   MmIO,   NS_DEVICE},
   {"eMMC SDHCI",         0x71400000, 0x00001000, AddDev,  MMAP_IO, UNCACHEABLE,   MmIO,   NS_DEVICE},
   {"AP GPIO",            0x32070000, 0x00010000, AddDev,  MMAP_IO, UNCACHEABLE,   MmIO,   NS_DEVICE},
   {"EIC",                0x32000000, 0x00010000, AddDev,  MMAP_IO, UNCACHEABLE,   MmIO,   NS_DEVICE},

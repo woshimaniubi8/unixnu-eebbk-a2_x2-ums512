@@ -72,11 +72,30 @@
 .set SHIM_BASE, 0x80080000
 
 //
+//  ARM64 Image header fields.  A loader that reads text_offset/image_size
+//  (cboot may) sees a stock-looking header, while the copy parameters below
+//  stay FD_BASE/FD_SIZE.  Override with -DIMAGE_TEXT_OFFSET=... for a loader
+//  that expects the stock kernel values (0x80000 / BSS-inclusive image_size).
+//
+#ifndef IMAGE_TEXT_OFFSET
+#define IMAGE_TEXT_OFFSET FD_BASE
+#endif
+#ifndef IMAGE_SIZE_HEADER
+#define IMAGE_SIZE_HEADER (FD_SIZE + (_Payload - _Head))
+#endif
+#ifndef IMAGE_FLAGS
+#define IMAGE_FLAGS 0
+#endif
+
+//
 //  Optional panel stage markers (BBK_STAGE_COLORS).
 //
-//  cboot leaves the DPU scanning the "logobuffer" reserved region at
-//  0x9e000000 (U-Boot device tree: logobuffer@9e000000, size 0x9e4000) with
-//  the panel already initialised, so a bare-metal write there is visible.
+//  cboot leaves the DPU scanning the splash framebuffer, so a bare-metal write
+//  there is visible.  The U-Boot device tree says logobuffer@9e000000, but the
+//  real cboot log (uboot_log partition) says:
+//    [sprdfb][logo_mem_init] splashimage addr is 0x000000009d000000,
+//    fb size is 0x9e4000
+//  so 0x9D000000 is the address that actually reaches the panel on this board.
 //  The U-Boot DTS panel node for this board is lcd_himax8279_boe_mipi_fhd_bbk_H190:
 //  1200x1920, 4 DSI lanes, RGB888.
 //
@@ -89,7 +108,7 @@
 //
 #ifdef BBK_STAGE_COLORS
 #  ifndef BBK_FB_BASE
-#    define BBK_FB_BASE 0x9e000000
+#    define BBK_FB_BASE 0x9D000000
 #  endif
 #  ifndef BBK_FB_WIDTH
 #    define BBK_FB_WIDTH 1200
@@ -163,11 +182,11 @@ _Head:
   b     _Start                   // code1 (upper half of the same 8 bytes)
 
 _StackBase:
-  .quad FD_BASE                  // text_offset: where the payload wants to run
+  .quad IMAGE_TEXT_OFFSET        // ARM64 Image text_offset (see macro above)
 _StackSize:
-  .quad FD_SIZE + (_Payload - _Head)   // image_size: shim + firmware volume
+  .quad IMAGE_SIZE_HEADER        // ARM64 Image image_size (see macro above)
 
-  .quad 0                        // flags
+  .quad IMAGE_FLAGS              // flags
   .quad 0                        // reserved
   .quad 0                        // reserved
   .quad 0                        // reserved
@@ -179,6 +198,15 @@ _StackSize:
   // header stays inside the first 64-byte cache line pair cboot may inspect.
   .asciz "BBK-A2-UMS512"
   .balign 16
+
+  // Copy parameters, deliberately OUTSIDE the ARM64 Image header: the header
+  // fields above belong to the loader contract (some loaders inspect
+  // text_offset/image_size), while the shim always relocates the appended
+  // firmware volume to FD_BASE and always copies exactly FD_SIZE bytes.
+_FdBase:
+  .quad FD_BASE
+_CopySize:
+  .quad FD_SIZE + (_Payload - _Head)
 
 _Start:
   // Mask interrupts first: cboot may hand over with them live and its own
@@ -235,14 +263,13 @@ _Start:
 
   // x4 = source (_Payload), x5 = FD_BASE, x6 = FD size.
   adr   x4, _Payload
-  ldr   x5, _StackBase
+  ldr   x5, _FdBase
   cmp   x4, x5
   beq   _Entry
 
-  // image_size - shim length = FD_SIZE (see header above).  Deriving it here
-  // instead of using the FD_SIZE macro directly keeps the header and the copy
-  // length in lock-step: the packer only ever sees the header.
-  ldr   x6, _StackSize
+  // Copy size - shim length = FD_SIZE.  Derived from _CopySize (not from the
+  // Image header image_size) so an overridden header cannot change the copy.
+  ldr   x6, _CopySize
   adr   x7, _Payload
   adr   x8, _Head
   sub   x7, x7, x8
@@ -267,8 +294,8 @@ _Entry:
   mov   x10, #4
   lsl   x9, x10, x9               // cache line size in bytes
   sub   x10, x9, #1
-  ldr   x5, _StackBase
-  ldr   x6, _StackSize
+  ldr   x5, _FdBase
+  ldr   x6, _CopySize
   adr   x7, _Payload
   adr   x8, _Head
   sub   x7, x7, x8
@@ -323,7 +350,7 @@ _EnterSec:
   // stores x0 in gSecEntryArg0 and Sec.c turns it into the
   // gSiliciumEntryArgHobGuid HOB (DAEE82E6-8090-4E72-BFB9-78C13CD4E359).
   mov   x0, x19
-  ldr   x5, _StackBase
+  ldr   x5, _FdBase
   br    x5
 
 _Dead:

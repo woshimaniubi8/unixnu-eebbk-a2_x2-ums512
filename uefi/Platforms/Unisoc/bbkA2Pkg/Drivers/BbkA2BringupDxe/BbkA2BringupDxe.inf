@@ -27,17 +27,29 @@
 [LibraryClasses]
   BaseMemoryLib
   DebugLib
+  DevicePathLib
   MemoryAllocationLib
   PcdLib
   UefiBootServicesTableLib
   UefiDriverEntryPoint
+  UefiLib
   UefiRuntimeServicesTableLib
 
 [Guids]
   gEfiEndOfDxeEventGroupGuid                     ## CONSUMES
+  gEfiEventReadyToBootGuid                       ## CONSUMES
 
 [Protocols]
   gEfiGraphicsOutputProtocolGuid                 ## CONSUMES
+  gEfiFirmwareVolume2ProtocolGuid                ## CONSUMES
+  gEfiSimpleFileSystemProtocolGuid               ## CONSUMES
+  gEfiBlockIoProtocolGuid                        ## CONSUMES
+
+[Pcd]
+  gEfiMdeModulePkgTokenSpaceGuid.PcdEmuVariableNvStoreReserved
+  gEfiMdeModulePkgTokenSpaceGuid.PcdVariableStoreSize
+  gEfiMdeModulePkgTokenSpaceGuid.PcdMaxVariableSize
+  gEfiMdeModulePkgTokenSpaceGuid.PcdFirmwareRevision
 
 [FixedPcd]
   gUms512PkgTokenSpaceGuid.PcdBbkA2ResetAtEndOfDxe
