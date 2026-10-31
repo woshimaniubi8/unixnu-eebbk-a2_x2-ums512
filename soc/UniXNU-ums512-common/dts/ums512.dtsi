@@ -99,6 +99,7 @@
 			unixnu,adt-name = "intc";
 			reg = <0 0x12000000 0 0x20000>,	/* GICD */
 			      <0 0x12040000 0 0x100000>;	/* GICR, 8 frames */
+			AAPL,phandle = <0x1>;
 			#interrupt-cells = <3>;
 			#address-cells = <0>;
 			interrupt-controller;
