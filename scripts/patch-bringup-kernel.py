@@ -3,7 +3,7 @@
 
 The kernel is built from apple-oss-distributions/xnu with the BCM2837 machine
 configuration (the only non-Apple machine configuration XNU carries) plus the
-UMS512 patch series.  Three pieces of that machine configuration / image assume
+UMS512 patch series.  Four pieces of that machine configuration / image assume
 Apple hardware and abort the boot on UMS512:
 
 1. ``pexpert/arm/pe_init.c`` maps the BCM2837/Raspberry-Pi VRAM panic log at
@@ -23,6 +23,12 @@ Apple hardware and abort the boot on UMS512:
    ``patch-amfi-ct-policy.py`` rewrites the rejection branch so the signature is
    treated as suitable (see that file for the details and the alternative guard
    branch).  The device patch series keeps the sealed-root behaviour intact.
+
+4. The same kext then rejects the same image with
+   ``does not pass kernel-side policy for this model, bailing out``.
+   ``patch-amfi-model-policy.py`` nops the conditional branch that enters that
+   rejection block, so only the model-policy check is bypassed and the other
+   AMFI checks stay in place.
 
 All patches are pattern based so they survive unrelated rebuilds, and the
 script is idempotent.
@@ -48,13 +54,21 @@ AMFI_HELPER_EPILOGUE = struct.pack(
 )
 
 
-def load_amfi_ct_policy():
-    """Load the sibling patch-amfi-ct-policy.py (dashes keep it out of import)."""
-    path = Path(__file__).resolve().parent / "patch-amfi-ct-policy.py"
-    spec = importlib.util.spec_from_file_location("patch_amfi_ct_policy", path)
+def load_sibling(name, module_name):
+    """Load a sibling patch script (dashes keep the file out of the import path)."""
+    path = Path(__file__).resolve().parent / name
+    spec = importlib.util.spec_from_file_location(module_name, path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def load_amfi_ct_policy():
+    return load_sibling("patch-amfi-ct-policy.py", "patch_amfi_ct_policy")
+
+
+def load_amfi_model_policy():
+    return load_sibling("patch-amfi-model-policy.py", "patch_amfi_model_policy")
 
 
 
@@ -190,6 +204,20 @@ def patch_amfi_ct_policy(data, segments):
     return True
 
 
+def patch_amfi_model_policy(data, segments):
+    try:
+        message = load_amfi_model_policy().patch(data)
+    except ValueError as error:
+        print("amfi model-policy: %s" % error, file=sys.stderr)
+        return False
+    except FileNotFoundError:
+        print("amfi model-policy: patch-amfi-model-policy.py is missing next to this "
+              "script", file=sys.stderr)
+        return False
+    print(message)
+    return True
+
+
 def main():
     if len(sys.argv) != 2:
         print(__doc__.strip().splitlines()[-1], file=sys.stderr)
@@ -204,6 +232,7 @@ def main():
     ok = patch_vram_panic_log(data, segments)
     ok = patch_amfi_no_pmgr(data, segments) and ok
     ok = patch_amfi_ct_policy(data, segments) and ok
+    ok = patch_amfi_model_policy(data, segments) and ok
     if not ok:
         return 1
     with open(path, "wb") as handle:
