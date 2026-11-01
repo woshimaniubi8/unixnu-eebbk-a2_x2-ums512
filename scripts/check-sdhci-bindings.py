@@ -16,9 +16,9 @@ import struct
 import sys
 from pathlib import Path
 
-# IOStorageFamily __DATA_CONST extent + the dispatch table offset inside it; both
-# are pinned by the kernelcache sha256 recorded in the binding table.
-VTABLE = 0xFFFFFFF005CB44C0
+# The base vtable address comes from the binding table itself (it is recorded
+# there with the kernelcache pin), so a new IPSW only needs one place updated.
+FALLBACK_VTABLE = 0xFFFFFFF005CB44C0
 SLOTS = 190
 
 
@@ -54,8 +54,9 @@ def main():
     if len(bindings["slots"]) != SLOTS:
         raise SystemExit(f"binding table has {len(bindings['slots'])} slots, expected {SLOTS}")
     wanted = [int(value, 16) for value in bindings["slots"]]
+    vtable = int(bindings.get("vtable", hex(FALLBACK_VTABLE)), 16)
     table = segments(data)
-    actual = struct.unpack_from("<" + "Q" * SLOTS, read(data, table, VTABLE + 16, SLOTS * 8))
+    actual = struct.unpack_from("<" + "Q" * SLOTS, read(data, table, vtable + 16, SLOTS * 8))
     differences = [(index, want, got) for index, (want, got) in enumerate(zip(wanted, actual))
                    if want != got]
     if differences:

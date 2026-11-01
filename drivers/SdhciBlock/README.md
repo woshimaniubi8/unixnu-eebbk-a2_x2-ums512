@@ -117,6 +117,19 @@ the KDK AES kext, which a CI runner cannot provide):
 * The addresses stay valid because the archive is force-loaded at the end of
   `LD_KERNEL_ARCHIVES` (earlier kernel symbols keep their addresses) and the
   IOStorageFamily kext is placed by the prelink step at `original_va + slide`.
+  `LD_KERNEL_ARCHIVES` does participate in the kernel link though, so changing
+  this driver moves a handful of kernel symbols and makes the kernel-bound
+  slots stale: the table has to be re-derived from a kernel that already
+  contains the current driver (that is how `storage-bindings.json` is produced,
+  and why the prelink layouts of two driver versions differ by a few KiB).
+* `scripts/check-sdhci-bindings.py` is the CI guard: after `Build kernel` it
+  compares the prelinked kernel's base vtable with the committed table and fails
+  the run when they differ, so a stale table is never published.  The base
+  vtable address comes from the `vtable` field of `storage-bindings.json`, so a
+  new IPSW only has to update the table.  A manual dispatch with
+  `skip_bindings_check=true` is the derivation run: it produces the kernel the
+  new table is derived from (`build/rerive-sdhciblock-bindings.py`), and the
+  next normal run must pass the guard.
 
 ## Integration
 
