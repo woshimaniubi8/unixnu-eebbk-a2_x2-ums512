@@ -52,6 +52,9 @@ volatile uint64_t native_sdhci_userdata_first = 0;
 volatile uint64_t native_sdhci_userdata_last = 0;
 volatile uint32_t native_sdhci_ext_csd_ok = 0;
 volatile uint32_t native_sdhci_ext_csd_sectors = 0;
+volatile uint32_t native_sdhci_root_layout = 0;
+volatile uint64_t native_sdhci_window_base_lba = 0;
+volatile uint64_t native_sdhci_window_blocks = 0;
 volatile uint32_t native_sdhci_read_requests = 0;
 volatile uint32_t native_sdhci_read_failures = 0;
 volatile uint64_t native_sdhci_sectors = 0;
@@ -201,14 +204,18 @@ private:
     uintptr_t registers = 0;
     uint64_t descriptorPhysical = 0;
     uint64_t transferPhysical = 0;
-    uint64_t capacity = 0;             // sectors of the published userdata partition
-    uint64_t partitionFirstLba = 0;    // eMMC sector of partition sector 0
+    uint64_t capacity = 0;             // sectors of the published window
+    uint64_t partitionFirstLba = 0;    // eMMC sector of published window sector 0
+    uint64_t userdataFirstLba = 0;     // eMMC sector of the userdata partition
+    uint64_t userdataBlocks = 0;       // sectors of the userdata partition
+    bool windowPublished = false;      // publishing the SHNGROOT OS window
     bool online = false;
     bool ownsDevice = false;
     uint32_t lastStatus = 0;
     uint32_t lastPresentState = 0;
     uint16_t lastError = 0;
     uint8_t lastAdmaError = 0;
+    uint8_t manifestBlock[4096] = {};
 
     uint32_t read32(uint32_t offset) const
     {
@@ -244,6 +251,7 @@ private:
     bool readExtCsd();
     bool readGptHeader();
     bool findUserdataPartition();
+    bool readRootLayout();
     const uint8_t *sectorData() const
     {
         return static_cast<const uint8_t *>(transferMemory->getBytesNoCopy());
@@ -548,8 +556,12 @@ bool NativeSdhciBlock::findUserdataPartition()
                 native_sdhci_userdata_first = first;
                 native_sdhci_userdata_last = last;
                 native_sdhci_gpt_userdata = 1;
-                partitionFirstLba = first;
-                capacity = last - first + 1;
+                userdataFirstLba = first;
+                userdataBlocks = last - first + 1;
+                // Default: publish the whole partition.  readRootLayout() narrows
+                // this to the SHNGROOT OS window when the userdata image has one.
+                partitionFirstLba = userdataFirstLba;
+                capacity = userdataBlocks;
             }
         }
     }
@@ -558,6 +570,87 @@ bool NativeSdhciBlock::findUserdataPartition()
         return false;
     }
     return true;
+}
+
+// The userdata image starts with the SHNGROOT manifest the host tool writes
+// (unixnu userdata): "SHNGROOT", u32 version=1, u32 count, u64 image_bytes, then
+// count 128-byte entries { char name[32]; u64 offset; u64 size; u32 block_size;
+// u32 flags; u8 sha256[32]; 40 reserved }.  The OS entry is the GPT + APFS disk
+// the root-matching UUID lives on, so that window is what the block device has
+// to expose; a raw image without the manifest keeps publishing the whole
+// partition.
+bool NativeSdhciBlock::readRootLayout()
+{
+    constexpr uint32_t kManifestBytes = 4096;
+    constexpr uint32_t kManifestSectors = kManifestBytes / kBlockBytes;
+    constexpr uint32_t kEntryBytes = 128;
+    constexpr uint32_t kMaxEntries = (kManifestBytes - 24) / kEntryBytes;
+
+    if (userdataFirstLba == 0 || userdataBlocks < kManifestSectors) {
+        return false;
+    }
+    for (uint32_t sector = 0; sector < kManifestSectors; ++sector) {
+        if (!readSector(userdataFirstLba + sector)) {
+            IOLog("NativeSdhciBlock: SHNGROOT read failed at manifest sector %u\n", sector);
+            return false;
+        }
+        memcpy(manifestBlock + sector * kBlockBytes, sectorData(), kBlockBytes);
+    }
+    if (memcmp(manifestBlock, "SHNGROOT", 8) != 0) {
+        IOLog("NativeSdhciBlock: no SHNGROOT manifest at the userdata start\n");
+        return false;
+    }
+    uint32_t version = 0;
+    uint32_t count = 0;
+    uint64_t imageBytes = 0;
+    memcpy(&version, manifestBlock + 8, sizeof(version));
+    memcpy(&count, manifestBlock + 12, sizeof(count));
+    memcpy(&imageBytes, manifestBlock + 16, sizeof(imageBytes));
+    IOLog("NativeSdhciBlock: root layout SHNGROOT v%u entries=%u image_bytes=%llu\n",
+          version, count, imageBytes);
+    if (version != 1 || count == 0 || count > kMaxEntries) {
+        IOLog("NativeSdhciBlock: unusable SHNGROOT header\n");
+        return false;
+    }
+    for (uint32_t index = 0; index < count; ++index) {
+        const uint8_t *entry = manifestBlock + 24 + index * kEntryBytes;
+        char name[33] = {};
+        memcpy(name, entry, 32);
+        uint64_t offset = 0;
+        uint64_t size = 0;
+        uint32_t blockSize = 0;
+        uint32_t flags = 0;
+        memcpy(&offset, entry + 32, sizeof(offset));
+        memcpy(&size, entry + 40, sizeof(size));
+        memcpy(&blockSize, entry + 48, sizeof(blockSize));
+        memcpy(&flags, entry + 52, sizeof(flags));
+        IOLog("NativeSdhciBlock: root layout entry %u %s offset=0x%llx size=%llu block=%u flags=0x%x\n",
+              index, name, offset, size, blockSize, flags);
+        if (strcmp(name, "OS") != 0) {
+            continue;
+        }
+        if (blockSize != kBlockBytes || (offset % kBlockBytes) != 0 || (size % kBlockBytes) != 0) {
+            IOLog("NativeSdhciBlock: OS window is not 512-byte aligned\n");
+            return false;
+        }
+        const uint64_t firstSector = offset / kBlockBytes;
+        const uint64_t blocks = size / kBlockBytes;
+        if (blocks == 0 || firstSector >= userdataBlocks || blocks > userdataBlocks - firstSector) {
+            IOLog("NativeSdhciBlock: OS window lies outside the userdata partition\n");
+            return false;
+        }
+        partitionFirstLba = userdataFirstLba + firstSector;
+        capacity = blocks;
+        windowPublished = true;
+        native_sdhci_root_layout = 1;
+        native_sdhci_window_base_lba = partitionFirstLba;
+        native_sdhci_window_blocks = blocks;
+        IOLog("NativeSdhciBlock: window OS offset=0x%llx size=%llu blocks=0x%llx -> base_lba=0x%llx\n",
+              offset, size, blocks, partitionFirstLba);
+        return true;
+    }
+    IOLog("NativeSdhciBlock: SHNGROOT has no OS window\n");
+    return false;
 }
 
 bool NativeSdhciBlock::start(IOService *provider)
@@ -629,14 +722,18 @@ bool NativeSdhciBlock::start(IOService *provider)
         return false;
     }
 
+    IOLog("NativeSdhciBlock: userdata first=0x%llx last=0x%llx sectors=0x%llx bytes=%llu\n",
+          userdataFirstLba, native_sdhci_userdata_last, userdataBlocks,
+          userdataBlocks * static_cast<uint64_t>(kBlockBytes));
+    if (!readRootLayout()) {
+        IOLog("NativeSdhciBlock: falling back to the whole userdata partition as the block device\n");
+    }
+
     online = true;
     native_sdhci_ready = 1;
     native_sdhci_sectors = capacity;
-    IOLog("NativeSdhciBlock: userdata first=0x%llx last=0x%llx sectors=0x%llx bytes=%llu\n",
-          partitionFirstLba, native_sdhci_userdata_last, capacity,
-          capacity * static_cast<uint64_t>(kBlockBytes));
-    IOLog("NativeSdhciBlock: block device online, %llu blocks of %u bytes\n",
-          capacity, kBlockBytes);
+    IOLog("NativeSdhciBlock: block device online, 0x%llx blocks of %u bytes (%s)\n",
+          capacity, kBlockBytes, windowPublished ? "OS window" : "userdata partition");
     registerService();
     return true;
 }

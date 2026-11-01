@@ -2,13 +2,17 @@
 
 XNU kernel component for the UMS512 (SharkL5Pro / T610 family) eMMC controller.
 It attaches to the device-tree node, inherits the controller state cboot left
-behind and proves the eMMC read path from the kernel (EXT_CSD and the GPT).
+behind, proves the eMMC read path from the kernel (EXT_CSD and the GPT) and
+publishes the userdata root layout as a read-only IOKit block device.
 
 * controller: SDHCR11 at `0x71400000`, GIC SPI 10, 8-bit non-removable eMMC
 * transport: ADMA2, polled (the controller interrupt is never enabled)
 * runtime class: `NativeSdhciBlock` (catalog id `SdhciBlock`)
 * milestone 1: register file + eMMC read path, userdata window recorded
 * milestone 2: publish the userdata window as an `IOBlockStorageDevice`
+* milestone 3: publish the SHNGROOT `OS` window (GPT + APFS disk) instead of the
+  raw partition, falling back to the whole partition for images without the
+  manifest
 
 ## Why it inherits the bootloader state
 
@@ -54,16 +58,32 @@ partition starts at byte offset `0x132F800 * 512 = 0x265F00000`.
 
 ## Boot log
 
-On hardware the driver prints, in this order:
+On hardware the driver prints, in this order (values from the 62.log bring-up
+boot):
 
 ```
-NativeSdhciBlock: SDHCR11 phys=0x71400000 CAP=0x1e6d0080 version=0x... clk=0x0207 hc=0x20 hc2=0x3000 vendor204=0x30303060 ps=0x...
+NativeSdhciBlock: probe node=sdhci compatible=unixnu,sdhci-block sprd,sdhc-r11p1
+NativeSdhciBlock: probe matched node sdhci
+NativeSdhciBlock: start node=sdhci
+NativeSdhciBlock: SDHCR11 phys=0x71400000 CAP=0x1e6d0080 version=0x0004 clk=0x0207 hc=0x30 hc2=0x3800 vendor204=0x30303060 ps=0x01f000f0
 NativeSdhciBlock: EXT_CSD rev=0x08 sec_count=0xe8f8000 (119280 MiB)
 NativeSdhciBlock: GPT first=0x22 last=0xe8f7fde alt=0xe8f7fff entries@0x2 count=128 size=128
 NativeSdhciBlock: GPT [44] userdata first=0x132f800 last=0xe8f7fde blocks=0xd5c87df (109456 MiB)
-NativeSdhciBlock: userdata first=0x132f800 last=0xe8f7fde sectors=0xd5c87df bytes=...
-NativeSdhciBlock: eMMC read path ready, block device publication is the next milestone
+NativeSdhciBlock: userdata first=0x132f800 last=0xe8f7fde sectors=0xd5c87df bytes=114773966336
+NativeSdhciBlock: root layout SHNGROOT v1 entries=2 image_bytes=9382658048
+NativeSdhciBlock: root layout entry 0 OS offset=0x100000 size=6077580800 block=512 flags=0x1
+NativeSdhciBlock: window OS offset=0x100000 size=6077580800 blocks=0xb52043 -> base_lba=0x1330000
+NativeSdhciBlock: block device online, 0xb52043 blocks of 512 bytes (OS window)
 ```
+
+The SHNGROOT manifest lives at the start of the userdata partition: `"SHNGROOT"`,
+`u32 version=1`, `u32 count`, `u64 image_bytes`, then 128-byte entries
+`{ char name[32]; u64 offset; u64 size; u32 block_size; u32 flags; u8 sha256[32];
+40 reserved }`.  The `OS` window is the GPT + APFS disk whose volume carries the
+`root-matching` UUID, so the block device exposes that window
+(`base_lba = userdata_first_lba + offset/512`, `blocks = size/512`).  An image
+without the manifest (or without an `OS` entry) keeps publishing the whole
+userdata partition and says so in the log.
 
 ## Milestone 2: publishing the block device
 

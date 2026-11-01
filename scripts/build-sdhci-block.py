@@ -237,6 +237,10 @@ def main():
     subprocess.run(["xcrun", "ar", "rcs", str(archive), str(destination), str(bindings_object)], check=True)
     print(f"{identifier}: {len(resolved)} IOStorageFamily imports bound "
           f"({len(slots)} slots, {sum(1 for name in slots if name in defined)} overridden)")
+    for name, address in sorted(resolved.items()):
+        slot = by_name.get(name)
+        print(f"{identifier}: bind {name} -> {address}"
+              + (f" (slot {slot[0]})" if slot else " (class object)"))
     print(f"{identifier}: {archive}")
     return 0
 
