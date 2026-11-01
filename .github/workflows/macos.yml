@@ -225,11 +225,13 @@ jobs:
         working-directory: UniXNU
         run: |
           set -euxo pipefail
-          SEED=()
+          # macOS ships bash 3.2, where expanding an empty array under `set -u`
+          # fails; keep the optional argument in a plain string instead.
+          SEED=""
           if [ "${{ inputs.data_seed }}" = "true" ]; then
-            SEED=(--data-ramdisk build/owner-data-fixture/owner-data-32.cdr)
+            SEED="--data-ramdisk build/owner-data-fixture/owner-data-32.cdr"
           fi
-          ./unixnu build payload "${SEED[@]}" 2>&1 | tee "$GITHUB_WORKSPACE/payload.log"
+          ./unixnu build payload $SEED 2>&1 | tee "$GITHUB_WORKSPACE/payload.log"
 
       - name: Report artifacts
         if: always()
