@@ -24,6 +24,22 @@ config_fragments = ["arch:configs/common.config", "soc:configs/ums512.config", "
 # Unisoc kernel.  The SoC-independent XnuPrelink patches it also carried are
 # listed in the device series instead (patches/xnu/series).
 patch_series = ["arch:patches/xnu/series", "soc:patches/xnu/series", "device:patches/xnu/series"]
+# The arch profile lists its component archives explicitly, and archive_plan()
+# only auto-adds every selected component when no "component:" entry is
+# present.  This list is the arch profile's list plus the device-owned SDHCI
+# transport; the archive itself is force-loaded through
+# CONFIG_XNU_EXTRA_LD_ARCHIVES in the defconfig.
+archives = [
+  "build-corecrypto-14.py",
+  "build-corecrypto-14.py --namespace",
+  "component:ArmDTPlatform",
+  "component:ArmCpu",
+  "component:SoftwareAES",
+  "build-software-aes-bindings.py",
+  "build-mockfs-fixture.py",
+  "build-libpthread-kernel.py",
+  "component:SdhciBlock",
+]
 
 [device_tree]
 source = "device:dts/bbk-a2.dts"
