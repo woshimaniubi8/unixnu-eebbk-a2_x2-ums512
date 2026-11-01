@@ -11,8 +11,9 @@ the initial ``/private/var`` tree of the original OS volume, and that script
 needs the OS volume mounted at ``.cache/firmware/target-volumes/os-mount``.  This
 helper does the macOS side of that contract:
 
-1. ``./unixnu ipsw OS`` extracts ``044-76040-038.dmg`` from the pinned IPSW into
-   ``out/ipsw/<build>/`` (checked against ``[ipsw.sha256]``).
+1. ``./unixnu ipsw fetch OS`` extracts ``044-76040-038.dmg`` from the pinned
+   IPSW into ``out/ipsw/<build>/`` (checked against ``[ipsw.sha256]``; the
+   member is about 4.8 GiB, so the extraction dominates the CI step time).
 2. ``hdiutil attach`` mounts it read-only at
    ``.cache/firmware/target-volumes/os-mount``.
 3. ``scripts/prepare-owner-data-fixture.py`` writes
@@ -53,15 +54,13 @@ def sha256_file(path):
 
 
 def extract_os_dmg(tree):
-    """Return the OS dmg path; ``unixnu ipsw OS`` prints it on the last line."""
-    result = subprocess.run(["./unixnu", "ipsw", "OS"], cwd=tree, check=True,
-                            capture_output=True, text=True)
-    print(result.stderr, end="", file=sys.stderr)
-    lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-    if not lines:
-        raise SystemExit("unixnu ipsw OS printed no path")
-    path = Path(lines[-1])
-    if not path.is_file():
+    """Extract the pinned OS dmg from the IPSW (streams progress) and return its path."""
+    subprocess.run(["./unixnu", "ipsw", "fetch", "OS"], cwd=tree, check=True)
+    candidates = sorted((tree / "out/ipsw").glob("*/044-76040-038.dmg"))
+    if not candidates:
+        raise SystemExit("unixnu ipsw fetch OS did not produce 044-76040-038.dmg")
+    path = candidates[-1]
+    if not path.is_file() or path.stat().st_size == 0:
         raise SystemExit(f"the OS image was not extracted: {path}")
     return path
 
