@@ -105,6 +105,21 @@
 		sdhci: mmc@71400000 {
 			compatible = "unixnu,sdhci-block", "sprd,sdhc-r11p1";
 			unixnu,adt-name = "sdhci";
+			/* SHNGROOT root-layout window this instance publishes. */
+			unixnu,root-layout-window = "OS";
+			reg = <0 0x71400000 0 0x1000>;
+			interrupts = <0 10 4>;
+			status = "okay";
+		};
+		/* Second instance of the same SDHCR11 controller: the SystemOS window
+		 * carries the dyld shared cache and the SystemOS volume that the
+		 * offline-owner cache mount binds at /private/preboot.  Both instances
+		 * map the same registers and serialise their polled commands with a
+		 * global lock (NativeSdhciBlock::controllerLock). */
+		sdhci_systemos: mmc-systemos@71400000 {
+			compatible = "unixnu,sdhci-block", "sprd,sdhc-r11p1";
+			unixnu,adt-name = "sdhci-systemos";
+			unixnu,root-layout-window = "SystemOS";
 			reg = <0 0x71400000 0 0x1000>;
 			interrupts = <0 10 4>;
 			status = "okay";

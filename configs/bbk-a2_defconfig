@@ -28,3 +28,17 @@ CONFIG_XNU_NATIVE_ADRENO=n
 # repeated here because XNU_EXTRA_CFLAGS replaces them when it is set.
 CONFIG_XNU_EXTRA_CFLAGS="-Wno-reserved-identifier -Wno-pre-c11-compat -Wno-missing-designated-field-initializers -Wno-suggest-override -Wno-unnecessary-virtual-specifier -Wno-suggest-destructor-override -Wno-ms-bitfield-padding -DXNU_NATIVE_SDHCI_BLOCK=1"
 CONFIG_XNU_EXTRA_LD_ARCHIVES="-Wl,-force_load,{tree}/build/sdhciblock/libSdhciBlock.a"
+
+# Offline-owner dyld shared cache path (milestone 8).
+#
+# The OS volume has no dyld shared cache; the SystemOS window does.  The
+# offline-owner-systemos-mount patch mounts the SystemOS APFS volume at
+# /private/preboot and exports DYLD_SHARED_CACHE_DIR to launchd, and the
+# offline-owner-cache-carrier patch lets the shared region map the cache from
+# that volume.  Both are per-object defines in build-xnu-4k-baseline.sh
+# (CONFIG_XNU_* becomes the XNU_* environment variable), and the cache-carrier
+# code additionally requires !CONFIG_CSR, which the BCM2837 DEVELOPMENT config
+# sets do not define.  The UUID is the SystemOS volume of this image.
+CONFIG_XNU_OWNER_CACHE_MOUNT=y
+CONFIG_XNU_OWNER_CACHE_CARRIER=y
+CONFIG_XNU_OWNER_CACHE_VOLUME_UUID="8846FE78-2910-4297-AF97-D59BB6F8FC16"

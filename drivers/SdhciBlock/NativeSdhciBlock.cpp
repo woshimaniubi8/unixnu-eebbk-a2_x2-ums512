@@ -36,12 +36,19 @@
 // UEFI takeover driver does as well.
 
 #include <IOKit/IOBufferMemoryDescriptor.h>
+#include <IOKit/IOBSD.h>
 #include <IOKit/IODeviceMemory.h>
 #include <IOKit/IOLib.h>
 #include <IOKit/storage/IOBlockStorageDevice.h>
 #include <libkern/c++/OSData.h>
+#include <libkern/c++/OSDictionary.h>
+#include <libkern/c++/OSIterator.h>
+#include <libkern/c++/OSNumber.h>
+#include <libkern/c++/OSString.h>
 #include <kern/clock.h>
 #include <kern/task.h>
+#include <sys/param.h>
+#include <sys/types.h>
 
 extern "C" {
 // Observation counters for the CI / UART bring-up checks: the values are read
@@ -60,6 +67,24 @@ volatile uint32_t native_sdhci_read_failures = 0;
 volatile uint64_t native_sdhci_sectors = 0;
 volatile uint64_t native_sdhci_mmio_physical = 0;
 }
+
+namespace {
+
+// Both driver instances (the OS and the SystemOS SHNGROOT window) drive the
+// same SDHCR11 controller.  The transport is polled and never enables the
+// controller interrupt, so one global lock around each command keeps the two
+// instances from interleaving register accesses; each instance owns its own
+// descriptor and transfer buffers, so the data itself is never shared.
+IOLock *controllerLock()
+{
+    static IOLock *lock = nullptr;
+    if (!lock) {
+        lock = IOLockAlloc();
+    }
+    return lock;
+}
+
+} // namespace
 
 namespace {
 
@@ -216,6 +241,7 @@ private:
     uint16_t lastError = 0;
     uint8_t lastAdmaError = 0;
     uint8_t manifestBlock[4096] = {};
+    char windowName[32] = {};          // SHNGROOT window this instance publishes
 
     uint32_t read32(uint32_t offset) const
     {
@@ -247,6 +273,7 @@ private:
 
     bool waitCommandIdle(uint32_t milliseconds);
     bool dataCommand(uint32_t commandIndex, uint64_t argument);
+    bool dataCommandLocked(uint32_t commandIndex, uint64_t argument);
     bool readSector(uint64_t emmcLba);
     bool readExtCsd();
     bool readGptHeader();
@@ -351,6 +378,19 @@ bool NativeSdhciBlock::waitCommandIdle(uint32_t milliseconds)
 }
 
 bool NativeSdhciBlock::dataCommand(uint32_t commandIndex, uint64_t argument)
+{
+    IOLock *lock = controllerLock();
+    if (lock) {
+        IOLockLock(lock);
+    }
+    const bool ok = dataCommandLocked(commandIndex, argument);
+    if (lock) {
+        IOLockUnlock(lock);
+    }
+    return ok;
+}
+
+bool NativeSdhciBlock::dataCommandLocked(uint32_t commandIndex, uint64_t argument)
 {
     if (!ownsDevice || !registers) {
         return false;
@@ -626,17 +666,17 @@ bool NativeSdhciBlock::readRootLayout()
         memcpy(&flags, entry + 52, sizeof(flags));
         IOLog("NativeSdhciBlock: root layout entry %u %s offset=0x%llx size=%llu block=%u flags=0x%x\n",
               index, name, offset, size, blockSize, flags);
-        if (strcmp(name, "OS") != 0) {
+        if (strcmp(name, windowName) != 0) {
             continue;
         }
         if (blockSize != kBlockBytes || (offset % kBlockBytes) != 0 || (size % kBlockBytes) != 0) {
-            IOLog("NativeSdhciBlock: OS window is not 512-byte aligned\n");
+            IOLog("NativeSdhciBlock: %s window is not 512-byte aligned\n", windowName);
             return false;
         }
         const uint64_t firstSector = offset / kBlockBytes;
         const uint64_t blocks = size / kBlockBytes;
         if (blocks == 0 || firstSector >= userdataBlocks || blocks > userdataBlocks - firstSector) {
-            IOLog("NativeSdhciBlock: OS window lies outside the userdata partition\n");
+            IOLog("NativeSdhciBlock: %s window lies outside the userdata partition\n", windowName);
             return false;
         }
         partitionFirstLba = userdataFirstLba + firstSector;
@@ -645,11 +685,11 @@ bool NativeSdhciBlock::readRootLayout()
         native_sdhci_root_layout = 1;
         native_sdhci_window_base_lba = partitionFirstLba;
         native_sdhci_window_blocks = blocks;
-        IOLog("NativeSdhciBlock: window OS offset=0x%llx size=%llu blocks=0x%llx -> base_lba=0x%llx\n",
-              offset, size, blocks, partitionFirstLba);
+        IOLog("NativeSdhciBlock: window %s offset=0x%llx size=%llu blocks=0x%llx -> base_lba=0x%llx\n",
+              windowName, offset, size, blocks, partitionFirstLba);
         return true;
     }
-    IOLog("NativeSdhciBlock: SHNGROOT has no OS window\n");
+    IOLog("NativeSdhciBlock: SHNGROOT has no %s window\n", windowName);
     return false;
 }
 
@@ -659,6 +699,29 @@ bool NativeSdhciBlock::start(IOService *provider)
         return false;
     }
     IOLog("NativeSdhciBlock: start node=%s\n", provider->getName());
+    // The device tree gives each instance the SHNGROOT window it publishes:
+    // "OS" for the root disk and "SystemOS" for the preboot/dyld-cache disk.
+    // The ADT generator keeps only name/compatible/reg/interrupts, so the node
+    // name (unixnu,adt-name in the DTS) is what the kernel sees; the property is
+    // still honoured when a device tree does carry it.
+    OSString *windowString = OSDynamicCast(OSString, provider->getProperty("unixnu,root-layout-window"));
+    OSData *windowData = OSDynamicCast(OSData, provider->getProperty("unixnu,root-layout-window"));
+    const char *nodeName = provider->getName();
+    if (windowString) {
+        strlcpy(windowName, windowString->getCStringNoCopy(), sizeof(windowName));
+    } else if (windowData && windowData->getLength() > 0) {
+        size_t length = windowData->getLength();
+        if (length >= sizeof(windowName)) {
+            length = sizeof(windowName) - 1;
+        }
+        memcpy(windowName, windowData->getBytesNoCopy(), length);
+        windowName[length] = '\0';
+    } else if (nodeName && strstr(nodeName, "systemos")) {
+        strlcpy(windowName, "SystemOS", sizeof(windowName));
+    } else {
+        strlcpy(windowName, "OS", sizeof(windowName));
+    }
+    IOLog("NativeSdhciBlock: window=%s\n", windowName);
     if (!IOBlockStorageDevice::start(provider)) {
         IOLog("NativeSdhciBlock: IOBlockStorageDevice::start failed\n");
         return false;
@@ -726,14 +789,25 @@ bool NativeSdhciBlock::start(IOService *provider)
           userdataFirstLba, native_sdhci_userdata_last, userdataBlocks,
           userdataBlocks * static_cast<uint64_t>(kBlockBytes));
     if (!readRootLayout()) {
+        if (strcmp(windowName, "OS") != 0) {
+            IOLog("NativeSdhciBlock: no %s window, not publishing a block device\n", windowName);
+            return false;
+        }
         IOLog("NativeSdhciBlock: falling back to the whole userdata partition as the block device\n");
+        partitionFirstLba = userdataFirstLba;
+        capacity = userdataBlocks;
     }
 
     online = true;
     native_sdhci_ready = 1;
     native_sdhci_sectors = capacity;
-    IOLog("NativeSdhciBlock: block device online, 0x%llx blocks of %u bytes (%s)\n",
-          capacity, kBlockBytes, windowPublished ? "OS window" : "userdata partition");
+    if (windowPublished) {
+        IOLog("NativeSdhciBlock: block device online, 0x%llx blocks of %u bytes (%s window)\n",
+              capacity, kBlockBytes, windowName);
+    } else {
+        IOLog("NativeSdhciBlock: block device online, 0x%llx blocks of %u bytes (userdata partition)\n",
+              capacity, kBlockBytes);
+    }
     registerService();
     return true;
 }
@@ -797,4 +871,90 @@ void NativeSdhciBlock::free()
     registers = 0;
     ownsDevice = false;
     IOBlockStorageDevice::free();
+}
+
+// BBK A2/X2 bring-up owner self-certification.
+//
+// The offline-owner kernel patches (XNU_OWNER_CACHE_MOUNT and
+// XNU_OWNER_CACHE_CARRIER) ask the block transport whether a device or volume
+// belongs to the image this kernel booted from: the root volume must be the one
+// the owner published, and the cache volume (SystemOS) must be the second
+// window.  This transport publishes windows of the owner's own userdata image,
+// so the owner vouches for every device it publishes.  A production driver
+// would verify a signed root manifest here instead (see the VirtioMmioBlock
+// implementation for that shape); the bring-up build deliberately keeps the
+// owner responsible for its own image.
+extern "C" int native_verified_block_root_authorized(dev_t device)
+{
+    (void)device;
+    return 1;
+}
+
+// Resolve a volume UUID to the BSD device of its IOMedia, so the offline-owner
+// patches can mount the SystemOS volume at /private/preboot and can recognise
+// the dyld shared cache carrier.  AppleAPFSContainerScheme publishes the volume
+// IOMedia with the volume UUID and the BSD name/major/minor properties.
+extern "C" int native_verified_block_volume_device(const char *uuid, dev_t *device, char *path,
+                                                   size_t size)
+{
+    if (!uuid || !device || !path || size < 6 || strlen(uuid) != 36) {
+        return 0;
+    }
+    *device = NODEV;
+    path[0] = 0;
+    OSDictionary *matching = IOService::serviceMatching("IOMedia");
+    OSDictionary *properties = OSDictionary::withCapacity(1);
+    OSString *wanted = OSString::withCString(uuid);
+    if (!matching || !properties || !wanted) {
+        OSSafeReleaseNULL(wanted);
+        OSSafeReleaseNULL(properties);
+        OSSafeReleaseNULL(matching);
+        return 0;
+    }
+    bool ready = properties->setObject("UUID", wanted) &&
+                 matching->setObject("IOPropertyMatch", properties);
+    wanted->release();
+    properties->release();
+    OSIterator *iterator = ready ? IOService::getMatchingServices(matching) : nullptr;
+    matching->release();
+    if (!iterator) {
+        return 0;
+    }
+    unsigned matches = 0;
+    bool authenticated = false;
+    dev_t candidate = NODEV;
+    char candidatePath[64] = {};
+    while (OSObject *object = iterator->getNextObject()) {
+        IOService *media = OSDynamicCast(IOService, object);
+        if (!media) {
+            continue;
+        }
+        if (++matches != 1) {
+            authenticated = false;
+            break;
+        }
+        OSString *identity = OSDynamicCast(OSString, media->getProperty("UUID"));
+        OSString *name = OSDynamicCast(OSString, media->getProperty(kIOBSDNameKey));
+        OSNumber *major = OSDynamicCast(OSNumber, media->getProperty(kIOBSDMajorKey));
+        OSNumber *minor = OSDynamicCast(OSNumber, media->getProperty(kIOBSDMinorKey));
+        if (!identity || strcmp(identity->getCStringNoCopy(), uuid) || !name || !major || !minor ||
+            !name->getLength() || name->getLength() >= sizeof(candidatePath) - 6 ||
+            name->getLength() >= size - 6 || major->unsigned64BitValue() > 255 ||
+            minor->unsigned64BitValue() > 0xffffff) {
+            continue;
+        }
+        candidate = static_cast<dev_t>(makedev(major->unsigned32BitValue(), minor->unsigned32BitValue()));
+        if (!native_verified_block_root_authorized(candidate)) {
+            continue;
+        }
+        snprintf(candidatePath, sizeof(candidatePath), "/dev/%s", name->getCStringNoCopy());
+        authenticated = true;
+    }
+    iterator->release();
+    if (!authenticated || matches != 1) {
+        return 0;
+    }
+    *device = candidate;
+    strlcpy(path, candidatePath, size);
+    return 1;
 }
