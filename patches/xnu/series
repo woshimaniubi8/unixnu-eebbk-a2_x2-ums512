@@ -20,3 +20,9 @@ sdhci-block-personality.patch
 # patch keeps the original panic when the argument is absent, so the sealed-root
 # behaviour is unchanged without it.
 bbk-a2-skip-root-auth.patch
+
+# TEMPORARY bring-up instrumentation for the offline owner cache path (milestone
+# 9): prints the SystemOS mount, the dyld cache lookups, the shared-region
+# carrier decision and the injected DYLD_SHARED_CACHE_DIR.  Remove this entry
+# once the shared region works.
+bbk-a2-owner-cache-debug.patch

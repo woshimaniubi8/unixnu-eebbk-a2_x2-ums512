@@ -1,0 +1,169 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index bcdc36a..2506a9c 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7096,10 +7096,14 @@ native_owner_cache_prepare(proc_t p, user_addr_t scratch, user_addr_t *envp)
+ 	if (device_vnode) vnode_put(device_vnode);
+ 	root_authorized = (vfs_flags(root_mount) & MNT_RDONLY) && root_device != NODEV &&
+ 	    native_verified_block_root_authorized(root_device);
++	printf("bbk cache: volume=%s mountpoint=%s rootdev=0x%x rootro=%d rootauth=%d\n",
++	    volume, mountpoint, (unsigned)root_device,
++	    (vfs_flags(root_mount) & MNT_RDONLY) != 0, root_authorized);
+ 	if (!root_authorized) goto done;
+ 	native_owner_cache_stage = 1;
+ 	if (!native_verified_block_volume_device(volume, &selected, device_path,
+ 	    sizeof(device_path))) goto done;
++	printf("bbk cache: volume device=%s dev=0x%x\n", device_path, (unsigned)selected);
+ 	strlcpy(native_owner_cache_device_path, device_path, sizeof(native_owner_cache_device_path));
+ 	native_owner_cache_selected_device = selected;
+ 	native_owner_cache_stage = 2;
+@@ -7116,6 +7120,7 @@ native_owner_cache_prepare(proc_t p, user_addr_t scratch, user_addr_t *envp)
+ 	native_owner_cache_stage = 3;
+ 	error = mount(p, &request, &result);
+ 	native_owner_cache_mount_status = error;
++	printf("bbk cache: mount err=%d result=%d\n", error, result);
+ 	if (error) goto done;
+ 	native_owner_cache_stage = 4;
+ 	error = vnode_lookup(mountpoint, 0, &mounted_root, vfs_context_current());
+@@ -7134,6 +7139,20 @@ native_owner_cache_prepare(proc_t p, user_addr_t scratch, user_addr_t *envp)
+ 	native_owner_cache_native_union = native_union;
+ 	cache_authorized = readonly && actual == selected &&
+ 	    !strcmp(vfs_statfs(cache_mount)->f_fstypename, "apfs") && native_verified_block_root_authorized(actual);
++	printf("bbk cache: mounted at %s lookup=%d dev=0x%x selected=0x%x ro=%d fstype=%s auth=%d\n",
++	    mountpoint, error, (unsigned)actual, (unsigned)selected, readonly,
++	    vfs_statfs(cache_mount)->f_fstypename, cache_authorized);
++	{
++		vnode_t dbg_dir = NULLVP, dbg_file = NULLVP;
++		int dir_err = vnode_lookup("/private/preboot/System/Library/Caches/com.apple.dyld",
++		    0, &dbg_dir, vfs_context_current());
++		int file_err = vnode_lookup(
++		    "/private/preboot/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64",
++		    0, &dbg_file, vfs_context_current());
++		printf("bbk cache: lookup dir err=%d file err=%d\n", dir_err, file_err);
++		if (dbg_dir) vnode_put(dbg_dir);
++		if (dbg_file) vnode_put(dbg_file);
++	}
+ #if defined(XNU_OWNER_UNION_SYSTEMOS) && XNU_OWNER_UNION_SYSTEMOS
+ 	cache_authorized = cache_authorized && native_union;
+ #endif
+@@ -7155,6 +7174,8 @@ done:
+ 	int root_recheck = root_authorized && native_verified_block_root_authorized(root_device);
+ 	native_owner_cache_root_recheck = root_recheck;
+ 	if (!root_recheck) error = EAUTH;
++	printf("bbk cache: done err=%d cacheauth=%d rootrecheck=%d envp=0x%llx\n",
++	    error, cache_authorized, root_recheck, (unsigned long long)*envp);
+ #if defined(XNU_OWNER_BOOT_MANIFEST) && XNU_OWNER_BOOT_MANIFEST
+ 	if (!error && cache_authorized && root_recheck &&
+ 	    !native_owner_publish_boot_manifest(root_device, "04769D26-2CA0-4825-B443-E2E5F88300F2",
+@@ -8117,6 +8138,17 @@ load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path,
+ 	init_exec_args.fname = argv0;
+ 	init_exec_args.argp = scratch_addr;
+ 	init_exec_args.envp = envp;
++	if (envp != USER_ADDR_NULL) {
++		char dbg_env[96] = {0};
++		user_addr_t dbg_string = 0;
++		if (copyin(envp, &dbg_string, sizeof(dbg_string)) == 0 && dbg_string != 0) {
++			(void)copyin(dbg_string, dbg_env, sizeof(dbg_env) - 1);
++		}
++		printf("bbk exec: envp=0x%llx first=0x%llx env=%s\n",
++		    (unsigned long long)envp, (unsigned long long)dbg_string, dbg_env);
++	} else {
++		printf("bbk exec: envp=NULL\n");
++	}
+ 
+ 	/*
+ 	 * So that init task is set with uid,gid 0 token
+@@ -8181,6 +8213,8 @@ load_init_program(proc_t p)
+ 	user_addr_t init_envp = USER_ADDR_NULL;
+ #if defined(XNU_OWNER_CACHE_MOUNT) && XNU_OWNER_CACHE_MOUNT
+ 	int cache_error = native_owner_cache_prepare(p, (user_addr_t)scratch_addr, &init_envp);
++	printf("bbk init: cache_prepare err=%d envp=0x%llx\n", cache_error,
++	    (unsigned long long)init_envp);
+ 	if (cache_error) panic("offline owner SystemOS mount failed: %d", cache_error);
+ #endif
+ #if defined(XNU_OWNER_DATA_MOUNT) && XNU_OWNER_DATA_MOUNT
+diff --git a/bsd/vm/vm_unix.c b/bsd/vm/vm_unix.c
+index dcebcb8..a973bf2 100644
+--- a/bsd/vm/vm_unix.c
++++ b/bsd/vm/vm_unix.c
+@@ -2130,6 +2130,8 @@ shared_region_check_np(
+ 		} else {
+ 			/* retrieve address of its first mapping... */
+ 			kr = vm_shared_region_start_address(shared_region, &start_address, task);
++			printf("bbk sr: check_np pid=%d kr=0x%x start=0x%llx\n",
++			    proc_getpid(p), kr, (unsigned long long)start_address);
+ 			if (kr != KERN_SUCCESS) {
+ 				SHARED_REGION_TRACE_ERROR(("shared_region: %p [%d(%s)] "
+ 				    "check_np(0x%llx) "
+@@ -2247,15 +2249,22 @@ native_owner_shared_cache_carrier(vnode_t process_root, vnode_t file)
+ #endif
+ 	const char *directory = "/private/preboot/System/Library/Caches/com.apple.dyld";
+ 	vnode_t expected_parent = NULLVP, device_vnode;
++	mount_t root_mount = NULL, cache_mount = NULL;
+ 	dev_t root_device = NODEV, cache_device = NODEV, expected = NODEV;
+ 	char device_path[64];
+ 	boolean_t authorized = FALSE;
+-	if (process_root != rootvnode || !file || vnode_vtype(file) != VREG) goto out;
+-	mount_t root_mount = vnode_mount(process_root), cache_mount = vnode_mount(file);
+-	if (!root_mount || !cache_mount || root_mount == cache_mount ||
+-	    !(vfs_flags(root_mount) & MNT_RDONLY) || !(vfs_flags(cache_mount) & MNT_RDONLY) ||
+-	    strcmp(vfs_statfs(root_mount)->f_fstypename, "apfs") ||
+-	    strcmp(vfs_statfs(cache_mount)->f_fstypename, "apfs")) goto out;
++	int root_ok = 0, file_ok = 0, mounts_ok = 0, rootvol_ok = 0, rootmatch_ok = 0;
++	int cachevol_ok = 0, cachematch_ok = 0, dir_ok = 0, parent_ok = 0, rootauth_ok = 0;
++	root_ok = (process_root == rootvnode);
++	file_ok = (file != NULL && vnode_vtype(file) == VREG);
++	if (!root_ok || !file_ok) goto out;
++	root_mount = vnode_mount(process_root);
++	cache_mount = vnode_mount(file);
++	mounts_ok = (root_mount && cache_mount && root_mount != cache_mount &&
++	    (vfs_flags(root_mount) & MNT_RDONLY) && (vfs_flags(cache_mount) & MNT_RDONLY) &&
++	    !strcmp(vfs_statfs(root_mount)->f_fstypename, "apfs") &&
++	    !strcmp(vfs_statfs(cache_mount)->f_fstypename, "apfs"));
++	if (!mounts_ok) goto out;
+ 	device_vnode = vfs_devvp(root_mount);
+ 	if (device_vnode) {
+ 		root_device = vnode_specrdev(device_vnode);
+@@ -2266,16 +2275,26 @@ native_owner_shared_cache_carrier(vnode_t process_root, vnode_t file)
+ 		cache_device = vnode_specrdev(device_vnode);
+ 		vnode_put(device_vnode);
+ 	}
+-	if (root_device == NODEV || cache_device == NODEV ||
+-	    !native_verified_block_volume_device(root_uuid, &expected, device_path, sizeof(device_path)) ||
+-	    expected != root_device ||
+-	    !native_verified_block_volume_device(cache_uuid, &expected, device_path, sizeof(device_path)) ||
+-	    expected != cache_device) goto out;
+-	if (vnode_lookup(directory, 0, &expected_parent, vfs_context_current())) goto out;
+-	authorized = vnode_vtype(expected_parent) == VDIR && vnode_mount(expected_parent) == cache_mount &&
+-	    vnode_parent(file) == expected_parent && native_verified_block_root_authorized(root_device);
++	rootvol_ok = native_verified_block_volume_device(root_uuid, &expected, device_path,
++	    sizeof(device_path));
++	rootmatch_ok = rootvol_ok && expected == root_device;
++	cachevol_ok = native_verified_block_volume_device(cache_uuid, &expected, device_path,
++	    sizeof(device_path));
++	cachematch_ok = cachevol_ok && expected == cache_device;
++	if (root_device == NODEV || cache_device == NODEV || !rootmatch_ok || !cachematch_ok) goto out;
++	dir_ok = (vnode_lookup(directory, 0, &expected_parent, vfs_context_current()) == 0);
++	if (!dir_ok) goto out;
++	parent_ok = (vnode_vtype(expected_parent) == VDIR) && vnode_mount(expected_parent) == cache_mount &&
++	    vnode_parent(file) == expected_parent;
++	rootauth_ok = native_verified_block_root_authorized(root_device);
++	authorized = parent_ok && rootauth_ok;
+ out:
+ 	if (expected_parent) vnode_put(expected_parent);
++	printf("bbk carrier: root=%d file=%d mounts=%d rootdev=0x%x cachedev=0x%x rootvol=%d "
++	    "rootmatch=%d cachevol=%d cachematch=%d dir=%d parent=%d rootauth=%d auth=%d\n",
++	    root_ok, file_ok, mounts_ok, (unsigned)root_device, (unsigned)cache_device,
++	    rootvol_ok, rootmatch_ok, cachevol_ok, cachematch_ok, dir_ok, parent_ok,
++	    rootauth_ok, authorized);
+ 	native_owner_cache_carrier_root_device = root_device;
+ 	native_owner_cache_carrier_file_device = cache_device;
+ 	if (authorized) os_atomic_inc(&native_owner_cache_carrier_accepts, relaxed);
+@@ -2622,6 +2641,7 @@ after_root_check:
+ 		if (srfmp->vp->v_mount != rdir_vp->v_mount) {
+ #if defined(XNU_OWNER_CACHE_CARRIER) && XNU_OWNER_CACHE_CARRIER
+ 			owner_carrier = native_owner_shared_cache_carrier(rdir_vp, srfmp->vp);
++			printf("bbk sr: map_and_slide carrier=%d\n", owner_carrier);
+ #endif
+ 			vnode_t preboot_vp = NULL;
+ #if XNU_TARGET_OS_OSX
