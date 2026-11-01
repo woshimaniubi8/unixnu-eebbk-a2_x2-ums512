@@ -161,6 +161,20 @@ jobs:
           set -euxo pipefail
           ./unixnu build kernel 2>&1 | tee "$GITHUB_WORKSPACE/kernel.log"
 
+      - name: Check the SdhciBlock storage bindings against the kernel
+        # The driver's IOStorageFamily imports are bound to absolute addresses
+        # (drivers/SdhciBlock/storage-bindings.json) because IOStorageFamily is
+        # not part of the kernel link.  LD_KERNEL_ARCHIVES participates in that
+        # link, so changing the driver moves kernel symbols and makes the table
+        # stale; fail here instead of publishing a kernel with bad dispatch slots.
+        working-directory: UniXNU
+        run: |
+          set -euxo pipefail
+          KERNEL=$(ls out/*/*/*/kernel/kernel.macho | head -n 1)
+          test -f "$KERNEL"
+          python3 "$GITHUB_WORKSPACE/device/scripts/check-sdhci-bindings.py" "$KERNEL" \
+            "$GITHUB_WORKSPACE/device/drivers/SdhciBlock/storage-bindings.json"
+
       - name: Apply BBK A2 bring-up kernel patches
         working-directory: UniXNU
         run: |
@@ -220,6 +234,7 @@ jobs:
             kernel.log
             payload.log
             status.txt
+            UniXNU/out/*/*/*/logs/*.log
           if-no-files-found: warn
           retention-days: 7
 
