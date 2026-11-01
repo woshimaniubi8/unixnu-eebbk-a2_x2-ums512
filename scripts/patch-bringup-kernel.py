@@ -3,8 +3,8 @@
 
 The kernel is built from apple-oss-distributions/xnu with the BCM2837 machine
 configuration (the only non-Apple machine configuration XNU carries) plus the
-UMS512 patch series.  Two pieces of that machine configuration assume Apple
-hardware and abort the boot on UMS512:
+UMS512 patch series.  Three pieces of that machine configuration / image assume
+Apple hardware and abort the boot on UMS512:
 
 1. ``pexpert/arm/pe_init.c`` maps the BCM2837/Raspberry-Pi VRAM panic log at
    physical 0x3C0FC000 and dereferences it.  Nothing is mapped there on this
@@ -17,14 +17,23 @@ hardware and abort the boot on UMS512:
    NULL check; rewrite the helper so it restores its caller's frame and
    returns instead of panicking.
 
-Both patches are pattern based so they survive unrelated rebuilds, and the
+3. The same kext rejects the adhoc-signed OS image with
+   ``unsuitable CT policy ... rejecting signature`` because the OS volume has no
+   system-volume-auth-blob in the device tree; that stops launchd and dyld.
+   ``patch-amfi-ct-policy.py`` rewrites the rejection branch so the signature is
+   treated as suitable (see that file for the details and the alternative guard
+   branch).  The device patch series keeps the sealed-root behaviour intact.
+
+All patches are pattern based so they survive unrelated rebuilds, and the
 script is idempotent.
 
 Usage: patch-bringup-kernel.py <kernel.macho>
 """
 
+import importlib.util
 import struct
 import sys
+from pathlib import Path
 
 VRAM_OLD = struct.pack("<II", 0x52980000, 0x72A781E0)  # mov w0,#0xC000 ; movk w0,#0x3C0F,lsl#16
 VRAM_NEW = struct.pack("<II", 0x52800000, 0x72B3C000)  # mov w0,#0 ; movk w0,#0x9E00,lsl#16
@@ -37,6 +46,16 @@ AMFI_HELPER_EPILOGUE = struct.pack(
     0xD65F03C0,  # ret
     0xD503201F,  # nop
 )
+
+
+def load_amfi_ct_policy():
+    """Load the sibling patch-amfi-ct-policy.py (dashes keep it out of import)."""
+    path = Path(__file__).resolve().parent / "patch-amfi-ct-policy.py"
+    spec = importlib.util.spec_from_file_location("patch_amfi_ct_policy", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
 
 
 def read_segments(data):
@@ -157,6 +176,20 @@ def patch_amfi_no_pmgr(data, segments):
     return True
 
 
+def patch_amfi_ct_policy(data, segments):
+    try:
+        message = load_amfi_ct_policy().patch(data)
+    except ValueError as error:
+        print("amfi ct-policy: %s" % error, file=sys.stderr)
+        return False
+    except FileNotFoundError:
+        print("amfi ct-policy: patch-amfi-ct-policy.py is missing next to this script",
+              file=sys.stderr)
+        return False
+    print(message)
+    return True
+
+
 def main():
     if len(sys.argv) != 2:
         print(__doc__.strip().splitlines()[-1], file=sys.stderr)
@@ -170,6 +203,7 @@ def main():
         return 1
     ok = patch_vram_panic_log(data, segments)
     ok = patch_amfi_no_pmgr(data, segments) and ok
+    ok = patch_amfi_ct_policy(data, segments) and ok
     if not ok:
         return 1
     with open(path, "wb") as handle:
