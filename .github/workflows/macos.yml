@@ -92,10 +92,12 @@ jobs:
         #   * the ADT AAPL,phandle fix: upstream devicetree.py still emits a
         #     plain 'phandle', which XNU's IODTGetInterruptController cannot
         #     resolve (gIODTPHandleKey == 'AAPL,phandle'), so interrupt mapping
-        #     would assert on the device tree the payload carries.
-        # The driver itself is a plain IOService for now, so it needs no
-        # IOStorageFamily include; milestone 2 (IOBlockStorageDevice) also needs
-        # the storage ABI bindings from the qualified original kernelcache.
+        #     would assert on the device tree the payload carries;
+        #   * the offline owner cache-mount guard: upstream requires the Virtio
+        #     block transport (XNU_NATIVE_VIRTIO_BLOCK) for XNU_OWNER_CACHE_MOUNT,
+        #     but this board publishes the windows through the SDHCR11 transport,
+        #     which provides the same owner verification hooks.  Accept
+        #     XNU_NATIVE_SDHCI_BLOCK as the block transport that carries it.
         run: |
           set -eux
           printf '\n' >> UniXNU/components.toml
@@ -115,7 +117,17 @@ jobs:
               tree.write_text(text.replace(anchor, patched, 1))
           elif 'AAPL,phandle' not in text:
               raise SystemExit('devicetree.py: phandle anchor not found')
-          print('board components installed')
+
+          build = Path('UniXNU/scripts/build-xnu-4k-baseline.sh')
+          text = build.read_text()
+          guard = 'if [ "$OWNER_CACHE_MOUNT" = 1 ] && [ "$OWNER_ROOT_TRUST" != 1 ]; then'
+          relaxed = ('if [ "$OWNER_CACHE_MOUNT" = 1 ] && [ "$OWNER_ROOT_TRUST" != 1 ] && '
+                     '[ "${XNU_NATIVE_SDHCI_BLOCK:-0}" != 1 ]; then')
+          if guard in text:
+              build.write_text(text.replace(guard, relaxed, 1))
+          elif relaxed not in text:
+              raise SystemExit('build-xnu-4k-baseline.sh: cache-mount guard not found')
+          print('board components installed (owner cache mount accepts the SDHCI transport)')
           PY
           git -C UniXNU status --short
 
