@@ -212,21 +212,25 @@ def main():
                                 for name, address in sorted(resolved.items())))
     bindings_object = out / "original-bindings.o"
     # Reuse the record's target/sysroot flags for the assembly, dropping the
-    # source, the C++ mode selector, forced includes and the old output path.
+    # source, the language selector, forced includes and the old output path.
+    # The explicit "-x assembler-with-cpp" wins over anything left behind.
     assembler, index = [], 0
     while index < len(command):
         value = command[index]
         if value in ("-x", "-include"):
             index += 2
             continue
-        if value in ("-o", str(source), str(destination)):
+        if value.startswith(("-x", "-include")):
             index += 1
             continue
-        if not value.startswith("-std="):
-            assembler.append(value)
+        if value in ("-o", str(source), str(destination)) or value.startswith("-std="):
+            index += 1
+            continue
+        assembler.append(value)
         index += 1
-    run([*assembler, "-c", str(assembly), "-o", str(bindings_object)], cwd=record["directory"],
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    assembler = [value for value in assembler if value != "-c"]
+    run([*assembler, "-x", "assembler-with-cpp", "-c", str(assembly), "-o", str(bindings_object)],
+        cwd=record["directory"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
     archive = out / ("lib" + identifier + ".a")
     archive.unlink(missing_ok=True)
