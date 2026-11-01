@@ -42,6 +42,7 @@
 #include <libkern/c++/OSData.h>
 #include <kern/clock.h>
 #include <kern/task.h>
+#include <pexpert/pexpert.h>
 
 extern "C" {
 // Observation counters for the CI / UART bring-up checks: the values are read
@@ -209,6 +210,8 @@ private:
     uint64_t userdataFirstLba = 0;     // eMMC sector of the userdata partition
     uint64_t userdataBlocks = 0;       // sectors of the userdata partition
     bool windowPublished = false;      // publishing the SHNGROOT OS window
+    bool debugReads = false;           // sdhci-debug=1 boot argument
+    uint32_t debugRequests = 0;
     bool online = false;
     bool ownsDevice = false;
     uint32_t lastStatus = 0;
@@ -675,6 +678,16 @@ bool NativeSdhciBlock::start(IOService *provider)
     registers = static_cast<uintptr_t>(mapping->getVirtualAddress());
     ownsDevice = true;
 
+    // Read-path tracing for bring-up: sdhci-debug=1 on the kernel command line
+    // logs the first block requests and the first sector of each.
+    unsigned debug = 0;
+    if (PE_parse_boot_argn("sdhci-debug", &debug, sizeof(debug))) {
+        debugReads = debug != 0;
+    }
+    if (debugReads) {
+        IOLog("NativeSdhciBlock: read tracing enabled (sdhci-debug=%u)\n", debug);
+    }
+
     const uint32_t capabilities = read32(kCapabilities);
     const uint16_t version = read16(kVersion);
     const uint16_t clock = read16(kClockControl);
@@ -757,11 +770,22 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
             result = kIOReturnIOError;
             break;
         }
+        if (debugReads && debugRequests < 8 && actual == 0) {
+            const uint8_t *data = sectorData();
+            IOLog("NativeSdhciBlock: read[%u] block=0x%llx count=%llu first=%02x%02x%02x%02x%02x%02x%02x%02x\n",
+                  debugRequests, block, count, data[0], data[1], data[2], data[3],
+                  data[4], data[5], data[6], data[7]);
+        }
         if (buffer->writeBytes(actual, sectorData(), kBlockBytes) != kBlockBytes) {
             result = kIOReturnIOError;
             break;
         }
         actual += kBlockBytes;
+    }
+    if (debugReads && debugRequests < 8) {
+        ++debugRequests;
+        IOLog("NativeSdhciBlock: read[%u] done result=0x%x bytes=%llu\n",
+              debugRequests - 1, result, actual);
     }
     IOLockUnlock(gate);
     completion->action(completion->target, completion->parameter, result, actual);

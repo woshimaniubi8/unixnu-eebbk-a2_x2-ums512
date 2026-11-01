@@ -85,6 +85,23 @@ The SHNGROOT manifest lives at the start of the userdata partition: `"SHNGROOT"`
 without the manifest (or without an `OS` entry) keeps publishing the whole
 userdata partition and says so in the log.
 
+## Read tracing (`sdhci-debug=1`)
+
+Add `sdhci-debug=1` to the kernel command line to trace the block requests the
+storage stack sends to the published window (the first 8 requests only, each
+with the first eight bytes of the first sector):
+
+```
+NativeSdhciBlock: read tracing enabled (sdhci-debug=1)
+NativeSdhciBlock: read[0] block=0x0 count=8 first=4546492050415254   <- "EFI PART"
+NativeSdhciBlock: read[0] done result=0x0 bytes=4096
+```
+
+This is how a boot is diagnosed when `block device online` appears but no
+IOMedia/APFS activity follows: a request at block 0 proves the storage stack
+reached the device, and its first bytes show whether it is reading the GPT.
+Tracing is compiled in but off unless the boot argument is present.
+
 ## Milestone 2: publishing the block device
 
 `IOBlockStorageDevice` and `IOMedia` live in IOStorageFamily, which is **not**
