@@ -47,6 +47,10 @@ on:
         description: Skip the SdhciBlock storage binding check (only for a run that derives a new table)
         type: boolean
         default: false
+      data_seed:
+        description: Build the writable APFS Data seed from the IPSW OS volume and put it in the payload
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -190,12 +194,30 @@ jobs:
           test -f "$KERNEL"
           python3 "$GITHUB_WORKSPACE/device/scripts/patch-bringup-kernel.py" "$KERNEL"
 
+      - name: Prepare the Data seed
+        # The offline OS image has no writable Data volume: the OS window carries
+        # only the read-only system volume.  The payload supplies the Data volume
+        # as Payloads/scratch-data.img (ADT RAMDisk + ephemeral-storage), built
+        # from the original OS volume's initial /private/var tree.  That needs
+        # macOS hdiutil/diskutil (macos-26 runner) and the OS dmg from the pinned
+        # IPSW (044-76040-038.dmg, [ipsw.sha256] pin); board.toml [payload]
+        # size_mib has to fit kernel + ADT + 32 MiB seed (about 96 MiB).
+        if: ${{ inputs.data_seed }}
+        working-directory: UniXNU
+        run: |
+          set -euxo pipefail
+          python3 "$GITHUB_WORKSPACE/device/scripts/prepare-data-seed.py" --tree "$PWD"
+
       - name: Build payload
         if: contains(inputs.steps, 'payload')
         working-directory: UniXNU
         run: |
           set -euxo pipefail
-          ./unixnu build payload 2>&1 | tee "$GITHUB_WORKSPACE/payload.log"
+          SEED=()
+          if [ "${{ inputs.data_seed }}" = "true" ]; then
+            SEED=(--data-ramdisk build/owner-data-fixture/owner-data-32.cdr)
+          fi
+          ./unixnu build payload "${SEED[@]}" 2>&1 | tee "$GITHUB_WORKSPACE/payload.log"
 
       - name: Report artifacts
         if: always()
@@ -242,6 +264,7 @@ jobs:
             payload.log
             status.txt
             UniXNU/out/*/*/*/logs/*.log
+            UniXNU/build/owner-data-fixture/seed.json
           if-no-files-found: warn
           retention-days: 7
 
