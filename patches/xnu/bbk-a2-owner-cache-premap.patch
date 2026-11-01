@@ -1,5 +1,5 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
-index f229c59..d289a78 100644
+index f229c59..9e6bd79 100644
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
 @@ -7017,6 +7017,9 @@ create_unix_stack(vm_map_t map, load_result_t* load_result,
@@ -44,7 +44,7 @@ index f229c59..d289a78 100644
 +#define BBK_DYLD_MAX_MAPPINGS 16
 +
 +static int
-+native_owner_cache_preload(proc_t p)
++native_owner_cache_preload(proc_t p, vm_map_t map)
 +{
 +	const char *path =
 +	    "/private/preboot/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64";
@@ -69,7 +69,7 @@ index f229c59..d289a78 100644
 +			return 0;
 +		}
 +	} else {
-+		kr = vm_shared_region_enter(task->map, task, TRUE, (void *)p->p_fd.fd_rdir,
++		kr = vm_shared_region_enter(map, task, TRUE, (void *)p->p_fd.fd_rdir,
 +		    CPU_TYPE_ARM64, CPU_SUBTYPE_ARM64_ALL, FALSE, FALSE, 0);
 +		printf("bbk sr: premap enter kr=0x%x\n", kr);
 +		if (kr != KERN_SUCCESS) {
@@ -168,7 +168,7 @@ index f229c59..d289a78 100644
  	    (unsigned long long)init_envp);
  	if (cache_error) panic("offline owner SystemOS mount failed: %d", cache_error);
 +	{
-+		int preload_error = native_owner_cache_preload(p);
++		int preload_error = native_owner_cache_preload(p, map);
 +		printf("bbk sr: premap err=%d\n", preload_error);
 +	}
  #endif
