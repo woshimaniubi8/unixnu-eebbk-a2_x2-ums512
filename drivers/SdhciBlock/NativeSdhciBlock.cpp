@@ -70,6 +70,27 @@ volatile uint64_t native_sdhci_mmio_physical = 0;
 
 namespace {
 
+// The kernel does not declare strstr() for driver code; the only substring
+// check here is the ADT node-name marker of the second window.
+bool containsText(const char *text, const char *needle)
+{
+    if (!text || !needle || !*needle) {
+        return false;
+    }
+    for (; *text; ++text) {
+        const char *candidate = text;
+        const char *wanted = needle;
+        while (*candidate && *wanted && *candidate == *wanted) {
+            ++candidate;
+            ++wanted;
+        }
+        if (!*wanted) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Both driver instances (the OS and the SystemOS SHNGROOT window) drive the
 // same SDHCR11 controller.  The transport is polled and never enables the
 // controller interrupt, so one global lock around each command keeps the two
@@ -716,7 +737,7 @@ bool NativeSdhciBlock::start(IOService *provider)
         }
         memcpy(windowName, windowData->getBytesNoCopy(), length);
         windowName[length] = '\0';
-    } else if (nodeName && strstr(nodeName, "systemos")) {
+    } else if (nodeName && containsText(nodeName, "systemos")) {
         strlcpy(windowName, "SystemOS", sizeof(windowName));
     } else {
         strlcpy(windowName, "OS", sizeof(windowName));
