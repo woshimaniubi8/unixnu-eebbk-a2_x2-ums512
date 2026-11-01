@@ -108,8 +108,11 @@ the KDK AES kext, which a CI runner cannot provide):
   lists `component:SdhciBlock` (the arch profile lists its component archives
   explicitly, so the automatic plan does not add it).
 * `patches/xnu/sdhci-block-personality.patch` registers the `NativeSdhciBlock`
-  personality (`IOProviderClass = IOPlatformDevice`,
-  `IONameMatch = 'unixnu,sdhci-block'`).
+  personality with `IOProviderClass = IOPlatformDevice` and no name filter:
+  the first hardware boot (62.log) showed the driver was never instantiated with
+  `IONameMatch = 'unixnu,sdhci-block'`, so the match is done in `probe()` on the
+  ADT `compatible` list instead, and `probe()`/`start()` log the node name and
+  the compatible list they were offered.  `IOProbeScore` is 1000.
 * `dts/bbk-a2.dts` adds `mmc@71400000` with
   `compatible = "unixnu,sdhci-block", "sprd,sdhc-r11p1"`,
   `unixnu,adt-name = "sdhci"`, `reg = <0 0x71400000 0 0x1000>`,

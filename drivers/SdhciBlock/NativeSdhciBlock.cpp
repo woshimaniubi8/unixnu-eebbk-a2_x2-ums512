@@ -252,15 +252,54 @@ private:
 
 OSDefineMetaClassAndStructors(NativeSdhciBlock, IOBlockStorageDevice)
 
+namespace {
+
+// Flatten the NUL-separated compatible list for the boot log.
+void formatCompatible(OSData *compatible, char *buffer, size_t size)
+{
+    buffer[0] = '\0';
+    if (!compatible) {
+        return;
+    }
+    const char *bytes = static_cast<const char *>(compatible->getBytesNoCopy());
+    size_t remaining = compatible->getLength();
+    size_t at = 0;
+    while (bytes && remaining && at + 1 < size) {
+        size_t length = 0;
+        while (length < remaining && bytes[length] != '\0') {
+            ++length;
+        }
+        const size_t copy = (length < size - at - 1) ? length : size - at - 1;
+        memcpy(buffer + at, bytes, copy);
+        at += copy;
+        if (length >= remaining) {
+            break;
+        }
+        if (at + 1 < size) {
+            buffer[at++] = ' ';
+        }
+        bytes += length + 1;
+        remaining -= length + 1;
+    }
+    buffer[at] = '\0';
+}
+
+} // namespace
+
 IOService *NativeSdhciBlock::probe(IOService *provider, SInt32 *score)
 {
     if (!provider) {
         return nullptr;
     }
-    // The personality matches the ADT compatible string; accept only a node that
-    // really is this controller, so a renamed device tree cannot attach the
-    // driver to an unrelated platform device.
+    // The personality matches every IOPlatformDevice; accept only the node whose
+    // compatible list names this controller, so a renamed device tree cannot
+    // attach the driver to an unrelated platform device.  The probe logs the
+    // node it was offered so a boot without the driver still shows whether the
+    // personality matched at all.
     OSData *compatible = OSDynamicCast(OSData, provider->getProperty("compatible"));
+    char text[160];
+    formatCompatible(compatible, text, sizeof(text));
+    IOLog("NativeSdhciBlock: probe node=%s compatible=%s\n", provider->getName(), text);
     bool matched = false;
     if (compatible) {
         const char *bytes = static_cast<const char *>(compatible->getBytesNoCopy());
@@ -285,8 +324,10 @@ IOService *NativeSdhciBlock::probe(IOService *provider, SInt32 *score)
         }
     }
     if (!matched) {
+        IOLog("NativeSdhciBlock: node %s is not the SDHCR11 controller\n", provider->getName());
         return nullptr;
     }
+    IOLog("NativeSdhciBlock: probe matched node %s\n", provider->getName());
     return IOBlockStorageDevice::probe(provider, score);
 }
 
@@ -521,7 +562,12 @@ bool NativeSdhciBlock::findUserdataPartition()
 
 bool NativeSdhciBlock::start(IOService *provider)
 {
-    if (!provider || !IOBlockStorageDevice::start(provider)) {
+    if (!provider) {
+        return false;
+    }
+    IOLog("NativeSdhciBlock: start node=%s\n", provider->getName());
+    if (!IOBlockStorageDevice::start(provider)) {
+        IOLog("NativeSdhciBlock: IOBlockStorageDevice::start failed\n");
         return false;
     }
     if (provider->getResources() != kIOReturnSuccess) {
