@@ -40,9 +40,9 @@ LAUNCHD_SHA256 = "8cec9a3c44a443b08e977ccc5d577850316ad428c575dc01f09b018dbd5b6a
 PAYLOAD_OVERHEAD = 8 * 1024 * 1024
 
 
-def run(command, cwd, **kwargs):
+def run(command, cwd, check=True, **kwargs):
     print("+ " + " ".join(str(part) for part in command))
-    return subprocess.run(command, cwd=cwd, check=True, **kwargs)
+    return subprocess.run(command, cwd=cwd, check=check, **kwargs)
 
 
 def sha256_file(path):
