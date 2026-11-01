@@ -1,0 +1,29 @@
+diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
+index 37017cf..d4ff1c3 100644
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -127,6 +127,7 @@
+ #include <mach/semaphore.h>
+ #include <mach/sync_policy.h>
+ #include <kern/clock.h>
++#include <pexpert/pexpert.h>
+ #include <sys/csr.h>
+ #include <mach/kern_return.h>
+ #include <mach/thread_act.h>            /* for thread_resume() */
+@@ -1086,7 +1087,15 @@ bsd_init(void)
+ 			}
+ #endif
+ 			if (autherr && !owner_authorized) {
+-				panic("rootvp not authenticated after mounting");
++				/* BBK A2 bring-up: explicit, reversible device switch. */
++				unsigned int bbk_skip_rootauth = 0;
++				(void)PE_parse_boot_argn("bbk-skip-rootauth", &bbk_skip_rootauth,
++				    sizeof(bbk_skip_rootauth));
++				if (bbk_skip_rootauth != 0) {
++					printf("bsd_init: rootvp authentication skipped (bbk-skip-rootauth)\n");
++				} else {
++					panic("rootvp not authenticated after mounting");
++				}
+ 			}
+ #if defined(XNU_OWNER_ROOT_TRUST) && XNU_OWNER_ROOT_TRUST
+ 			{

@@ -14,3 +14,9 @@ xnu-10063.141.1-sparse-index.patch
 # native-aes); it is compiled in when the defconfig passes
 # -DXNU_NATIVE_SDHCI_BLOCK=1 through CONFIG_XNU_EXTRA_CFLAGS.
 sdhci-block-personality.patch
+
+# BBK A2 bring-up: skip the root hash authentication panic when the boot
+# argument bbk-skip-rootauth=1 is set (board.toml [payload] kernel_args).  The
+# patch keeps the original panic when the argument is absent, so the sealed-root
+# behaviour is unchanged without it.
+bbk-a2-skip-root-auth.patch
