@@ -1,0 +1,176 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index f229c59..d289a78 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7017,6 +7017,9 @@ create_unix_stack(vm_map_t map, load_result_t* load_result,
+ #if !DEVELOPMENT && !DEBUG
+ #error The offline owner cache mount is a development instrument
+ #endif
++#include <mach/shared_region.h>
++#include <vm/vm_shared_region.h>
++#include <sys/ubc_internal.h>
+ extern int native_verified_block_volume_device(const char *, dev_t *, char *, size_t);
+ #if defined(XNU_OWNER_BOOT_MANIFEST) && XNU_OWNER_BOOT_MANIFEST
+ extern int native_owner_publish_boot_manifest(dev_t, const char *, dev_t, const char *);
+@@ -7211,6 +7214,150 @@ done:
+ 	native_owner_cache_checkpoint(error, cache_authorized);
+ 	return error;
+ }
++
++/*
++ * BBK A2 bring-up: preload the owner's main dyld shared cache into the task's
++ * shared region before launchd execs, like iBoot does on real hardware.  The
++ * OS image has no loose dylibs, so dyld only proceeds when
++ * shared_region_check_np() reports an already-mapped region.  Only the main
++ * cache file is mapped here (from its own header mapping table, slide 0); dyld
++ * maps the subcaches afterwards through shared_region_map_and_slide_2_np(),
++ * where the owner cache carrier accepts them.  Fails soft.
++ */
++struct bbk_dyld_cache_header_prefix {
++	char     magic[16];
++	uint32_t mappingOffset;
++	uint32_t mappingCount;
++};
++
++struct bbk_dyld_cache_mapping_info {
++	uint64_t address;
++	uint64_t size;
++	uint64_t fileOffset;
++	uint32_t maxProt;
++	uint32_t initProt;
++};
++
++#define BBK_DYLD_CACHE_MAGIC "dyld_v1   arm64"
++#define BBK_DYLD_MAX_MAPPINGS 16
++
++static int
++native_owner_cache_preload(proc_t p)
++{
++	const char *path =
++	    "/private/preboot/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64";
++	struct bbk_dyld_cache_header_prefix header;
++	struct bbk_dyld_cache_mapping_info infos[BBK_DYLD_MAX_MAPPINGS];
++	struct _sr_file_mappings *srfmp = NULL;
++	struct shared_file_mapping_slide_np *mappings = NULL;
++	vnode_t vp = NULLVP;
++	task_t task = current_task();
++	vm_shared_region_t shared_region = NULL;
++	off_t size = 0;
++	int error = 0;
++	int aresid = 0;
++	kern_return_t kr = KERN_SUCCESS;
++
++	shared_region = vm_shared_region_get(task);
++	if (shared_region != NULL) {
++		mach_vm_offset_t start = 0;
++		if (vm_shared_region_start_address(shared_region, &start, task) == KERN_SUCCESS) {
++			printf("bbk sr: premap already mapped start=0x%llx\n",
++			    (unsigned long long)start);
++			return 0;
++		}
++	} else {
++		kr = vm_shared_region_enter(task->map, task, TRUE, (void *)p->p_fd.fd_rdir,
++		    CPU_TYPE_ARM64, CPU_SUBTYPE_ARM64_ALL, FALSE, FALSE, 0);
++		printf("bbk sr: premap enter kr=0x%x\n", kr);
++		if (kr != KERN_SUCCESS) {
++			return EIO;
++		}
++		shared_region = vm_shared_region_get(task);
++		if (shared_region == NULL) {
++			printf("bbk sr: premap no shared region after enter\n");
++			return EIO;
++		}
++	}
++
++	error = vnode_lookup(path, 0, &vp, vfs_context_current());
++	if (error) {
++		printf("bbk sr: premap lookup err=%d\n", error);
++		return error;
++	}
++	bzero(&header, sizeof(header));
++	error = vn_rdwr(UIO_READ, vp, (caddr_t)&header, sizeof(header), 0, UIO_SYSSPACE, 0,
++	    vfs_context_ucred(vfs_context_current()), &aresid, p);
++	if (error || memcmp(header.magic, BBK_DYLD_CACHE_MAGIC, sizeof(header.magic)) != 0 ||
++	    header.mappingCount == 0 || header.mappingCount > BBK_DYLD_MAX_MAPPINGS) {
++		printf("bbk sr: premap header err=%d magic=%.16s count=%u\n", error, header.magic,
++		    header.mappingCount);
++		vnode_put(vp);
++		return EINVAL;
++	}
++	bzero(infos, sizeof(infos));
++	error = vn_rdwr(UIO_READ, vp, (caddr_t)infos, header.mappingCount * sizeof(infos[0]),
++	    (off_t)header.mappingOffset, UIO_SYSSPACE, 0,
++	    vfs_context_ucred(vfs_context_current()), &aresid, p);
++	if (error) {
++		printf("bbk sr: premap mappings err=%d\n", error);
++		vnode_put(vp);
++		return error;
++	}
++	mappings = (struct shared_file_mapping_slide_np *)kalloc_data(
++	    header.mappingCount * sizeof(*mappings), Z_WAITOK | Z_ZERO);
++	srfmp = (struct _sr_file_mappings *)kalloc_data(sizeof(*srfmp), Z_WAITOK | Z_ZERO);
++	if (mappings == NULL || srfmp == NULL) {
++		printf("bbk sr: premap allocation failed\n");
++		error = ENOMEM;
++		goto out;
++	}
++	for (uint32_t index = 0; index < header.mappingCount; ++index) {
++		mappings[index].sms_address = (mach_vm_address_t)infos[index].address;
++		mappings[index].sms_size = (mach_vm_size_t)infos[index].size;
++		mappings[index].sms_file_offset = (mach_vm_offset_t)infos[index].fileOffset;
++		mappings[index].sms_max_prot = (vm_prot_t)infos[index].maxProt;
++		mappings[index].sms_init_prot = (vm_prot_t)infos[index].initProt;
++		printf("bbk sr: premap map[%u] addr=0x%llx size=0x%llx off=0x%llx prot=0x%x/0x%x\n",
++		    index, (unsigned long long)infos[index].address,
++		    (unsigned long long)infos[index].size,
++		    (unsigned long long)infos[index].fileOffset, infos[index].maxProt,
++		    infos[index].initProt);
++	}
++	error = vnode_size(vp, &size, vfs_context_current());
++	if (error) {
++		printf("bbk sr: premap vnode_size err=%d\n", error);
++		goto out;
++	}
++	srfmp->fd = -1;
++	srfmp->mappings_count = header.mappingCount;
++	srfmp->mappings = mappings;
++	srfmp->slide = 0;
++	srfmp->fp = NULL;
++	srfmp->vp = vp;
++	srfmp->file_size = (memory_object_size_t)size;
++	srfmp->file_control = ubc_getobject(vp, UBC_HOLDOBJECT);
++	if (srfmp->file_control == MEMORY_OBJECT_CONTROL_NULL) {
++		printf("bbk sr: premap no ubc object\n");
++		error = EIO;
++		goto out;
++	}
++	kr = vm_shared_region_map_file(shared_region, 1, srfmp);
++	printf("bbk sr: premap map kr=0x%x size=%lld mappings=%u\n", kr, (long long)size,
++	    header.mappingCount);
++	error = (kr == KERN_SUCCESS) ? 0 : EIO;
++out:
++	if (srfmp != NULL) {
++		kfree_data(srfmp, sizeof(*srfmp));
++	}
++	if (mappings != NULL) {
++		kfree_data(mappings, header.mappingCount * sizeof(*mappings));
++	}
++	if (vp != NULL) {
++		vnode_put(vp);
++	}
++	return error;
++}
+ #endif
+ 
+ #if defined(XNU_OWNER_DATA_MOUNT) && XNU_OWNER_DATA_MOUNT
+@@ -8232,6 +8379,10 @@ load_init_program(proc_t p)
+ 	printf("bbk init: cache_prepare err=%d envp=0x%llx\n", cache_error,
+ 	    (unsigned long long)init_envp);
+ 	if (cache_error) panic("offline owner SystemOS mount failed: %d", cache_error);
++	{
++		int preload_error = native_owner_cache_preload(p);
++		printf("bbk sr: premap err=%d\n", preload_error);
++	}
+ #endif
+ #if defined(XNU_OWNER_DATA_MOUNT) && XNU_OWNER_DATA_MOUNT
+ 	int data_error = native_owner_data_prepare(p, (user_addr_t)scratch_addr);

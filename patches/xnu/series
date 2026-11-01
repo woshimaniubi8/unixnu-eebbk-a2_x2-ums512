@@ -26,3 +26,10 @@ bbk-a2-skip-root-auth.patch
 # carrier decision and the injected DYLD_SHARED_CACHE_DIR.  Remove this entry
 # once the shared region works.
 bbk-a2-owner-cache-debug.patch
+
+# BBK A2 bring-up: preload the owner's main dyld shared cache into the task's
+# shared region before launchd execs (like iBoot does), so dyld's
+# shared_region_check_np() reports a mapped region and dyld maps the subcaches
+# through shared_region_map_and_slide_2_np().  Maps the cache file's own header
+# mapping table with slide 0 and fails soft.
+bbk-a2-owner-cache-premap.patch
