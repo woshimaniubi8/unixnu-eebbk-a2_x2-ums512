@@ -11,9 +11,10 @@ description = "BBK(EEBBK) A2/X2/A2P"
 [components]
 # Minimal first-bring-up set, same shape as UniXNU-e5 (Unisoc UMS9621):
 # device-tree platform expert + ARM CPU (GICv3 + architectural timer) + the
-# payload/prelink tooling.  Storage, display and GPU components are added only
-# after UART/framebuffer/DarwinBoot work on real hardware.
-include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "XnuPrelink", "DarwinBoot"]
+# payload/prelink tooling + the SDHCI eMMC transport that publishes the
+# userdata partition (drivers/SdhciBlock, device-owned component registered by
+# .github/workflows/macos.yml through components/SdhciBlock.toml).
+include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "XnuPrelink", "DarwinBoot", "SdhciBlock"]
 
 [kernel]
 defconfig = "bbk-a2_defconfig"

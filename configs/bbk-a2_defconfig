@@ -17,3 +17,14 @@ CONFIG_XNU_NATIVE_TRUST_CACHE=0
 CONFIG_XNU_NATIVE_UFS=n
 CONFIG_XNU_NATIVE_MOBILE_DISPLAY=n
 CONFIG_XNU_NATIVE_ADRENO=n
+
+# SDHCI eMMC block transport (drivers/SdhciBlock).
+#
+# The component archive is built by build-arm-driver.py through the automatic
+# archive plan and has to be force-loaded so its OSMetaClass constructor
+# survives the link; the personality table entry
+# (patches/xnu/sdhci-block-personality.patch) is compiled in through the extra
+# CFLAGS define.  The default warning flags of build-xnu-4k-baseline.sh are
+# repeated here because XNU_EXTRA_CFLAGS replaces them when it is set.
+CONFIG_XNU_EXTRA_CFLAGS="-Wno-reserved-identifier -Wno-pre-c11-compat -Wno-missing-designated-field-initializers -Wno-suggest-override -Wno-unnecessary-virtual-specifier -Wno-suggest-destructor-override -Wno-ms-bitfield-padding -DXNU_NATIVE_SDHCI_BLOCK=1"
+CONFIG_XNU_EXTRA_LD_ARCHIVES="-Wl,-force_load,{tree}/build/sdhciblock/libSdhciBlock.a"

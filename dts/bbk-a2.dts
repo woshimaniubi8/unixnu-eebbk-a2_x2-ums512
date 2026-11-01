@@ -92,5 +92,22 @@
 		dsi@20400000 {
 			status = "disabled";
 		};
+
+		/* SDHCR11 SDHCI/eMMC host.  cboot leaves the controller initialised
+		 * (clock control 0x0207, host control 0x20, host control 2 0x3000,
+		 * vendor clock register 0x204 = 0x30303060) and the capabilities
+		 * register reports a zero base clock, so the XNU driver only inherits
+		 * that state and uses the vendor command path to read the GPT; see
+		 * drivers/SdhciBlock.  GIC SPI 10, level high (#interrupt-cells = 3 of
+		 * the intc node); the driver polls 0x30 and never enables the line.
+		 * unixnu,sdhci-block is the IONameMatch of the NativeSdhciBlock
+		 * personality, sprd,sdhc-r11p1 is the stock kernel's compatible. */
+		sdhci: mmc@71400000 {
+			compatible = "unixnu,sdhci-block", "sprd,sdhc-r11p1";
+			unixnu,adt-name = "sdhci";
+			reg = <0 0x71400000 0 0x1000>;
+			interrupts = <0 10 4>;
+			status = "okay";
+		};
 	};
 };

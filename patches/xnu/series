@@ -7,3 +7,10 @@
 # the prelink step, so they are carried here instead.
 xnu-10063.141.1-security-init.patch
 xnu-10063.141.1-sparse-index.patch
+
+# SDHCI eMMC block transport: register the NativeSdhciBlock personality in
+# gIOKernelConfigTables.  The device series is applied last, so this patch sits
+# on top of the arch series' own personality patches (armvirt-platform and
+# native-aes); it is compiled in when the defconfig passes
+# -DXNU_NATIVE_SDHCI_BLOCK=1 through CONFIG_XNU_EXTRA_CFLAGS.
+sdhci-block-personality.patch

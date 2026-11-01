@@ -1,0 +1,18 @@
+diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
+index 2f374b7..b0b4947 100644
+--- a/iokit/KernelConfigTables.cpp
++++ b/iokit/KernelConfigTables.cpp
+@@ -104,5 +104,13 @@ const char * gIOKernelConfigTables =
+     "     'IOProviderClass' = IOPlatformExpertDevice;"
+     "     'IOProbeScore'    = 500:32;"
+     "   }"
++#endif
++#if defined(XNU_NATIVE_SDHCI_BLOCK) && XNU_NATIVE_SDHCI_BLOCK
++    "   ,{"
++    "     'IOClass'         = NativeSdhciBlock;"
++    "     'IOProviderClass' = IOPlatformDevice;"
++    "     'IONameMatch'     = 'unixnu,sdhci-block';"
++    "     'IOProbeScore'    = 1000:32;"
++    "   }"
+ #endif
+     ")";

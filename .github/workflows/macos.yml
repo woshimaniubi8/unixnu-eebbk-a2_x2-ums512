@@ -77,6 +77,49 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Install board components into the UniXNU checkout
+        # The checkout above is upstream UniXNU, so the device-owned pieces have
+        # to be injected before defconfig:
+        #   * the SdhciBlock catalog entry (device/components/SdhciBlock.toml);
+        #   * the IOStorageFamily include that build-arm-driver.py selects by
+        #     runtime class, extended for NativeSdhciBlock;
+        #   * the ADT AAPL,phandle fix: upstream devicetree.py still emits a
+        #     plain 'phandle', which XNU's IODTGetInterruptController cannot
+        #     resolve (gIODTPHandleKey == 'AAPL,phandle'), so interrupt mapping
+        #     would assert on the device tree the payload carries.
+        run: |
+          set -eux
+          printf '\n' >> UniXNU/components.toml
+          cat device/components/SdhciBlock.toml >> UniXNU/components.toml
+          python3 - <<'PY'
+          from pathlib import Path
+          import tomllib
+
+          tomllib.loads(Path('UniXNU/components.toml').read_text())
+
+          driver = Path('UniXNU/scripts/build-arm-driver.py')
+          text = driver.read_text()
+          anchor = "if component in ('NativeVirtioBlock', 'NativeRamBlock', 'NativeUfs'):"
+          patched = ("if component in ('NativeVirtioBlock', 'NativeRamBlock', 'NativeUfs',"
+                     " 'NativeSdhciBlock'):")
+          if anchor in text:
+              driver.write_text(text.replace(anchor, patched, 1))
+          elif 'NativeSdhciBlock' not in text:
+              raise SystemExit('build-arm-driver.py: storage include anchor not found')
+
+          tree = Path('UniXNU/scripts/unixnu/devicetree.py')
+          text = tree.read_text()
+          anchor = "            properties.append((key, struct.pack('<I', entry.scalar(key))))"
+          patched = ("            name = 'AAPL,phandle' if key == 'phandle' else key\n"
+                     "            properties.append((name, struct.pack('<I', entry.scalar(key))))")
+          if anchor in text:
+              tree.write_text(text.replace(anchor, patched, 1))
+          elif 'AAPL,phandle' not in text:
+              raise SystemExit('devicetree.py: phandle anchor not found')
+          print('board components installed')
+          PY
+          git -C UniXNU status --short
+
       - name: Select Xcode
         run: |
           set -eux
