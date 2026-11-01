@@ -81,12 +81,13 @@ jobs:
         # The checkout above is upstream UniXNU, so the device-owned pieces have
         # to be injected before defconfig:
         #   * the SdhciBlock catalog entry (device/components/SdhciBlock.toml);
-        #   * the IOStorageFamily include that build-arm-driver.py selects by
-        #     runtime class, extended for NativeSdhciBlock;
         #   * the ADT AAPL,phandle fix: upstream devicetree.py still emits a
         #     plain 'phandle', which XNU's IODTGetInterruptController cannot
         #     resolve (gIODTPHandleKey == 'AAPL,phandle'), so interrupt mapping
         #     would assert on the device tree the payload carries.
+        # The driver itself is a plain IOService for now, so it needs no
+        # IOStorageFamily include; milestone 2 (IOBlockStorageDevice) also needs
+        # the storage ABI bindings from the qualified original kernelcache.
         run: |
           set -eux
           printf '\n' >> UniXNU/components.toml
@@ -96,16 +97,6 @@ jobs:
           import tomllib
 
           tomllib.loads(Path('UniXNU/components.toml').read_text())
-
-          driver = Path('UniXNU/scripts/build-arm-driver.py')
-          text = driver.read_text()
-          anchor = "if component in ('NativeVirtioBlock', 'NativeRamBlock', 'NativeUfs'):"
-          patched = ("if component in ('NativeVirtioBlock', 'NativeRamBlock', 'NativeUfs',"
-                     " 'NativeSdhciBlock'):")
-          if anchor in text:
-              driver.write_text(text.replace(anchor, patched, 1))
-          elif 'NativeSdhciBlock' not in text:
-              raise SystemExit('build-arm-driver.py: storage include anchor not found')
 
           tree = Path('UniXNU/scripts/unixnu/devicetree.py')
           text = tree.read_text()

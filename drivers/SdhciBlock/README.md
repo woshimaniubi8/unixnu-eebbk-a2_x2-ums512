@@ -1,12 +1,14 @@
-# SdhciBlock — Unisoc UMS512 SDHCR11 eMMC block transport
+# SdhciBlock — Unisoc UMS512 SDHCR11 eMMC transport
 
-XNU kernel component that publishes the Android **userdata** GPT partition of
-the UMS512 (SharkL5Pro / T610 family) eMMC as a read-only IOKit block device.
+XNU kernel component for the UMS512 (SharkL5Pro / T610 family) eMMC controller.
+It attaches to the device-tree node, inherits the controller state cboot left
+behind and proves the eMMC read path from the kernel (EXT_CSD and the GPT).
 
 * controller: SDHCR11 at `0x71400000`, GIC SPI 10, 8-bit non-removable eMMC
 * transport: ADMA2, polled (the controller interrupt is never enabled)
-* published device: GPT partition `userdata`, 512-byte blocks, read-only
 * runtime class: `NativeSdhciBlock` (catalog id `SdhciBlock`)
+* milestone 1: register file + eMMC read path, userdata window recorded
+* milestone 2: publish the userdata window as an `IOBlockStorageDevice`
 
 ## Why it inherits the bootloader state
 
@@ -42,7 +44,13 @@ errors        = 0x32 (error interrupt), 0x54 (ADMA error)
 
 `0x34`/`0x36` (status enable) are set to `0xFFFFFFFF` so the poll loop observes
 command/transfer complete; `0x38`/`0x3A` (signal enable) stay `0` because XNU
-has no interrupt handler for this controller.
+has no interrupt handler for this controller.  A 32-bit write at `0x3A` would
+also hit vendor register `0x3C`, so only the `0x34` and `0x38` windows are
+written.
+
+All GPT LBAs are 512-byte units: `userdata` is `first=0x132F800`,
+`last=0xE8F7FDE`, i.e. `0xD5C87DF` sectors (114,773,966,336 bytes), and the
+partition starts at byte offset `0x132F800 * 512 = 0x265F00000`.
 
 ## Boot log
 
@@ -54,8 +62,21 @@ NativeSdhciBlock: EXT_CSD rev=0x08 sec_count=0xe8f8000 (119280 MiB)
 NativeSdhciBlock: GPT first=0x22 last=0xe8f7fde alt=0xe8f7fff entries@0x2 count=128 size=128
 NativeSdhciBlock: GPT [44] userdata first=0x132f800 last=0xe8f7fde blocks=0xd5c87df (109456 MiB)
 NativeSdhciBlock: userdata first=0x132f800 last=0xe8f7fde sectors=0xd5c87df bytes=...
-NativeSdhciBlock: block device online, 0xd5c87df blocks of 512 bytes
+NativeSdhciBlock: eMMC read path ready, block device publication is the next milestone
 ```
+
+## Milestone 2: publishing the block device
+
+`IOBlockStorageDevice` and `IOMedia` live in IOStorageFamily, which is **not**
+part of the XNU kernel link.  UniXNU binds those imports from the qualified
+original kernelcache (`scripts/build-virtio-mmio-bindings.py` plus
+`scripts/audit-storage-interface.py`, both keyed to the pinned iPadOS 17.7.11
+kernelcache), and the driver archive is then force-loaded.  Adding
+`IOBlockStorageDevice` as the base class before that binding exists fails the
+kernel link with `undefined symbols ... IOBlockStorageDevice` (observed in CI run
+41271591408).  The read transport here (`dataCommand`, `readSector`, the GPT
+walk) is already the final one, so milestone 2 only adds the class derivation,
+`doAsyncReadWrite` over the existing `readSector`, and the bindings step.
 
 ## Integration
 
@@ -63,7 +84,9 @@ NativeSdhciBlock: block device online, 0xd5c87df blocks of 512 bytes
   output `build/sdhciblock/libSdhciBlock.a`); the device repository carries it as
   `components/SdhciBlock.toml` and the macOS workflow appends it to the UniXNU
   checkout.
-* `board.toml [components] include` adds `SdhciBlock`.
+* `board.toml [components] include` adds `SdhciBlock`, and `[kernel] archives`
+  lists `component:SdhciBlock` (the arch profile lists its component archives
+  explicitly, so the automatic plan does not add it).
 * `patches/xnu/sdhci-block-personality.patch` registers the `NativeSdhciBlock`
   personality (`IOProviderClass = IOPlatformDevice`,
   `IONameMatch = 'unixnu,sdhci-block'`).
@@ -71,9 +94,3 @@ NativeSdhciBlock: block device online, 0xd5c87df blocks of 512 bytes
   `compatible = "unixnu,sdhci-block", "sprd,sdhc-r11p1"`,
   `unixnu,adt-name = "sdhci"`, `reg = <0 0x71400000 0 0x1000>`,
   `interrupts = <0 10 4>`.
-
-## Read-only
-
-Writes are not implemented: `reportWriteProtection` returns true and
-`doAsyncReadWrite` rejects anything that is not a read. The userdata root layout
-the OS image carries is written from the host, not by the kernel.

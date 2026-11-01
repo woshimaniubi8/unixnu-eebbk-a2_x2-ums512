@@ -1,8 +1,16 @@
 // SPDX-License-Identifier: BSD-2-Clause-Patent
 //
 // NativeSdhciBlock - Unisoc UMS512 / SharkL5Pro (T610 family) SDHCR11 eMMC
-// transport that publishes the Android "userdata" GPT partition as a read-only
-// IOKit block device.
+// transport for the Android "userdata" GPT partition.
+//
+// Milestone 1 (this driver): attach to the device-tree node, prove that the
+// controller register file is reachable from XNU, inherit the state cboot left
+// behind and prove the eMMC read path end to end (EXT_CSD + the GPT), then
+// record the userdata window.  Milestone 2 publishes that window as an IOKit
+// block device; it is not in this build because IOStorageFamily is not part of
+// the XNU kernel link (UniXNU binds those symbols from the qualified original
+// kernelcache through scripts/build-virtio-mmio-bindings.py and the storage
+// interface audit), so the transport below is written to be the final read path.
 //
 // The controller at 0x71400000 is already initialised by cboot/U-Boot and this
 // driver deliberately inherits that state (clock control 0x0207, host control
@@ -29,7 +37,7 @@
 #include <IOKit/IOBufferMemoryDescriptor.h>
 #include <IOKit/IODeviceMemory.h>
 #include <IOKit/IOLib.h>
-#include <IOKit/storage/IOBlockStorageDevice.h>
+#include <IOKit/IOService.h>
 #include <libkern/c++/OSData.h>
 #include <kern/clock.h>
 #include <kern/task.h>
@@ -117,7 +125,7 @@ inline void cacheInvalidate(const void *address, size_t bytes)
 
 } // namespace
 
-class NativeSdhciBlock : public IOBlockStorageDevice {
+class NativeSdhciBlock : public IOService {
     OSDeclareDefaultStructors(NativeSdhciBlock)
 
 public:
@@ -125,64 +133,6 @@ public:
     bool start(IOService *provider) override;
     void stop(IOService *provider) override;
     void free() override;
-
-    IOReturn doEjectMedia() override { return kIOReturnUnsupported; }
-    IOReturn doFormatMedia(UInt64) override { return kIOReturnNotWritable; }
-    UInt32 doGetFormatCapacities(UInt64 *, UInt32) const override { return 0; }
-    char *getVendorString() override { return const_cast<char *>("Unisoc"); }
-    char *getProductString() override { return const_cast<char *>("UMS512 SDHCI eMMC"); }
-    char *getRevisionString() override { return const_cast<char *>("SDHCR11"); }
-    char *getAdditionalDeviceInfoString() override
-    {
-        return const_cast<char *>("userdata partition, ADMA2, polled");
-    }
-    IOReturn reportBlockSize(UInt64 *value) override
-    {
-        *value = kBlockBytes;
-        return kIOReturnSuccess;
-    }
-    IOReturn reportEjectability(bool *value) override
-    {
-        *value = false;
-        return kIOReturnSuccess;
-    }
-    IOReturn reportMaxValidBlock(UInt64 *value) override
-    {
-        *value = capacity - 1;
-        return kIOReturnSuccess;
-    }
-    IOReturn reportMediaState(bool *present, bool *changed) override
-    {
-        *present = online;
-        if (changed) {
-            *changed = false;
-        }
-        return kIOReturnSuccess;
-    }
-    IOReturn reportRemovability(bool *value) override
-    {
-        *value = false;
-        return kIOReturnSuccess;
-    }
-    IOReturn reportWriteProtection(bool *value) override
-    {
-        *value = true;
-        return kIOReturnSuccess;
-    }
-    IOReturn doSynchronizeCache() override { return online ? kIOReturnSuccess : kIOReturnNotReady; }
-    IOReturn doSynchronize(UInt64, UInt64, IOOptionBits) override
-    {
-        return online ? kIOReturnSuccess : kIOReturnNotReady;
-    }
-    IOReturn getWriteCacheState(bool *value) override
-    {
-        *value = false;
-        return kIOReturnSuccess;
-    }
-    IOReturn setWriteCacheState(bool) override { return kIOReturnUnsupported; }
-    IOReturn doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 block, UInt64 count,
-                              IOStorageAttributes *attributes,
-                              IOStorageCompletion *completion) override;
 
 private:
     IOMemoryMap *mapping = nullptr;
@@ -192,8 +142,8 @@ private:
     uintptr_t registers = 0;
     uint64_t descriptorPhysical = 0;
     uint64_t transferPhysical = 0;
-    uint64_t capacity = 0;             // sectors of the published userdata partition
-    uint64_t partitionFirstLba = 0;    // eMMC sector of partition sector 0
+    uint64_t capacity = 0;             // sectors of the userdata window
+    uint64_t partitionFirstLba = 0;    // eMMC sector of window sector 0
     bool online = false;
     bool ownsDevice = false;
     uint32_t lastStatus = 0;
@@ -241,7 +191,7 @@ private:
     }
 };
 
-OSDefineMetaClassAndStructors(NativeSdhciBlock, IOBlockStorageDevice)
+OSDefineMetaClassAndStructors(NativeSdhciBlock, IOService)
 
 IOService *NativeSdhciBlock::probe(IOService *provider, SInt32 *score)
 {
@@ -278,7 +228,7 @@ IOService *NativeSdhciBlock::probe(IOService *provider, SInt32 *score)
     if (!matched) {
         return nullptr;
     }
-    return IOBlockStorageDevice::probe(provider, score);
+    return IOService::probe(provider, score);
 }
 
 bool NativeSdhciBlock::waitCommandIdle(uint32_t milliseconds)
@@ -512,7 +462,7 @@ bool NativeSdhciBlock::findUserdataPartition()
 
 bool NativeSdhciBlock::start(IOService *provider)
 {
-    if (!provider || !IOBlockStorageDevice::start(provider)) {
+    if (!provider || !IOService::start(provider)) {
         return false;
     }
     if (provider->getResources() != kIOReturnSuccess) {
@@ -570,7 +520,7 @@ bool NativeSdhciBlock::start(IOService *provider)
 
     readExtCsd();
     if (!readGptHeader() || !findUserdataPartition()) {
-        IOLog("NativeSdhciBlock: eMMC read path not proven, no block device published\n");
+        IOLog("NativeSdhciBlock: eMMC read path not proven, nothing published\n");
         return false;
     }
 
@@ -580,40 +530,9 @@ bool NativeSdhciBlock::start(IOService *provider)
     IOLog("NativeSdhciBlock: userdata first=0x%llx last=0x%llx sectors=0x%llx bytes=%llu\n",
           partitionFirstLba, native_sdhci_userdata_last, capacity,
           capacity * static_cast<uint64_t>(kBlockBytes));
-    IOLog("NativeSdhciBlock: block device online, %llu blocks of %u bytes\n",
-          capacity, kBlockBytes);
+    IOLog("NativeSdhciBlock: eMMC read path ready, block device publication is the next milestone\n");
     registerService();
     return true;
-}
-
-IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 block, UInt64 count,
-                                            IOStorageAttributes *, IOStorageCompletion *completion)
-{
-    if (!buffer || !completion || !completion->action || !count || !online ||
-        block >= capacity || count > capacity - block || count > UINT64_MAX / kBlockBytes ||
-        buffer->getLength() < count * kBlockBytes) {
-        return kIOReturnBadArgument;
-    }
-    if (buffer->getDirection() != kIODirectionIn) {
-        return kIOReturnNotWritable;
-    }
-    uint64_t actual = 0;
-    IOReturn result = kIOReturnSuccess;
-    IOLockLock(gate);
-    while (online && actual < count * kBlockBytes) {
-        if (!readSector(partitionFirstLba + block + actual / kBlockBytes)) {
-            result = kIOReturnIOError;
-            break;
-        }
-        if (buffer->writeBytes(actual, sectorData(), kBlockBytes) != kBlockBytes) {
-            result = kIOReturnIOError;
-            break;
-        }
-        actual += kBlockBytes;
-    }
-    IOLockUnlock(gate);
-    completion->action(completion->target, completion->parameter, result, actual);
-    return kIOReturnSuccess;
 }
 
 void NativeSdhciBlock::stop(IOService *provider)
@@ -621,7 +540,7 @@ void NativeSdhciBlock::stop(IOService *provider)
     // Never reset the controller: cboot's state is what makes it work, and a
     // reset would also take the bootloader's card initialisation away.
     online = false;
-    IOBlockStorageDevice::stop(provider);
+    IOService::stop(provider);
 }
 
 void NativeSdhciBlock::free()
@@ -644,5 +563,5 @@ void NativeSdhciBlock::free()
     }
     registers = 0;
     ownsDevice = false;
-    IOBlockStorageDevice::free();
+    IOService::free();
 }
