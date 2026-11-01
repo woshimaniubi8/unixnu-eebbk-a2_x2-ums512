@@ -99,7 +99,7 @@ index bcdc36a..f229c59 100644
  #endif
  #if defined(XNU_OWNER_DATA_MOUNT) && XNU_OWNER_DATA_MOUNT
 diff --git a/bsd/vm/vm_unix.c b/bsd/vm/vm_unix.c
-index dcebcb8..a973bf2 100644
+index dcebcb8..ba80e4d 100644
 --- a/bsd/vm/vm_unix.c
 +++ b/bsd/vm/vm_unix.c
 @@ -2130,6 +2130,8 @@ shared_region_check_np(
@@ -175,7 +175,22 @@ index dcebcb8..a973bf2 100644
  	native_owner_cache_carrier_root_device = root_device;
  	native_owner_cache_carrier_file_device = cache_device;
  	if (authorized) os_atomic_inc(&native_owner_cache_carrier_accepts, relaxed);
-@@ -2622,6 +2641,7 @@ after_root_check:
+@@ -2457,6 +2476,14 @@ shared_region_map_and_slide_setup(
+ 			goto done;
+ 		}
+ 		srfmp->vp = (struct vnode *)fp_get_data(srfmp->fp);
++		{
++			const char *bbk_name = vnode_getname(srfmp->vp);
++			printf("bbk sr: map file pid=%d fd=%d name=%s vtype=%d mount=%p root=%d\n",
++			    proc_getpid(p), srfmp->fd, bbk_name ? bbk_name : "?",
++			    srfmp->vp->v_type, (void *)srfmp->vp->v_mount,
++			    srfmp->vp->v_mount == rdir_vp->v_mount);
++			if (bbk_name) vnode_putname(bbk_name);
++		}
+ 
+ 		/* make sure the vnode is a regular file */
+ 		if (srfmp->vp->v_type != VREG) {
+@@ -2622,6 +2649,7 @@ after_root_check:
  		if (srfmp->vp->v_mount != rdir_vp->v_mount) {
  #if defined(XNU_OWNER_CACHE_CARRIER) && XNU_OWNER_CACHE_CARRIER
  			owner_carrier = native_owner_shared_cache_carrier(rdir_vp, srfmp->vp);
@@ -183,3 +198,33 @@ index dcebcb8..a973bf2 100644
  #endif
  			vnode_t preboot_vp = NULL;
  #if XNU_TARGET_OS_OSX
+@@ -2794,6 +2822,9 @@ _shared_region_map_and_slide(
+ 	struct vnode                    *rdir_vp = NULL;
+ 	struct vm_shared_region         *shared_region = NULL;
+ 
++	printf("bbk sr: _map_and_slide pid=%d files=%u mappings=%u\n",
++	    proc_getpid(p), files_count, mappings_count);
++
+ 	/*
+ 	 * Get a reference to the current proc's root dir.
+ 	 * Need this to prevent racing with chroot.
+@@ -2972,6 +3003,8 @@ shared_region_map_and_slide_2_np(
+ 
+ 	files_count = uap->files_count;
+ 	mappings_count = uap->mappings_count;
++	printf("bbk sr: map_and_slide_2_np pid=%d files=%u mappings=%u\n",
++	    proc_getpid(p), files_count, mappings_count);
+ 
+ 	if (files_count == 0) {
+ 		SHARED_REGION_TRACE_INFO(
+@@ -3076,7 +3109,10 @@ shared_region_map_and_slide_2_np(
+ 	}
+ 
+ 	kr = _shared_region_map_and_slide(p, files_count, shared_files, mappings_count, mappings);
++	printf("bbk sr: map_and_slide_2_np pid=%d kr=0x%x slide=%u\n",
++	    proc_getpid(p), kr, slide_amount);
+ done:
++	printf("bbk sr: map_and_slide_2_np pid=%d done kr=0x%x\n", proc_getpid(p), kr);
+ 	kfree_data(shared_files, files_count * sizeof(shared_files[0]));
+ 	kfree_data(mappings, mappings_count * sizeof(mappings[0]));
+ 	return kr;
