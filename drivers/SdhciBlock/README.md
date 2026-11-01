@@ -74,16 +74,36 @@ original kernelcache (`scripts/build-virtio-mmio-bindings.py` plus
 kernelcache), and the driver archive is then force-loaded.  Adding
 `IOBlockStorageDevice` as the base class before that binding exists fails the
 kernel link with `undefined symbols ... IOBlockStorageDevice` (observed in CI run
-41271591408).  The read transport here (`dataCommand`, `readSector`, the GPT
-walk) is already the final one, so milestone 2 only adds the class derivation,
-`doAsyncReadWrite` over the existing `readSector`, and the bindings step.
+41271591408).
+
+The binding used here is derived from the pinned kernelcache instead of the
+qualified audit (the audit additionally needs a live-device memory snapshot and
+the KDK AES kext, which a CI runner cannot provide):
+
+* `build/derive-sdhciblock-bindings2.py` (host tool, not shipped) decompresses
+  the pinned iPadOS 17.7.11 kernelcache (sha256 `f18b4df8…`, the
+  `[kernel.prelink].kernelcache_sha256` pin), locates IOStorageFamily's kext
+  segments through `__PRELINK_INFO`, finds the 190-slot dispatch table in its
+  `__DATA_CONST` extent and derives the vtable, metaclass, protected
+  constructor and base destructor of `IOBlockStorageDevice`.  The result is
+  committed as `storage-bindings.json` (provenance: kernelcache sha, prelink
+  slide, prelinked-kernel sha).
+* `scripts/build-sdhci-block.py` (device-owned, copied into the build tree)
+  compiles this driver with the kernel's own compile record, reads the class
+  vtable relocations to learn which `IOBlockStorageDevice` symbol sits in which
+  slot, emits `.set` absolute bindings for every undefined IOStorageFamily
+  import, compiles them into `original-bindings.o` and archives both objects as
+  `libSdhciBlock.a`.  The defconfig force-loads that archive.
+* The addresses stay valid because the archive is force-loaded at the end of
+  `LD_KERNEL_ARCHIVES` (earlier kernel symbols keep their addresses) and the
+  IOStorageFamily kext is placed by the prelink step at `original_va + slide`.
 
 ## Integration
 
-* `components.toml` catalog entry `SdhciBlock` (`build-arm-driver.py SdhciBlock`,
-  output `build/sdhciblock/libSdhciBlock.a`); the device repository carries it as
-  `components/SdhciBlock.toml` and the macOS workflow appends it to the UniXNU
-  checkout.
+* `components.toml` catalog entry `SdhciBlock` (build recipe
+  `build-sdhci-block.py SdhciBlock`, output `build/sdhciblock/libSdhciBlock.a`);
+  the device repository carries it as `components/SdhciBlock.toml` and the macOS
+  workflow appends it to the UniXNU checkout.
 * `board.toml [components] include` adds `SdhciBlock`, and `[kernel] archives`
   lists `component:SdhciBlock` (the arch profile lists its component archives
   explicitly, so the automatic plan does not add it).

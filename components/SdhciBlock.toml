@@ -15,6 +15,10 @@ dependencies = []
 source_files = ["NativeSdhciBlock.cpp"]
 runtime_identifiers = ["NativeSdhciBlock", "NativeSdhciBlock.cpp"]
 build_stage = "kernel"
-build = ["build-arm-driver.py", "SdhciBlock"]
+# build-sdhci-block.py is device-owned (scripts/): it compiles the driver with
+# the kernel's compile record and binds the IOStorageFamily imports to the
+# addresses in drivers/SdhciBlock/storage-bindings.json, then archives both
+# objects.  build-arm-driver.py cannot do that (it has no bindings step).
+build = ["build-sdhci-block.py", "SdhciBlock"]
 outputs = ["build/sdhciblock/libSdhciBlock.a"]
 legacy_name = "NativeSdhciBlock"
