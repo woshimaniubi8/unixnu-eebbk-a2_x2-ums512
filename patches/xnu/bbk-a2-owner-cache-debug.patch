@@ -1,5 +1,5 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
-index bcdc36a..2506a9c 100644
+index bcdc36a..f229c59 100644
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
 @@ -7096,10 +7096,14 @@ native_owner_cache_prepare(proc_t p, user_addr_t scratch, user_addr_t *envp)
@@ -25,7 +25,7 @@ index bcdc36a..2506a9c 100644
  	if (error) goto done;
  	native_owner_cache_stage = 4;
  	error = vnode_lookup(mountpoint, 0, &mounted_root, vfs_context_current());
-@@ -7134,6 +7139,20 @@ native_owner_cache_prepare(proc_t p, user_addr_t scratch, user_addr_t *envp)
+@@ -7134,6 +7139,36 @@ native_owner_cache_prepare(proc_t p, user_addr_t scratch, user_addr_t *envp)
  	native_owner_cache_native_union = native_union;
  	cache_authorized = readonly && actual == selected &&
  	    !strcmp(vfs_statfs(cache_mount)->f_fstypename, "apfs") && native_verified_block_root_authorized(actual);
@@ -33,20 +33,36 @@ index bcdc36a..2506a9c 100644
 +	    mountpoint, error, (unsigned)actual, (unsigned)selected, readonly,
 +	    vfs_statfs(cache_mount)->f_fstypename, cache_authorized);
 +	{
-+		vnode_t dbg_dir = NULLVP, dbg_file = NULLVP;
-+		int dir_err = vnode_lookup("/private/preboot/System/Library/Caches/com.apple.dyld",
-+		    0, &dbg_dir, vfs_context_current());
-+		int file_err = vnode_lookup(
-+		    "/private/preboot/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64",
-+		    0, &dbg_file, vfs_context_current());
-+		printf("bbk cache: lookup dir err=%d file err=%d\n", dir_err, file_err);
-+		if (dbg_dir) vnode_put(dbg_dir);
-+		if (dbg_file) vnode_put(dbg_file);
++		static const char *const dbg_paths[] = {
++			"/private/preboot",
++			"/private/preboot/System",
++			"/private/preboot/System/Library",
++			"/private/preboot/System/Library/Caches",
++			"/private/preboot/System/Library/Caches/com.apple.dyld",
++			"/private/preboot/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64",
++			"/private/preboot/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64.development",
++			"/private/preboot/SystemOS",
++			"/private/preboot/OS",
++			"/private/preboot/usr",
++			"/private/preboot/Cryptexes",
++			"/private/preboot/Cryptexes/OS",
++			"/private/preboot/Cryptexes/OS/System",
++			"/private/preboot/Cryptexes/OS/System/Library/Caches/com.apple.dyld",
++			"/private/preboot/Cryptexes/OS/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64",
++		};
++		for (unsigned dbg_index = 0; dbg_index < sizeof(dbg_paths) / sizeof(dbg_paths[0]); ++dbg_index) {
++			vnode_t dbg_vnode = NULLVP;
++			int dbg_error = vnode_lookup(dbg_paths[dbg_index], 0, &dbg_vnode,
++			    vfs_context_current());
++			printf("bbk cache: path %s err=%d type=%d\n", dbg_paths[dbg_index], dbg_error,
++			    dbg_vnode ? vnode_vtype(dbg_vnode) : -1);
++			if (dbg_vnode) vnode_put(dbg_vnode);
++		}
 +	}
  #if defined(XNU_OWNER_UNION_SYSTEMOS) && XNU_OWNER_UNION_SYSTEMOS
  	cache_authorized = cache_authorized && native_union;
  #endif
-@@ -7155,6 +7174,8 @@ done:
+@@ -7155,6 +7190,8 @@ done:
  	int root_recheck = root_authorized && native_verified_block_root_authorized(root_device);
  	native_owner_cache_root_recheck = root_recheck;
  	if (!root_recheck) error = EAUTH;
@@ -55,7 +71,7 @@ index bcdc36a..2506a9c 100644
  #if defined(XNU_OWNER_BOOT_MANIFEST) && XNU_OWNER_BOOT_MANIFEST
  	if (!error && cache_authorized && root_recheck &&
  	    !native_owner_publish_boot_manifest(root_device, "04769D26-2CA0-4825-B443-E2E5F88300F2",
-@@ -8117,6 +8138,17 @@ load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path,
+@@ -8117,6 +8154,17 @@ load_init_program_at_path(proc_t p, user_addr_t scratch_addr, const char* path,
  	init_exec_args.fname = argv0;
  	init_exec_args.argp = scratch_addr;
  	init_exec_args.envp = envp;
@@ -73,7 +89,7 @@ index bcdc36a..2506a9c 100644
  
  	/*
  	 * So that init task is set with uid,gid 0 token
-@@ -8181,6 +8213,8 @@ load_init_program(proc_t p)
+@@ -8181,6 +8229,8 @@ load_init_program(proc_t p)
  	user_addr_t init_envp = USER_ADDR_NULL;
  #if defined(XNU_OWNER_CACHE_MOUNT) && XNU_OWNER_CACHE_MOUNT
  	int cache_error = native_owner_cache_prepare(p, (user_addr_t)scratch_addr, &init_envp);
