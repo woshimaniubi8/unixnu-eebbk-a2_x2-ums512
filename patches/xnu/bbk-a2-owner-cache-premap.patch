@@ -170,10 +170,10 @@ index f229c59..595eaea 100644
  #if defined(XNU_OWNER_DATA_MOUNT) && XNU_OWNER_DATA_MOUNT
  	int data_error = native_owner_data_prepare(p, (user_addr_t)scratch_addr);
 diff --git a/osfmk/vm/vm_map.c b/osfmk/vm/vm_map.c
-index d9d142e..fe60ba2 100644
+index d9d142e..ac3ab82 100644
 --- a/osfmk/vm/vm_map.c
 +++ b/osfmk/vm/vm_map.c
-@@ -13795,6 +13795,25 @@ vm_map_exec(
+@@ -13795,6 +13795,31 @@ vm_map_exec(
  
  	(void) vm_shared_region_enter(new_map, task, is64bit, fsroot, cpu, cpu_subtype, reslide, is_driverkit, rsr_version);
  
@@ -186,10 +186,16 @@ index d9d142e..fe60ba2 100644
 +	 * is set by load_init_program for the launchd exec only.
 +	 */
 +	{
-+		extern int native_owner_cache_premap_pending;
-+		extern int native_owner_cache_premap(task_t task);
++		/*
++		 * Weak references: the bootstrap pass links osfmk without bsd, so the
++		 * owner cache premap symbols (bsd/kern/kern_exec.c) must not become a
++		 * hard dependency there.
++		 */
++		extern int native_owner_cache_premap_pending __attribute__((weak));
++		extern int native_owner_cache_premap(task_t task) __attribute__((weak));
 +
-+		if (native_owner_cache_premap_pending) {
++		if (&native_owner_cache_premap_pending != NULL &&
++		    &native_owner_cache_premap != NULL && native_owner_cache_premap_pending) {
 +			int premap_error = native_owner_cache_premap(task);
 +			printf("bbk sr: premap err=%d\n", premap_error);
 +		}
