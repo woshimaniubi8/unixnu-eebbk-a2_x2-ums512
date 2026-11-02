@@ -1,8 +1,29 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
-index f229c59..595eaea 100644
+index f229c59..a5bab8f 100644
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -7017,6 +7017,9 @@ create_unix_stack(vm_map_t map, load_result_t* load_result,
+@@ -1615,6 +1615,20 @@ grade:
+ 	    (imgp->ip_flags & IMGPF_DRIVER) != 0,
+ 	    rsr_version);
+ 
++#if defined(XNU_OWNER_CACHE_MOUNT) && XNU_OWNER_CACHE_MOUNT
++	/*
++	 * BBK A2 bring-up: the exec above has just entered the shared region for
++	 * the new map; preload the owner's main dyld shared cache into it before
++	 * the process starts, so its first shared_region_check_np() finds a mapped
++	 * region (the OS image has no loose dylibs for dyld to fall back to).  The
++	 * request flag is set by load_init_program for the launchd exec only.
++	 */
++	if (native_owner_cache_premap_pending) {
++		int premap_error = native_owner_cache_premap(task);
++		printf("bbk sr: premap err=%d\n", premap_error);
++	}
++#endif
++
+ 	/*
+ 	 * Close file descriptors which specify close-on-exec.
+ 	 */
+@@ -7017,6 +7031,9 @@ create_unix_stack(vm_map_t map, load_result_t* load_result,
  #if !DEVELOPMENT && !DEBUG
  #error The offline owner cache mount is a development instrument
  #endif
@@ -12,7 +33,7 @@ index f229c59..595eaea 100644
  extern int native_verified_block_volume_device(const char *, dev_t *, char *, size_t);
  #if defined(XNU_OWNER_BOOT_MANIFEST) && XNU_OWNER_BOOT_MANIFEST
  extern int native_owner_publish_boot_manifest(dev_t, const char *, dev_t, const char *);
-@@ -7211,6 +7214,147 @@ done:
+@@ -7211,6 +7228,147 @@ done:
  	native_owner_cache_checkpoint(error, cache_authorized);
  	return error;
  }
@@ -160,7 +181,7 @@ index f229c59..595eaea 100644
  #endif
  
  #if defined(XNU_OWNER_DATA_MOUNT) && XNU_OWNER_DATA_MOUNT
-@@ -8232,6 +8376,8 @@ load_init_program(proc_t p)
+@@ -8232,6 +8390,8 @@ load_init_program(proc_t p)
  	printf("bbk init: cache_prepare err=%d envp=0x%llx\n", cache_error,
  	    (unsigned long long)init_envp);
  	if (cache_error) panic("offline owner SystemOS mount failed: %d", cache_error);
@@ -169,39 +190,3 @@ index f229c59..595eaea 100644
  #endif
  #if defined(XNU_OWNER_DATA_MOUNT) && XNU_OWNER_DATA_MOUNT
  	int data_error = native_owner_data_prepare(p, (user_addr_t)scratch_addr);
-diff --git a/osfmk/vm/vm_map.c b/osfmk/vm/vm_map.c
-index d9d142e..ac3ab82 100644
---- a/osfmk/vm/vm_map.c
-+++ b/osfmk/vm/vm_map.c
-@@ -13795,6 +13795,31 @@ vm_map_exec(
- 
- 	(void) vm_shared_region_enter(new_map, task, is64bit, fsroot, cpu, cpu_subtype, reslide, is_driverkit, rsr_version);
- 
-+#if defined(XNU_NATIVE_SDHCI_BLOCK) && XNU_NATIVE_SDHCI_BLOCK
-+	/*
-+	 * BBK A2 bring-up: the exec has just entered the shared region for the new
-+	 * map; preload the owner's dyld shared cache into it before the process
-+	 * starts, so its first shared_region_check_np() finds a mapped region (the
-+	 * OS image has no loose dylibs for dyld to fall back to).  The request flag
-+	 * is set by load_init_program for the launchd exec only.
-+	 */
-+	{
-+		/*
-+		 * Weak references: the bootstrap pass links osfmk without bsd, so the
-+		 * owner cache premap symbols (bsd/kern/kern_exec.c) must not become a
-+		 * hard dependency there.
-+		 */
-+		extern int native_owner_cache_premap_pending __attribute__((weak));
-+		extern int native_owner_cache_premap(task_t task) __attribute__((weak));
-+
-+		if (&native_owner_cache_premap_pending != NULL &&
-+		    &native_owner_cache_premap != NULL && native_owner_cache_premap_pending) {
-+			int premap_error = native_owner_cache_premap(task);
-+			printf("bbk sr: premap err=%d\n", premap_error);
-+		}
-+	}
-+#endif /* XNU_NATIVE_SDHCI_BLOCK */
-+
- 	SHARED_REGION_TRACE_DEBUG(
- 		("shared_region: task %p: vm_map_exec(%p,%p,%p,0x%x,0x%x): <-\n",
- 		(void *)VM_KERNEL_ADDRPERM(current_task()),
