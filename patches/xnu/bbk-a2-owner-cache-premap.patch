@@ -1,8 +1,20 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
-index f229c59..a5bab8f 100644
+index f229c59..2a68da6 100644
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -1615,6 +1615,20 @@ grade:
+@@ -1186,6 +1186,11 @@ SYSCTL_PROC(_vm, OID_AUTO, shared_region_control,
+  *		activators should not be given the opportunity to attempt
+  *		to activate the image.
+  */
++#if defined(XNU_OWNER_CACHE_MOUNT) && XNU_OWNER_CACHE_MOUNT
++extern int native_owner_cache_premap_pending;
++extern int native_owner_cache_premap(task_t task);
++#endif
++
+ static int
+ exec_mach_imgact(struct image_params *imgp)
+ {
+@@ -1615,6 +1620,20 @@ grade:
  	    (imgp->ip_flags & IMGPF_DRIVER) != 0,
  	    rsr_version);
  
@@ -23,7 +35,7 @@ index f229c59..a5bab8f 100644
  	/*
  	 * Close file descriptors which specify close-on-exec.
  	 */
-@@ -7017,6 +7031,9 @@ create_unix_stack(vm_map_t map, load_result_t* load_result,
+@@ -7017,6 +7036,9 @@ create_unix_stack(vm_map_t map, load_result_t* load_result,
  #if !DEVELOPMENT && !DEBUG
  #error The offline owner cache mount is a development instrument
  #endif
@@ -33,7 +45,7 @@ index f229c59..a5bab8f 100644
  extern int native_verified_block_volume_device(const char *, dev_t *, char *, size_t);
  #if defined(XNU_OWNER_BOOT_MANIFEST) && XNU_OWNER_BOOT_MANIFEST
  extern int native_owner_publish_boot_manifest(dev_t, const char *, dev_t, const char *);
-@@ -7211,6 +7228,147 @@ done:
+@@ -7211,6 +7233,146 @@ done:
  	native_owner_cache_checkpoint(error, cache_authorized);
  	return error;
  }
@@ -79,7 +91,6 @@ index f229c59..a5bab8f 100644
 +	struct _sr_file_mappings *srfmp = NULL;
 +	struct shared_file_mapping_slide_np *mappings = NULL;
 +	vnode_t vp = NULLVP;
-+	task_t task = current_task();
 +	vm_shared_region_t shared_region = NULL;
 +	off_t size = 0;
 +	int error = 0;
@@ -181,7 +192,7 @@ index f229c59..a5bab8f 100644
  #endif
  
  #if defined(XNU_OWNER_DATA_MOUNT) && XNU_OWNER_DATA_MOUNT
-@@ -8232,6 +8390,8 @@ load_init_program(proc_t p)
+@@ -8232,6 +8394,8 @@ load_init_program(proc_t p)
  	printf("bbk init: cache_prepare err=%d envp=0x%llx\n", cache_error,
  	    (unsigned long long)init_envp);
  	if (cache_error) panic("offline owner SystemOS mount failed: %d", cache_error);
