@@ -1,5 +1,5 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
-index f229c59..e0869ea 100644
+index f229c59..b0fad21 100644
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
 @@ -1186,6 +1186,11 @@ SYSCTL_PROC(_vm, OID_AUTO, shared_region_control,
@@ -8,7 +8,7 @@ index f229c59..e0869ea 100644
   */
 +#if defined(XNU_OWNER_CACHE_MOUNT) && XNU_OWNER_CACHE_MOUNT
 +extern int native_owner_cache_premap_pending;
-+extern int native_owner_cache_premap(task_t task);
++extern int native_owner_cache_premap(task_t task, vm_map_t map);
 +#endif
 +
  static int
@@ -41,7 +41,7 @@ index f229c59..e0869ea 100644
 +		printf("bbk sr: premap maps cur=0x%llx exec_map=0x%llx same_cur_exec=%d\n",
 +		    (unsigned long long)(uintptr_t)current_map(),
 +		    (unsigned long long)(uintptr_t)map, current_map() == map);
-+		premap_error = native_owner_cache_premap(task);
++		premap_error = native_owner_cache_premap(task, map);
 +		printf("bbk sr: premap err=%d\n", premap_error);
 +	}
 +#endif
@@ -95,7 +95,7 @@ index f229c59..e0869ea 100644
 +int native_owner_cache_premap_pending = 0;
 +
 +int
-+native_owner_cache_premap(task_t task)
++native_owner_cache_premap(task_t task, vm_map_t map)
 +{
 +	native_owner_cache_premap_pending = 0;
 +	const char *path =
@@ -217,7 +217,7 @@ index f229c59..e0869ea 100644
 +	srfmp->vp = vp;
 +	srfmp->file_size = (memory_object_size_t)size;
 +	srfmp->file_control = MEMORY_OBJECT_CONTROL_NULL;
-+	kr = vm_shared_region_map_file(shared_region, 1, srfmp);
++	kr = vm_shared_region_map_file(shared_region, map, 1, srfmp);
 +	printf("bbk sr: premap map kr=0x%x size=%lld mappings=%u\n", kr, (long long)size,
 +	    header.mappingCount);
 +	error = (kr == KERN_SUCCESS) ? 0 : EIO;

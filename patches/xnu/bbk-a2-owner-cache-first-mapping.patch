@@ -1,5 +1,18 @@
+diff --git a/bsd/vm/vm_unix.c b/bsd/vm/vm_unix.c
+index ba80e4d..493b19a 100644
+--- a/bsd/vm/vm_unix.c
++++ b/bsd/vm/vm_unix.c
+@@ -2850,7 +2850,7 @@ _shared_region_map_and_slide(
+ 	}
+ 
+ 	/* map the file(s) into that shared region's submap */
+-	kr = vm_shared_region_map_file(shared_region, files_count, sr_file_mappings);
++	kr = vm_shared_region_map_file(shared_region, current_map(), files_count, sr_file_mappings);
+ 	if (kr != KERN_SUCCESS) {
+ 		SHARED_REGION_TRACE_ERROR(("shared_region: %p [%d(%s)] map(): "
+ 		    "vm_shared_region_map_file() failed kr=0x%x\n",
 diff --git a/osfmk/vm/vm_shared_region.c b/osfmk/vm/vm_shared_region.c
-index 1ab7232..2834558 100644
+index 1ab7232..87f7010 100644
 --- a/osfmk/vm/vm_shared_region.c
 +++ b/osfmk/vm/vm_shared_region.c
 @@ -1674,6 +1674,17 @@ vm_shared_region_map_file_setup(
@@ -20,12 +33,38 @@ index 1ab7232..2834558 100644
  			if (mappings[0].sms_address < *sfm_min_address) {
  				*sfm_min_address = mappings[0].sms_address;
  			}
-@@ -2132,12 +2143,13 @@ __attribute__((noinline))
+@@ -1950,6 +1961,7 @@ static void
+ vm_shared_region_map_file_final(
+ 	vm_shared_region_t shared_region,
+ 	vm_map_t           sr_map,
++	vm_map_t           source_map,
+ 	mach_vm_offset_t   sfm_min_address,
+ 	mach_vm_offset_t   sfm_max_address);
+ 
+@@ -1967,6 +1979,7 @@ __attribute__((noinline))
+ kern_return_t
+ vm_shared_region_map_file(
+ 	vm_shared_region_t       shared_region,
++	vm_map_t                 source_map,
+ 	int                      sr_file_mappings_count,
+ 	struct _sr_file_mappings *sr_file_mappings)
+ {
+@@ -2083,7 +2096,7 @@ vm_shared_region_map_file(
+ 	assert(shared_region->sr_ref_count > 0);
+ 	assert(shared_region->sr_mapping_in_progress == current_thread());
+ 
+-	vm_shared_region_map_file_final(shared_region, sr_map, sfm_min_address, sfm_max_address);
++	vm_shared_region_map_file_final(shared_region, sr_map, source_map, sfm_min_address, sfm_max_address);
+ 
+ done:
+ 	/*
+@@ -2132,12 +2145,14 @@ __attribute__((noinline))
  static void
  vm_shared_region_map_file_final(
  	vm_shared_region_t        shared_region,
 -	vm_map_t                  sr_map __unused,
 +	vm_map_t                  sr_map,
++	vm_map_t                  source_map,
  	mach_vm_offset_t          sfm_min_address __unused,
  	mach_vm_offset_t          sfm_max_address __unused)
  {
@@ -35,7 +74,7 @@ index 1ab7232..2834558 100644
  	size_t                    image_array_length;
  	struct _dyld_cache_image_text_info *sr_image_layout;
  	boolean_t                 locally_built = FALSE;
-@@ -2150,21 +2162,26 @@ vm_shared_region_map_file_final(
+@@ -2150,21 +2165,32 @@ vm_shared_region_map_file_final(
  	 * at other content from the shared cache header.
  	 */
  	if (!shared_region->sr_uuid_copied) {
@@ -48,9 +87,13 @@ index 1ab7232..2834558 100644
 +		 * validates against current_thread()->map) cannot reach the shared
 +		 * region.  Read through the shared region's own map instead.
 +		 */
-+		kr = copyinmap(sr_map, (vm_map_offset_t)shared_region->sr_first_mapping,
++		kr = copyinmap(source_map,
++		    shared_region->sr_base_address + shared_region->sr_first_mapping,
 +		    (char *)&sr_cache_header, sizeof(sr_cache_header));
 +		error = (kr == KERN_SUCCESS) ? 0 : EFAULT;
++		printf("bbk sr: premap read va=0x%llx len=0x%zx kr=0x%x\n",
++		    (long long)(shared_region->sr_base_address + shared_region->sr_first_mapping),
++		    sizeof(sr_cache_header), kr);
  		if (error == 0) {
  			memcpy(&shared_region->sr_uuid, &sr_cache_header.uuid, sizeof(shared_region->sr_uuid));
  			shared_region->sr_uuid_copied = TRUE;
@@ -60,44 +103,67 @@ index 1ab7232..2834558 100644
 -			panic("shared_region: copyin shared_cache_header(sr_base_addr:0x%016llx sr_first_mapping:0x%016llx "
 -			    "offset:0 size:0x%016llx) failed with %d\n",
 -			    (long long)shared_region->sr_base_address,
-+			panic("shared_region: copyinmap shared_cache_header(sr_map:%p sr_first_mapping:0x%016llx "
-+			    "offset:0 size:0x%016llx kr:0x%x) failed with %d\n",
-+			    (void *)VM_KERNEL_ADDRPERM(sr_map),
- 			    (long long)shared_region->sr_first_mapping,
+-			    (long long)shared_region->sr_first_mapping,
 -			    (long long)sizeof(sr_cache_header),
 -			    error);
++			panic("shared_region: copyinmap shared_cache_header(cur_map:%p source_map:%p sr_map:%p "
++			    "va:0x%016llx size:0x%016llx kr:0x%x) failed with %d\n",
++			    (void *)VM_KERNEL_ADDRPERM(current_map()),
++			    (void *)VM_KERNEL_ADDRPERM(source_map),
++			    (void *)VM_KERNEL_ADDRPERM(sr_map),
++			    (long long)(shared_region->sr_base_address + shared_region->sr_first_mapping),
 +			    (long long)sizeof(sr_cache_header), kr, error);
  #endif /* DEVELOPMENT || DEBUG */
  			shared_region->sr_uuid_copied = FALSE;
  		}
-@@ -2186,8 +2203,10 @@ vm_shared_region_map_file_final(
+@@ -2186,8 +2212,14 @@ vm_shared_region_map_file_final(
  			KDBG((MACHDBG_CODE(DBG_MACH_SHAREDREGION, PROCESS_SHARED_CACHE_LAYOUT)) | DBG_FUNC_START);
  			image_array_length = (size_t)(sr_cache_header.imagesTextCount * sizeof(struct _dyld_cache_image_text_info));
  			sr_image_layout = kalloc_data(image_array_length, Z_WAITOK);
 -			error = copyin((user_addr_t)(shared_region->sr_base_address + shared_region->sr_first_mapping +
 -			    sr_cache_header.imagesTextOffset), (char *)sr_image_layout, image_array_length);
-+			kr = copyinmap(sr_map,
-+			    (vm_map_offset_t)(shared_region->sr_first_mapping + sr_cache_header.imagesTextOffset),
++			kr = copyinmap(source_map,
++			    shared_region->sr_base_address + shared_region->sr_first_mapping +
++			    sr_cache_header.imagesTextOffset,
 +			    (char *)sr_image_layout, image_array_length);
 +			error = (kr == KERN_SUCCESS) ? 0 : EFAULT;
++			printf("bbk sr: premap layout va=0x%llx len=0x%zx kr=0x%x\n",
++			    (long long)(shared_region->sr_base_address + shared_region->sr_first_mapping +
++			    sr_cache_header.imagesTextOffset), image_array_length, kr);
  			if (error == 0) {
  				if (sr_cache_header.imagesTextCount >= UINT32_MAX) {
  					panic("shared_region: sr_cache_header.imagesTextCount >= UINT32_MAX");
-@@ -2202,13 +2221,12 @@ vm_shared_region_map_file_final(
+@@ -2202,13 +2234,14 @@ vm_shared_region_map_file_final(
  				shared_region->sr_images_count = (uint32_t) sr_cache_header.imagesTextCount;
  			} else {
  #if DEVELOPMENT || DEBUG
 -				panic("shared_region: copyin shared_cache_layout(sr_base_addr:0x%016llx sr_first_mapping:0x%016llx "
 -				    "offset:0x%016llx size:0x%016llx) failed with %d\n",
 -				    (long long)shared_region->sr_base_address,
-+				panic("shared_region: copyinmap shared_cache_layout(sr_map:%p sr_first_mapping:0x%016llx "
-+				    "offset:0x%016llx size:0x%016llx kr:0x%x) failed with %d\n",
-+				    (void *)VM_KERNEL_ADDRPERM(sr_map),
- 				    (long long)shared_region->sr_first_mapping,
- 				    (long long)sr_cache_header.imagesTextOffset,
+-				    (long long)shared_region->sr_first_mapping,
+-				    (long long)sr_cache_header.imagesTextOffset,
 -				    (long long)image_array_length,
 -				    error);
++				panic("shared_region: copyinmap shared_cache_layout(cur_map:%p source_map:%p sr_map:%p "
++				    "va:0x%016llx size:0x%016llx kr:0x%x) failed with %d\n",
++				    (void *)VM_KERNEL_ADDRPERM(current_map()),
++				    (void *)VM_KERNEL_ADDRPERM(source_map),
++				    (void *)VM_KERNEL_ADDRPERM(sr_map),
++				    (long long)(shared_region->sr_base_address + shared_region->sr_first_mapping +
++				    sr_cache_header.imagesTextOffset),
 +				    (long long)image_array_length, kr, error);
  #endif /* DEVELOPMENT || DEBUG */
  			}
  			KDBG((MACHDBG_CODE(DBG_MACH_SHAREDREGION, PROCESS_SHARED_CACHE_LAYOUT)) | DBG_FUNC_END, shared_region->sr_images_count);
+diff --git a/osfmk/vm/vm_shared_region.h b/osfmk/vm/vm_shared_region.h
+index d6fe5c2..aba811b 100644
+--- a/osfmk/vm/vm_shared_region.h
++++ b/osfmk/vm/vm_shared_region.h
+@@ -351,6 +351,7 @@ extern void vm_shared_region_undo_mappings(
+ __attribute__((noinline))
+ extern kern_return_t vm_shared_region_map_file(
+ 	struct vm_shared_region *shared_region,
++	vm_map_t                source_map,
+ 	int                     sr_mappings_count,
+ 	struct _sr_file_mappings *sr_mappings);
+ extern void *vm_shared_region_root_dir(
