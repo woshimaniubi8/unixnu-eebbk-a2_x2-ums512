@@ -1,5 +1,5 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
-index f229c59..14b030a 100644
+index f229c59..e0869ea 100644
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
 @@ -1186,6 +1186,11 @@ SYSCTL_PROC(_vm, OID_AUTO, shared_region_control,
@@ -38,7 +38,7 @@ index f229c59..14b030a 100644
 +	if (native_owner_cache_premap_pending) {
 +		int premap_error;
 +
-+		printf("bbk sr: premap maps cur=0x%llx task=0x%llx same=%d\n",
++		printf("bbk sr: premap maps cur=0x%llx exec_map=0x%llx same_cur_exec=%d\n",
 +		    (unsigned long long)(uintptr_t)current_map(),
 +		    (unsigned long long)(uintptr_t)map, current_map() == map);
 +		premap_error = native_owner_cache_premap(task);
