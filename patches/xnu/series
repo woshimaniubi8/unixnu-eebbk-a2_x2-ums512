@@ -40,3 +40,6 @@ bbk-a2-owner-cache-first-mapping.patch
 # BBK A2 bring-up: pid 1 crash-site traces (user abort ESR/FAR/PC and postsig
 # signal) for the offline dyld shared cache bring-up.
 bbk-a2-crash-traces.patch
+# BBK A2 bring-up: print the paths pid 1 opens (flags + errno), to see which
+# dyld shared cache path launchd actually probes.
+bbk-a2-open-traces.patch

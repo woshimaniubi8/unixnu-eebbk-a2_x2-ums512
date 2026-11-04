@@ -1,0 +1,39 @@
+diff --git a/bsd/vfs/vfs_syscalls.c b/bsd/vfs/vfs_syscalls.c
+index 34c921b..da91de1 100644
+--- a/bsd/vfs/vfs_syscalls.c
++++ b/bsd/vfs/vfs_syscalls.c
+@@ -5132,16 +5132,32 @@ int
+ open_nocancel(__unused proc_t p, struct open_nocancel_args *uap,
+     int32_t *retval)
+ {
+-	return openat_internal(vfs_context_current(), uap->path, uap->flags,
++	int bbk_error = openat_internal(vfs_context_current(), uap->path, uap->flags,
+ 	           uap->mode, AT_FDCWD, UIO_USERSPACE, retval);
++	if (proc_getpid(current_proc()) == 1) {
++		char bbk_path[200];
++		if (copyinstr(uap->path, bbk_path, sizeof(bbk_path), NULL) != 0) {
++			strlcpy(bbk_path, "<bad ptr>", sizeof(bbk_path));
++		}
++		printf("bbk open: path=%s flags=0x%x -> err=%d\n", bbk_path, uap->flags, bbk_error);
++	}
++	return bbk_error;
+ }
+ 
+ int
+ openat_nocancel(__unused proc_t p, struct openat_nocancel_args *uap,
+     int32_t *retval)
+ {
+-	return openat_internal(vfs_context_current(), uap->path, uap->flags,
++	int bbk_error = openat_internal(vfs_context_current(), uap->path, uap->flags,
+ 	           uap->mode, uap->fd, UIO_USERSPACE, retval);
++	if (proc_getpid(current_proc()) == 1) {
++		char bbk_path[200];
++		if (copyinstr(uap->path, bbk_path, sizeof(bbk_path), NULL) != 0) {
++			strlcpy(bbk_path, "<bad ptr>", sizeof(bbk_path));
++		}
++		printf("bbk open: path=%s flags=0x%x -> err=%d\n", bbk_path, uap->flags, bbk_error);
++	}
++	return bbk_error;
+ }
+ 
+ int
