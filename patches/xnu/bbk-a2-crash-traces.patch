@@ -13,19 +13,18 @@ index 6f93e15..156ee70 100644
  
  		proc_lock(p);
 diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
-index ff5296d..a9dfcf5 100644
+index ff5296d..26f98af 100644
 --- a/osfmk/arm64/sleh.c
 +++ b/osfmk/arm64/sleh.c
-@@ -1236,6 +1236,13 @@ handle_breakpoint(arm_saved_state_t *state, uint32_t esr __unused)
+@@ -1236,6 +1236,12 @@ handle_breakpoint(arm_saved_state_t *state, uint32_t esr __unused)
  	}
  #endif /* __has_feature(ptrauth_calls) */
  
 +	if (task_pid(current_task()) == 1) {
-+		printf("bbk exc: pid=1 esr=0x%08x far=0x%016llx pc=0x%016llx lr=0x%016llx sp=0x%016llx prot=0x%x\n",
-+		    esr, (unsigned long long)fault_addr,
-+		    (unsigned long long)get_saved_state_pc(state),
++		printf("bbk exc: pid=1 esr=0x%08x pc=0x%016llx lr=0x%016llx sp=0x%016llx\n",
++		    esr, (unsigned long long)get_saved_state_pc(state),
 +		    (unsigned long long)get_saved_state_lr(state),
-+		    (unsigned long long)get_saved_state_sp(state), fault_type);
++		    (unsigned long long)get_saved_state_sp(state));
 +	}
  	codes[1] = get_saved_state_pc(state);
  	exception_triage(exception, codes, numcodes);
