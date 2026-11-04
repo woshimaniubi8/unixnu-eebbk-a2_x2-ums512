@@ -37,3 +37,6 @@ bbk-a2-owner-cache-premap.patch
 # vm_shared_region_map_file_setup(), like the file-backed path does, so the
 # premapped owner cache's header can be read back by map_file_final().
 bbk-a2-owner-cache-first-mapping.patch
+# BBK A2 bring-up: pid 1 crash-site traces (user abort ESR/FAR/PC and postsig
+# signal) for the offline dyld shared cache bring-up.
+bbk-a2-crash-traces.patch

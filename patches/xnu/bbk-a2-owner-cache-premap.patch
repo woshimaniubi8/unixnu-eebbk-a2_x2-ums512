@@ -1,5 +1,5 @@
 diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
-index f229c59..b0fad21 100644
+index f229c59..8046979 100644
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
 @@ -1186,6 +1186,11 @@ SYSCTL_PROC(_vm, OID_AUTO, shared_region_control,
@@ -22,7 +22,7 @@ index f229c59..b0fad21 100644
  	/*
  	 * Close file descriptors which specify close-on-exec.
  	 */
-@@ -1665,6 +1671,26 @@ grade:
+@@ -1665,6 +1671,33 @@ grade:
  	imgp->ip_free_map = old_map;
  	old_map = NULL;
  
@@ -36,20 +36,27 @@ index f229c59..b0fad21 100644
 +	 * by load_init_program for the launchd exec only.
 +	 */
 +	if (native_owner_cache_premap_pending) {
-+		int premap_error;
++		int premap_enabled = 0;
 +
-+		printf("bbk sr: premap maps cur=0x%llx exec_map=0x%llx same_cur_exec=%d\n",
-+		    (unsigned long long)(uintptr_t)current_map(),
-+		    (unsigned long long)(uintptr_t)map, current_map() == map);
-+		premap_error = native_owner_cache_premap(task, map);
-+		printf("bbk sr: premap err=%d\n", premap_error);
++		if (!PE_parse_boot_argn("bbk-premap", &premap_enabled, sizeof(premap_enabled)) ||
++		    premap_enabled != 1) {
++			printf("bbk sr: premap disabled (boot-arg bbk-premap=1 not set)\n");
++		} else {
++			int premap_error;
++
++			printf("bbk sr: premap maps cur=0x%llx exec_map=0x%llx same_cur_exec=%d\n",
++			    (unsigned long long)(uintptr_t)current_map(),
++			    (unsigned long long)(uintptr_t)map, current_map() == map);
++			premap_error = native_owner_cache_premap(task, map);
++			printf("bbk sr: premap err=%d\n", premap_error);
++		}
 +	}
 +#endif
 +
  	lret = activate_exec_state(task, p, thread, &load_result);
  	if (lret != KERN_SUCCESS) {
  		KERNEL_DEBUG_CONSTANT(BSDDBG_CODE(DBG_BSD_PROC, BSD_PROC_EXITREASON_CREATE) | DBG_FUNC_NONE,
-@@ -7017,6 +7043,9 @@ create_unix_stack(vm_map_t map, load_result_t* load_result,
+@@ -7017,6 +7050,9 @@ create_unix_stack(vm_map_t map, load_result_t* load_result,
  #if !DEVELOPMENT && !DEBUG
  #error The offline owner cache mount is a development instrument
  #endif
@@ -59,7 +66,7 @@ index f229c59..b0fad21 100644
  extern int native_verified_block_volume_device(const char *, dev_t *, char *, size_t);
  #if defined(XNU_OWNER_BOOT_MANIFEST) && XNU_OWNER_BOOT_MANIFEST
  extern int native_owner_publish_boot_manifest(dev_t, const char *, dev_t, const char *);
-@@ -7211,6 +7240,176 @@ done:
+@@ -7211,6 +7247,176 @@ done:
  	native_owner_cache_checkpoint(error, cache_authorized);
  	return error;
  }
@@ -236,7 +243,7 @@ index f229c59..b0fad21 100644
  #endif
  
  #if defined(XNU_OWNER_DATA_MOUNT) && XNU_OWNER_DATA_MOUNT
-@@ -8232,6 +8431,8 @@ load_init_program(proc_t p)
+@@ -8232,6 +8438,8 @@ load_init_program(proc_t p)
  	printf("bbk init: cache_prepare err=%d envp=0x%llx\n", cache_error,
  	    (unsigned long long)init_envp);
  	if (cache_error) panic("offline owner SystemOS mount failed: %d", cache_error);
