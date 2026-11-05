@@ -43,3 +43,7 @@ bbk-a2-crash-traces.patch
 # BBK A2 bring-up: print the paths pid 1 opens (flags + errno), to see which
 # dyld shared cache path launchd actually probes.
 bbk-a2-open-traces.patch
+# BBK A2 bring-up: print pid 1's mmap/pread/read/fstat/close calls with their
+# arguments and errno, so the step after the cache files are opened (mapping,
+# header validation or give-up) becomes visible on the UART.
+bbk-a2-syscall-traces.patch

@@ -1,0 +1,38 @@
+diff --git a/bsd/dev/arm/systemcalls.c b/bsd/dev/arm/systemcalls.c
+--- a/bsd/dev/arm/systemcalls.c
++++ b/bsd/dev/arm/systemcalls.c
+@@ -181,6 +181,34 @@
+ 	error = (*(callp->sy_call))(proc, &uthread->uu_arg[0], &(uthread->uu_rval[0]));
+ 	AUDIT_SYSCALL_EXIT(code, proc, uthread, error);
+ 
++	if (proc_getpid(proc) == 1) {
++		switch (code) {
++		case 197: /* mmap */
++			printf("bbk sys: mmap addr=0x%llx len=0x%llx prot=0x%x flags=0x%x fd=%d pos=0x%llx -> err=%d\n",
++			    (unsigned long long)uthread->uu_arg[0], (unsigned long long)uthread->uu_arg[1],
++			    (unsigned int)uthread->uu_arg[2], (unsigned int)uthread->uu_arg[3],
++			    (int)uthread->uu_arg[4], (unsigned long long)uthread->uu_arg[5], error);
++			break;
++		case 153: /* pread */
++			printf("bbk sys: pread fd=%d len=0x%llx off=0x%llx -> err=%d\n",
++			    (int)uthread->uu_arg[0], (unsigned long long)uthread->uu_arg[2],
++			    (unsigned long long)uthread->uu_arg[3], error);
++			break;
++		case 3: /* read */
++			printf("bbk sys: read fd=%d len=0x%llx -> err=%d\n",
++			    (int)uthread->uu_arg[0], (unsigned long long)uthread->uu_arg[2], error);
++			break;
++		case 189: /* fstat */
++			printf("bbk sys: fstat fd=%d -> err=%d\n", (int)uthread->uu_arg[0], error);
++			break;
++		case 6: /* close */
++			printf("bbk sys: close fd=%d -> err=%d\n", (int)uthread->uu_arg[0], error);
++			break;
++		default:
++			break;
++		}
++	}
++
+ #if CONFIG_MACF
+ skip_syscall:
+ #endif /* CONFIG_MACF */
