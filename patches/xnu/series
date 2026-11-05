@@ -51,3 +51,7 @@ bbk-a2-syscall-traces.patch
 # byte counts, mmap address) and the fstat size, so a short read or a failed
 # mapping is distinguishable from a successful one.
 bbk-a2-trace-returns.patch
+# BBK A2 bring-up: pair the syscall traces with entry records and cover
+# fcntl(92/406), fstat64(339), close_nocancel(399) and munmap(73), decoding
+# F_ADDFILESIGS_RETURN so the dyld cache preflight of fd 4 becomes visible.
+bbk-a2-syscall-entry.patch

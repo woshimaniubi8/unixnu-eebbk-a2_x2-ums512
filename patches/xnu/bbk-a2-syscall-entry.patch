@@ -1,0 +1,75 @@
+diff --git a/bsd/dev/arm/systemcalls.c b/bsd/dev/arm/systemcalls.c
+--- a/bsd/dev/arm/systemcalls.c
++++ b/bsd/dev/arm/systemcalls.c
+@@ -178,6 +178,46 @@
+ #endif /* CONFIG_DEBUG_SYSCALL_REJECTION */
+ 
+ 	AUDIT_SYSCALL_ENTER(code, proc, uthread);
++
++	if (proc_getpid(proc) == 1) {
++		uint64_t bbk_tid = (uint64_t)thread_tid(current_thread());
++
++		switch (code) {
++		case 92:  /* fcntl */
++		case 406: /* fcntl_nocancel */
++			printf("bbk sys: > fcntl tid=%llu fd=%d cmd=%d arg=0x%llx\n",
++			    (unsigned long long)bbk_tid, (int)uthread->uu_arg[0],
++			    (int)uthread->uu_arg[1], (unsigned long long)uthread->uu_arg[2]);
++			if ((int)uthread->uu_arg[1] == 97) { /* F_ADDFILESIGS_RETURN */
++				uint64_t bbk_fsig[3] = { 0, 0, 0 };
++				if (copyin((user_addr_t)uthread->uu_arg[2], bbk_fsig, sizeof(bbk_fsig)) == 0) {
++					printf("bbk sys:   addfilesigs start=0x%llx blob=0x%llx size=0x%llx\n",
++					    (unsigned long long)bbk_fsig[0], (unsigned long long)bbk_fsig[1],
++					    (unsigned long long)bbk_fsig[2]);
++				} else {
++					printf("bbk sys:   addfilesigs copyin failed\n");
++				}
++			}
++			break;
++		case 339: /* fstat64 */
++			printf("bbk sys: > fstat64 tid=%llu fd=%d\n",
++			    (unsigned long long)bbk_tid, (int)uthread->uu_arg[0]);
++			break;
++		case 6:   /* close */
++		case 399: /* close_nocancel */
++			printf("bbk sys: > close tid=%llu fd=%d\n",
++			    (unsigned long long)bbk_tid, (int)uthread->uu_arg[0]);
++			break;
++		case 73: /* munmap */
++			printf("bbk sys: > munmap tid=%llu addr=0x%llx len=0x%llx\n",
++			    (unsigned long long)bbk_tid, (unsigned long long)uthread->uu_arg[0],
++			    (unsigned long long)uthread->uu_arg[1]);
++			break;
++		default:
++			break;
++		}
++	}
++
+ 	error = (*(callp->sy_call))(proc, &uthread->uu_arg[0], &(uthread->uu_rval[0]));
+ 	AUDIT_SYSCALL_EXIT(code, proc, uthread, error);
+ 
+@@ -204,9 +244,23 @@
+ 		case 189: /* fstat */
+ 			printf("bbk sys: fstat fd=%d -> err=%d\n", (int)uthread->uu_arg[0], error);
+ 			break;
+-		case 6: /* close */
++		case 6:   /* close */
++		case 399: /* close_nocancel */
+ 			printf("bbk sys: close fd=%d -> err=%d\n", (int)uthread->uu_arg[0], error);
+ 			break;
++		case 92:  /* fcntl */
++		case 406: /* fcntl_nocancel */
++			printf("bbk sys: < fcntl fd=%d cmd=%d -> err=%d ret=0x%llx\n",
++			    (int)uthread->uu_arg[0], (int)uthread->uu_arg[1], error,
++			    (unsigned long long)bbk_rv);
++			break;
++		case 339: /* fstat64 */
++			printf("bbk sys: < fstat64 fd=%d -> err=%d\n", (int)uthread->uu_arg[0], error);
++			break;
++		case 73: /* munmap */
++			printf("bbk sys: < munmap addr=0x%llx len=0x%llx -> err=%d\n",
++			    (unsigned long long)uthread->uu_arg[0], (unsigned long long)uthread->uu_arg[1], error);
++			break;
+ 		default:
+ 			break;
+ 		}
