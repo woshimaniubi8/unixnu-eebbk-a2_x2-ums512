@@ -1,7 +1,7 @@
 diff --git a/bsd/vfs/vfs_syscalls.c b/bsd/vfs/vfs_syscalls.c
 --- a/bsd/vfs/vfs_syscalls.c
 +++ b/bsd/vfs/vfs_syscalls.c
-@@ -5139,7 +5139,7 @@
+@@ -5140,7 +5140,7 @@
  		if (copyinstr(uap->path, bbk_path, sizeof(bbk_path), &bbk_path_len) != 0) {
  			strlcpy(bbk_path, "<bad ptr>", sizeof(bbk_path));
  		}
@@ -10,7 +10,7 @@ diff --git a/bsd/vfs/vfs_syscalls.c b/bsd/vfs/vfs_syscalls.c
  	}
  	return bbk_error;
  }
-@@ -5155,7 +5155,7 @@
+@@ -5157,7 +5157,7 @@
  		if (copyinstr(uap->path, bbk_path, sizeof(bbk_path), &bbk_path_len) != 0) {
  			strlcpy(bbk_path, "<bad ptr>", sizeof(bbk_path));
  		}
@@ -22,7 +22,7 @@ diff --git a/bsd/vfs/vfs_syscalls.c b/bsd/vfs/vfs_syscalls.c
 diff --git a/bsd/dev/arm/systemcalls.c b/bsd/dev/arm/systemcalls.c
 --- a/bsd/dev/arm/systemcalls.c
 +++ b/bsd/dev/arm/systemcalls.c
-@@ -182,24 +182,35 @@
+@@ -182,21 +182,24 @@
  	AUDIT_SYSCALL_EXIT(code, proc, uthread, error);
  
  	if (proc_getpid(proc) == 1) {
@@ -52,16 +52,4 @@ diff --git a/bsd/dev/arm/systemcalls.c b/bsd/dev/arm/systemcalls.c
 +			    (unsigned long long)bbk_rv);
  			break;
  		case 189: /* fstat */
--			printf("bbk sys: fstat fd=%d -> err=%d\n", (int)uthread->uu_arg[0], error);
-+		{
-+			struct stat64 bbk_sb;
-+			int bbk_size = -1;
-+			if (error == 0 && copyin((user_addr_t)uthread->uu_arg[1], &bbk_sb, sizeof(bbk_sb)) == 0) {
-+				bbk_size = (int)bbk_sb.st_size;
-+			}
-+			printf("bbk sys: fstat fd=%d -> err=%d size=%d\n", (int)uthread->uu_arg[0], error, bbk_size);
-+		}
-+			break;
- 			break;
- 		case 6: /* close */
- 			printf("bbk sys: close fd=%d -> err=%d\n", (int)uthread->uu_arg[0], error);
+ 			printf("bbk sys: fstat fd=%d -> err=%d\n", (int)uthread->uu_arg[0], error);
