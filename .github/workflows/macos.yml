@@ -76,9 +76,22 @@ jobs:
       - name: Clone UniXNU core
         run: |
           set -eux
-          git clone -q --depth 1 --recurse-submodules --shallow-submodules https://github.com/UniXNU/UniXNU.git UniXNU
+          git clone -q --depth 1 https://github.com/UniXNU/UniXNU.git UniXNU
           test -f UniXNU/scripts/unixnu/cli.py
           test -f UniXNU/package/UniXNUPkg/Application/UniXNU/UniXNU.inf
+          # Upstream's drivers/ArmCpu gitlink currently names a commit that the
+          # ArmCpu repository no longer advertises ("upload-pack: not our ref"),
+          # so a recursive clone fails the whole job.  Initialise every other
+          # submodule from its recorded commit and take ArmCpu from a commit
+          # that exists (the one this board was built against).
+          for path in $(git -C UniXNU config --file .gitmodules --get-regexp '\.path$' | awk '{print $2}'); do
+            case "$path" in
+              drivers/ArmCpu) continue ;;
+            esac
+            git -C UniXNU submodule update --init -- "$path"
+          done
+          git clone -q https://github.com/UniXNU/ArmCpu.git UniXNU/drivers/ArmCpu
+          git -C UniXNU/drivers/ArmCpu checkout -q 9066b53bbc82e92a98ec44a11dd50fd13eaf1a1b
           du -sh UniXNU
 
       - uses: actions/setup-python@v5
