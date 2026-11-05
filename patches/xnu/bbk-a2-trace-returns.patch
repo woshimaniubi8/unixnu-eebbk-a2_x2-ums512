@@ -1,13 +1,8 @@
 diff --git a/bsd/vfs/vfs_syscalls.c b/bsd/vfs/vfs_syscalls.c
 --- a/bsd/vfs/vfs_syscalls.c
 +++ b/bsd/vfs/vfs_syscalls.c
-@@ -5136,10 +5136,11 @@
- 	           uap->mode, AT_FDCWD, UIO_USERSPACE, retval);
- 	if (proc_getpid(current_proc()) == 1) {
- 		char bbk_path[200];
--		if (copyinstr(uap->path, bbk_path, sizeof(bbk_path), NULL) != 0) {
-+		size_t bbk_path_len = 0;
-+		if (copyinstr(uap->path, bbk_path, sizeof(bbk_path), &bbk_path_len) != 0) {
+@@ -5139,7 +5139,7 @@
+ 		if (copyinstr(uap->path, bbk_path, sizeof(bbk_path), &bbk_path_len) != 0) {
  			strlcpy(bbk_path, "<bad ptr>", sizeof(bbk_path));
  		}
 -		printf("bbk open: path=%s flags=0x%x -> err=%d\n", bbk_path, uap->flags, bbk_error);
@@ -15,13 +10,8 @@ diff --git a/bsd/vfs/vfs_syscalls.c b/bsd/vfs/vfs_syscalls.c
  	}
  	return bbk_error;
  }
-@@ -5152,10 +5153,11 @@
- 	           uap->mode, uap->fd, UIO_USERSPACE, retval);
- 	if (proc_getpid(current_proc()) == 1) {
- 		char bbk_path[200];
--		if (copyinstr(uap->path, bbk_path, sizeof(bbk_path), NULL) != 0) {
-+		size_t bbk_path_len = 0;
-+		if (copyinstr(uap->path, bbk_path, sizeof(bbk_path), &bbk_path_len) != 0) {
+@@ -5155,7 +5155,7 @@
+ 		if (copyinstr(uap->path, bbk_path, sizeof(bbk_path), &bbk_path_len) != 0) {
  			strlcpy(bbk_path, "<bad ptr>", sizeof(bbk_path));
  		}
 -		printf("bbk open: path=%s flags=0x%x -> err=%d\n", bbk_path, uap->flags, bbk_error);
