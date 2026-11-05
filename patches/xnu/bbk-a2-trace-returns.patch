@@ -1,0 +1,77 @@
+diff --git a/bsd/vfs/vfs_syscalls.c b/bsd/vfs/vfs_syscalls.c
+--- a/bsd/vfs/vfs_syscalls.c
++++ b/bsd/vfs/vfs_syscalls.c
+@@ -5136,10 +5136,11 @@
+ 	           uap->mode, AT_FDCWD, UIO_USERSPACE, retval);
+ 	if (proc_getpid(current_proc()) == 1) {
+ 		char bbk_path[200];
+-		if (copyinstr(uap->path, bbk_path, sizeof(bbk_path), NULL) != 0) {
++		size_t bbk_path_len = 0;
++		if (copyinstr(uap->path, bbk_path, sizeof(bbk_path), &bbk_path_len) != 0) {
+ 			strlcpy(bbk_path, "<bad ptr>", sizeof(bbk_path));
+ 		}
+-		printf("bbk open: path=%s flags=0x%x -> err=%d\n", bbk_path, uap->flags, bbk_error);
++		printf("bbk open: path=%s flags=0x%x -> err=%d fd=%d\n", bbk_path, uap->flags, bbk_error, bbk_error == 0 ? *retval : -1);
+ 	}
+ 	return bbk_error;
+ }
+@@ -5152,10 +5153,11 @@
+ 	           uap->mode, uap->fd, UIO_USERSPACE, retval);
+ 	if (proc_getpid(current_proc()) == 1) {
+ 		char bbk_path[200];
+-		if (copyinstr(uap->path, bbk_path, sizeof(bbk_path), NULL) != 0) {
++		size_t bbk_path_len = 0;
++		if (copyinstr(uap->path, bbk_path, sizeof(bbk_path), &bbk_path_len) != 0) {
+ 			strlcpy(bbk_path, "<bad ptr>", sizeof(bbk_path));
+ 		}
+-		printf("bbk open: path=%s flags=0x%x -> err=%d\n", bbk_path, uap->flags, bbk_error);
++		printf("bbk open: path=%s flags=0x%x -> err=%d fd=%d\n", bbk_path, uap->flags, bbk_error, bbk_error == 0 ? *retval : -1);
+ 	}
+ 	return bbk_error;
+ }
+diff --git a/bsd/dev/arm/systemcalls.c b/bsd/dev/arm/systemcalls.c
+--- a/bsd/dev/arm/systemcalls.c
++++ b/bsd/dev/arm/systemcalls.c
+@@ -182,24 +182,35 @@
+ 	AUDIT_SYSCALL_EXIT(code, proc, uthread, error);
+ 
+ 	if (proc_getpid(proc) == 1) {
++		uint64_t bbk_rv = *((uint64_t *)(&uthread->uu_rval[0]));
+ 		switch (code) {
+ 		case 197: /* mmap */
+-			printf("bbk sys: mmap addr=0x%llx len=0x%llx prot=0x%x flags=0x%x fd=%d pos=0x%llx -> err=%d\n",
++			printf("bbk sys: mmap addr=0x%llx len=0x%llx prot=0x%x flags=0x%x fd=%d pos=0x%llx -> err=%d ret=0x%llx\n",
+ 			    (unsigned long long)uthread->uu_arg[0], (unsigned long long)uthread->uu_arg[1],
+ 			    (unsigned int)uthread->uu_arg[2], (unsigned int)uthread->uu_arg[3],
+-			    (int)uthread->uu_arg[4], (unsigned long long)uthread->uu_arg[5], error);
++			    (int)uthread->uu_arg[4], (unsigned long long)uthread->uu_arg[5], error,
++			    (unsigned long long)bbk_rv);
+ 			break;
+ 		case 153: /* pread */
+-			printf("bbk sys: pread fd=%d len=0x%llx off=0x%llx -> err=%d\n",
++			printf("bbk sys: pread fd=%d len=0x%llx off=0x%llx -> err=%d ret=0x%llx\n",
+ 			    (int)uthread->uu_arg[0], (unsigned long long)uthread->uu_arg[2],
+-			    (unsigned long long)uthread->uu_arg[3], error);
++			    (unsigned long long)uthread->uu_arg[3], error, (unsigned long long)bbk_rv);
+ 			break;
+ 		case 3: /* read */
+-			printf("bbk sys: read fd=%d len=0x%llx -> err=%d\n",
+-			    (int)uthread->uu_arg[0], (unsigned long long)uthread->uu_arg[2], error);
++			printf("bbk sys: read fd=%d len=0x%llx -> err=%d ret=0x%llx\n",
++			    (int)uthread->uu_arg[0], (unsigned long long)uthread->uu_arg[2], error,
++			    (unsigned long long)bbk_rv);
+ 			break;
+ 		case 189: /* fstat */
+-			printf("bbk sys: fstat fd=%d -> err=%d\n", (int)uthread->uu_arg[0], error);
++		{
++			struct stat64 bbk_sb;
++			int bbk_size = -1;
++			if (error == 0 && copyin((user_addr_t)uthread->uu_arg[1], &bbk_sb, sizeof(bbk_sb)) == 0) {
++				bbk_size = (int)bbk_sb.st_size;
++			}
++			printf("bbk sys: fstat fd=%d -> err=%d size=%d\n", (int)uthread->uu_arg[0], error, bbk_size);
++		}
++			break;
+ 			break;
+ 		case 6: /* close */
+ 			printf("bbk sys: close fd=%d -> err=%d\n", (int)uthread->uu_arg[0], error);

@@ -47,3 +47,7 @@ bbk-a2-open-traces.patch
 # arguments and errno, so the step after the cache files are opened (mapping,
 # header validation or give-up) becomes visible on the UART.
 bbk-a2-syscall-traces.patch
+# BBK A2 bring-up: add the return values to those traces (open fd, pread/read
+# byte counts, mmap address) and the fstat size, so a short read or a failed
+# mapping is distinguishable from a successful one.
+bbk-a2-trace-returns.patch
