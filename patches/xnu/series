@@ -55,3 +55,8 @@ bbk-a2-trace-returns.patch
 # fcntl(92/406), fstat64(339), close_nocancel(399) and munmap(73), decoding
 # F_ADDFILESIGS_RETURN so the dyld cache preflight of fd 4 becomes visible.
 bbk-a2-syscall-entry.patch
+# BBK A2 bring-up: stage traces inside the F_ADDFILESIGS_RETURN path
+# (ubc_cs_blob_get/allocate, vn_rdwr, ubc_cs_blob_add, cs_blob_init_validated,
+# reconstitute_code_signature, mac_vnode_check_signature) so the fd 4 stall can
+# be attributed to a specific stage.
+bbk-a2-cs-traces.patch
