@@ -107,7 +107,7 @@ diff --git a/bsd/kern/ubc_subr.c b/bsd/kern/ubc_subr.c
  
  	if (error != 0) {
  		printf("validation of code signature failed through MACF policy: %d\n", error);
-@@ -4820,6 +4827,7 @@
+@@ -4820,18 +4827,21 @@
  
  	/* Perform 2nd stage reconstitution */
  	error = reconstitute_code_signature_2nd_stage(&tmp_blob);
@@ -115,3 +115,79 @@ diff --git a/bsd/kern/ubc_subr.c b/bsd/kern/ubc_subr.c
  	if (error != 0) {
  		goto out;
  	}
+ 
+ 	/* Setup any multi-level hashing for the code signature */
+ 	error = setup_multilevel_hashing(&tmp_blob);
++	printf("bbk cs: mlh err=%d\n", error);
+ 	if (error != 0) {
+ 		goto out;
+ 	}
+ 
+ 	/* Ensure security critical auxiliary blobs still exist */
+ 	error = validate_auxiliary_signed_blobs(&tmp_blob);
++	printf("bbk cs: aux err=%d\n", error);
+ 	if (error != 0) {
+ 		goto out;
+ 	}
+@@ -4845,6 +4855,7 @@
+ 	 * signature around.
+ 	 */
+ 	error = accelerate_entitlement_queries(&tmp_blob);
++	printf("bbk cs: entitlements err=%d\n", error);
+ 	if (error != 0) {
+ 		goto out;
+ 	}
+@@ -4874,9 +4885,15 @@
+ 		goto out;
+ 	}
+ 
++	printf("bbk cs: coverage start=0x%llx end=0x%llx pageshift=%d\n",
++	    (unsigned long long)blob_start_offset, (unsigned long long)blob_end_offset,
++	    (int)tmp_blob.csb_hash_pageshift);
++
+ #if defined(XNU_NATIVE_CS_HASH_CACHE) && XNU_NATIVE_CS_HASH_CACHE
+ 	/* Authenticate before publishing the signed object or taking its locks. */
++	printf("bbk cs: native4k enter\n");
+ 	error = cs_native4k_prepare(vp, &tmp_blob);
++	printf("bbk cs: native4k err=%d\n", error);
+ 	if (error != 0) {
+ 		goto out;
+ 	}
+@@ -4892,7 +4909,9 @@
+ 		OS_PTRAUTH_DISCRIMINATOR("ubc_cs_blob_add.blocking_op0"),
+ 		PTRAUTH_ADDR_DIVERSIFY);
+ 
++	printf("bbk cs: vnode_lock enter\n");
+ 	vnode_lock(vp);
++	printf("bbk cs: vnode locked\n");
+ 	if (!UBCINFOEXISTS(vp)) {
+ 		vnode_unlock(vp);
+ 		error = ENOENT;
+@@ -5795,6 +5814,10 @@
+ 		return ENOTSUP;
+ 	}
+ 	limit = ntohl(cd->codeLimit);
++	printf("bbk cs: n4k cd version=0x%x limit=0x%llx nCodeSlots=%u hashPage=%u scatter=0x%x base=0x%llx\n",
++	    ntohl(cd->version), (unsigned long long)limit, ntohl(cd->nCodeSlots),
++	    (unsigned)blob->csb_hash_pageshift, ntohl(cd->scatterOffset),
++	    (unsigned long long)blob->csb_base_offset);
+ 	if (!limit || ((ntohl(cd->version) >= CS_SUPPORTSCODELIMIT64) &&
+ 	    ntohll(cd->codeLimit64) && ntohll(cd->codeLimit64) != limit) ||
+ 	    ntohl(cd->nCodeSlots) != ((limit + 16383) >> 14)) {
+@@ -5825,11 +5848,16 @@
+ 			error = EOVERFLOW;
+ 			goto out;
+ 		}
++		printf("bbk cs: n4k read chunk=0x%llx len=0x%llx pos=0x%llx\n",
++		    (unsigned long long)chunk, (unsigned long long)chunk_length,
++		    (unsigned long long)position);
+ 		const uint64_t read_start = mach_absolute_time();
+ 		error = vn_rdwr(UIO_READ, vp, (caddr_t)buffer, (int)chunk_length, position,
+ 		    UIO_SYSSPACE, ioflags, vfs_context_ucred(vfs_context_current()),
+ 		    &resid, current_proc());
+ 		const uint64_t hash_start = mach_absolute_time();
++		printf("bbk cs: n4k done chunk=0x%llx err=%d resid=%d\n",
++		    (unsigned long long)chunk, error, resid);
+ 		os_atomic_add(&cs_native4k_read_ticks, hash_start - read_start, relaxed);
+ 		os_atomic_add(&cs_native4k_bytes, (uint64_t)chunk_length, relaxed);
+ 		if (error || resid) {
