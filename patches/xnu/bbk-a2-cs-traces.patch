@@ -65,16 +65,16 @@ diff --git a/bsd/kern/kern_descrip.c b/bsd/kern/kern_descrip.c
 diff --git a/bsd/kern/ubc_subr.c b/bsd/kern/ubc_subr.c
 --- a/bsd/kern/ubc_subr.c
 +++ b/bsd/kern/ubc_subr.c
-@@ -4149,6 +4149,9 @@
+@@ -4689,6 +4689,9 @@
  		*ret_blob = NULL;
  	}
  
 +	printf("bbk cs: blob_add enter vp=%p size=0x%llx base=0x%llx\n",
 +	    (void *)vp, (unsigned long long)size, (unsigned long long)base_offset);
 +
- 	if ((error = cs_blob_init_validated(addr, size, &blob, ret_cd)) != 0) {
- 		return error;
- 	}
+ 	/*
+ 	 * Create the struct cs_blob abstract data type which will get attached to
+ 	 * the vnode object. This function also validates the structural integrity
 @@ -4698,6 +4701,7 @@
  	 * blob which we allocate from the read-only allocator.
  	 */
