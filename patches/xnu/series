@@ -60,3 +60,7 @@ bbk-a2-syscall-entry.patch
 # reconstitute_code_signature, mac_vnode_check_signature) so the fd 4 stall can
 # be attributed to a specific stage.
 bbk-a2-cs-traces.patch
+# BBK A2 bring-up: trace the VFS boundary of pid 1's >=1 MiB reads (vn_rdwr
+# entry, MAC read check, VNOP_READ entry/exit) so the native4k precheck stall
+# can be placed before or after the filesystem/block layer.
+bbk-a2-vfs-read-traces.patch

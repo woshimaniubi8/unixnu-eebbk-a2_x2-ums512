@@ -846,19 +846,50 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
     }
     uint64_t actual = 0;
     IOReturn result = kIOReturnSuccess;
+    // TEMPORARY bring-up trace: the dyld cache signature precheck issues 1 MiB
+    // reads, so print whether such a request reaches the transport, makes
+    // progress and completes.  Small requests stay silent.
+    static uint32_t s_traceBudget = 6000;
+    const bool trace = (count >= 64) && (s_traceBudget > 0);
+    uint64_t nextProgress = 0;
+    if (trace) {
+        s_traceBudget--;
+        IOLog("NativeSdhciBlock: req %s block=0x%llx count=0x%llx bytes=0x%llx\n",
+              windowName, block, count, count * kBlockBytes);
+    }
     IOLockLock(gate);
+    if (trace) {
+        IOLog("NativeSdhciBlock: req %s gate locked\n", windowName);
+    }
     while (online && actual < count * kBlockBytes) {
         if (!readSector(partitionFirstLba + block + actual / kBlockBytes)) {
+            if (trace) {
+                IOLog("NativeSdhciBlock: req %s readSector failed lba=0x%llx\n",
+                      windowName, partitionFirstLba + block + actual / kBlockBytes);
+            }
             result = kIOReturnIOError;
             break;
         }
         if (buffer->writeBytes(actual, sectorData(), kBlockBytes) != kBlockBytes) {
+            if (trace) {
+                IOLog("NativeSdhciBlock: req %s writeBytes failed at 0x%llx\n",
+                      windowName, actual);
+            }
             result = kIOReturnIOError;
             break;
         }
         actual += kBlockBytes;
+        if (trace && actual >= nextProgress) {
+            IOLog("NativeSdhciBlock: req %s progress 0x%llx/0x%llx\n",
+                  windowName, actual, count * kBlockBytes);
+            nextProgress = actual + 256 * kBlockBytes;
+        }
     }
     IOLockUnlock(gate);
+    if (trace) {
+        IOLog("NativeSdhciBlock: req %s completion result=0x%x actual=0x%llx\n",
+              windowName, static_cast<unsigned>(result), actual);
+    }
     completion->action(completion->target, completion->parameter, result, actual);
     return kIOReturnSuccess;
 }

@@ -1,0 +1,41 @@
+diff --git a/bsd/vfs/vfs_vnops.c b/bsd/vfs/vfs_vnops.c
+--- a/bsd/vfs/vfs_vnops.c
++++ b/bsd/vfs/vfs_vnops.c
+@@ -970,6 +970,13 @@
+ 	int error = 0;
+ 	UIO_STACKBUF(uio_buf, 1);
+ 
++	boolean_t bbk_trace = (p != NULL) && (proc_getpid(p) == 1) && (len >= 0x100000);
++	if (bbk_trace) {
++		printf("bbk vfs: vn_rdwr rw=%d off=0x%llx len=0x%llx ioflg=0x%x tid=%lld\n",
++		    (int)rw, (long long)offset, (long long)len, ioflg,
++		    (long long)thread_tid(current_thread()));
++	}
++
+ 	context.vc_thread = current_thread();
+ 	context.vc_ucred = cred;
+ 
+@@ -1002,12 +1009,23 @@
+ 	}
+ #endif
+ 
++	if (bbk_trace) {
++		printf("bbk vfs: mac_read err=%d\n", error);
++	}
++
+ 	if (error == 0) {
+ 		if (rw == UIO_READ) {
+ 			if (vnode_isswap(vp) && ((ioflg & IO_SWAP_DISPATCH) == 0)) {
+ 				error = vn_read_swapfile(vp, auio);
+ 			} else {
++				if (bbk_trace) {
++					printf("bbk vfs: VNOP_READ enter\n");
++				}
+ 				error = VNOP_READ(vp, auio, ioflg, &context);
++				if (bbk_trace) {
++					printf("bbk vfs: VNOP_READ done err=%d resid=%lld\n",
++					    error, (long long)uio_resid(auio));
++				}
+ 			}
+ 		} else {
+ 			error = VNOP_WRITE(vp, auio, ioflg, &context);
