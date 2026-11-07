@@ -70,6 +70,14 @@ volatile uint64_t native_sdhci_mmio_physical = 0;
 
 namespace {
 
+// TEMPORARY bring-up diagnostics: low-noise CMD-level tracing for the large
+// (>= 512 KiB) reads that the dyld cache signature precheck issues.  Printing
+// every sector would swamp the 115200 baud UART and perturb the timing under
+// investigation, so the per-sector lines are sampled every 64 sectors and the
+// slow/failed paths always print their controller state.
+bool g_traceCmd = false;
+uint32_t g_cmdSectorIndex = 0;
+
 // The kernel does not declare strstr() for driver code; the only substring
 // check here is the ADT node-name marker of the second window.
 bool containsText(const char *text, const char *needle)
@@ -393,6 +401,10 @@ bool NativeSdhciBlock::waitCommandIdle(uint32_t milliseconds)
         if ((read32(kPresentState) & (kPresentCmdInhibit | kPresentDatInhibit)) == 0) {
             return true;
         }
+        if (g_traceCmd && (waited == 20)) {
+            IOLog("NativeSdhciBlock: waitCommandIdle slow after %ums present=0x%08x\n",
+                  waited, read32(kPresentState));
+        }
         IODelay(1000);
     }
     return false;
@@ -401,8 +413,16 @@ bool NativeSdhciBlock::waitCommandIdle(uint32_t milliseconds)
 bool NativeSdhciBlock::dataCommand(uint32_t commandIndex, uint64_t argument)
 {
     IOLock *lock = controllerLock();
+    const bool sampled = g_traceCmd && ((g_cmdSectorIndex & 63) == 0);
+    if (sampled) {
+        IOLog("NativeSdhciBlock: cmd%u lock enter lba=0x%llx\n", commandIndex, argument);
+    }
     if (lock) {
         IOLockLock(lock);
+    }
+    if (sampled) {
+        IOLog("NativeSdhciBlock: cmd%u lock acquired ps=0x%08x\n", commandIndex,
+              read32(kPresentState));
     }
     const bool ok = dataCommandLocked(commandIndex, argument);
     if (lock) {
@@ -458,11 +478,16 @@ bool NativeSdhciBlock::dataCommandLocked(uint32_t commandIndex, uint64_t argumen
     dmaBarrier();
 
     write32(kTransferMode, ((commandIndex & 0x3FU) << 24) | kCommandDataPresent | kTransferModeRead);
+    if (g_traceCmd && ((g_cmdSectorIndex & 63) == 0)) {
+        IOLog("NativeSdhciBlock: cmd%u issued lba=0x%llx ps=0x%08x\n", commandIndex, argument,
+              read32(kPresentState));
+    }
 
     uint32_t pioWords = 0;
     uint32_t pioBuffer[128] = {};
     bool finished = false;
-    for (uint32_t spin = 0; spin < 200000; ++spin) {
+    uint32_t spin = 0;
+    for (; spin < 200000; ++spin) {
         const uint32_t status = read32(kNormalIntStatus);
         if ((status & kIntBufferReadReady) != 0) {
             if (pioWords < 128) {
@@ -497,6 +522,11 @@ bool NativeSdhciBlock::dataCommandLocked(uint32_t commandIndex, uint64_t argumen
         memcpy(data, pioBuffer, words * sizeof(uint32_t));
         return true;
     }
+    if (spin > 2000) {
+        IOLog("NativeSdhciBlock: cmd %u slow lba 0x%llx spin=%u status=0x%08x err=0x%04x adma=0x%02x ps=0x%08x resp=0x%08x\n",
+              commandIndex, argument, spin, lastStatus, static_cast<unsigned>(lastError),
+              static_cast<unsigned>(lastAdmaError), lastPresentState, response);
+    }
     if (!finished || (lastStatus & kIntError) != 0 ||
         (lastStatus & (kIntCommandComplete | kIntTransferComplete)) !=
             (kIntCommandComplete | kIntTransferComplete)) {
@@ -510,8 +540,29 @@ bool NativeSdhciBlock::dataCommandLocked(uint32_t commandIndex, uint64_t argumen
 
 bool NativeSdhciBlock::readSector(uint64_t emmcLba)
 {
+    ++g_cmdSectorIndex;
     if (!dataCommand(17, emmcLba)) {
         __atomic_fetch_add(&native_sdhci_read_failures, 1, __ATOMIC_RELAXED);
+        // One-shot probe: retry the failing sector and both neighbours so a
+        // permanently bad LBA can be told apart from a controller that stopped
+        // answering (the retries are diagnostic and never repeat).
+        static bool probed = false;
+        if (!probed) {
+            probed = true;
+            IOLog("NativeSdhciBlock: probe start, failed lba=0x%llx\n", emmcLba);
+            for (int delta = 0; delta <= 2; ++delta) {
+                const int64_t target = static_cast<int64_t>(emmcLba) + (delta == 0 ? 0 : (delta == 1 ? 1 : -1));
+                if (target < 0 || static_cast<uint64_t>(target) < partitionFirstLba) {
+                    continue;
+                }
+                const bool ok = dataCommand(17, static_cast<uint64_t>(target));
+                IOLog("NativeSdhciBlock: probe lba=0x%llx -> %d status=0x%08x err=0x%04x adma=0x%02x ps=0x%08x\n",
+                      static_cast<uint64_t>(target), ok ? 1 : 0, lastStatus,
+                      static_cast<unsigned>(lastError), static_cast<unsigned>(lastAdmaError),
+                      read32(kPresentState));
+            }
+            IOLog("NativeSdhciBlock: probe done\n");
+        }
         return false;
     }
     __atomic_fetch_add(&native_sdhci_read_requests, 1, __ATOMIC_RELAXED);
@@ -857,6 +908,8 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
         IOLog("NativeSdhciBlock: req %s block=0x%llx count=0x%llx bytes=0x%llx\n",
               windowName, block, count, count * kBlockBytes);
     }
+    g_traceCmd = trace && (count >= 1024);
+    g_cmdSectorIndex = 0;
     IOLockLock(gate);
     if (trace) {
         IOLog("NativeSdhciBlock: req %s gate locked\n", windowName);
@@ -886,6 +939,7 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
         }
     }
     IOLockUnlock(gate);
+    g_traceCmd = false;
     if (trace) {
         IOLog("NativeSdhciBlock: req %s completion result=0x%x actual=0x%llx\n",
               windowName, static_cast<unsigned>(result), actual);
