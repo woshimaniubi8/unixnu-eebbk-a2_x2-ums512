@@ -77,6 +77,24 @@ namespace {
 // slow/failed paths always print their controller state.
 bool g_traceCmd = false;
 uint32_t g_cmdSectorIndex = 0;
+uint32_t g_cmdSectorsLeft = 0xFFFFFFFFU;
+bool g_cntfrqPrinted = false;
+
+// CNTFRQ_EL0 is what the System Event timestamps are scaled by; print it once
+// so tick counts in the log can be converted to seconds.
+uint64_t readCntfrqEl0()
+{
+    uint64_t value = 0;
+    __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(value));
+    return value;
+}
+
+// Sample every 64th sector, plus every sector of the last 128 sectors of a
+// traced request (the window where the stall has been observed).
+bool traceSampled()
+{
+    return g_traceCmd && (((g_cmdSectorIndex & 63) == 0) || (g_cmdSectorsLeft <= 128));
+}
 
 // The kernel does not declare strstr() for driver code; the only substring
 // check here is the ADT node-name marker of the second window.
@@ -413,6 +431,8 @@ bool NativeSdhciBlock::waitCommandIdle(uint32_t milliseconds)
 bool NativeSdhciBlock::dataCommand(uint32_t commandIndex, uint64_t argument)
 {
     IOLock *lock = controllerLock();
+    // Lock lines stay at the 64-sector sampling rate even inside the last-128
+    // window: the issued/done pair there already pinpoints the sector.
     const bool sampled = g_traceCmd && ((g_cmdSectorIndex & 63) == 0);
     if (sampled) {
         IOLog("NativeSdhciBlock: cmd%u lock enter lba=0x%llx\n", commandIndex, argument);
@@ -478,7 +498,7 @@ bool NativeSdhciBlock::dataCommandLocked(uint32_t commandIndex, uint64_t argumen
     dmaBarrier();
 
     write32(kTransferMode, ((commandIndex & 0x3FU) << 24) | kCommandDataPresent | kTransferModeRead);
-    if (g_traceCmd && ((g_cmdSectorIndex & 63) == 0)) {
+    if (traceSampled()) {
         IOLog("NativeSdhciBlock: cmd%u issued lba=0x%llx ps=0x%08x\n", commandIndex, argument,
               read32(kPresentState));
     }
@@ -502,6 +522,14 @@ bool NativeSdhciBlock::dataCommandLocked(uint32_t commandIndex, uint64_t argumen
              (kIntCommandComplete | kIntTransferComplete))) {
             finished = true;
             break;
+        }
+        // Polling heartbeat: a healthy command finishes well before spin 2000
+        // (20 ms), so only a stalled one prints anything here.
+        if ((spin == 2000) || (spin != 0 && (spin % 10000) == 0)) {
+            IOLog("NativeSdhciBlock: cmd%u poll lba=0x%llx spin=%u status=0x%08x err=0x%04x adma=0x%02x ps=0x%08x resp=0x%08x\n",
+                  commandIndex, argument, spin, status, static_cast<unsigned>(read16(kErrorIntStatus)),
+                  static_cast<unsigned>(read8(kAdmaErrorStatus)), read32(kPresentState),
+                  read32(kResponse));
         }
         IODelay(10);
     }
@@ -566,6 +594,10 @@ bool NativeSdhciBlock::readSector(uint64_t emmcLba)
         return false;
     }
     __atomic_fetch_add(&native_sdhci_read_requests, 1, __ATOMIC_RELAXED);
+    if (traceSampled()) {
+        IOLog("NativeSdhciBlock: cmd17 done lba=0x%llx ok=1 ps=0x%08x\n", emmcLba,
+              read32(kPresentState));
+    }
     return true;
 }
 
@@ -910,11 +942,17 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
     }
     g_traceCmd = trace && (count >= 1024);
     g_cmdSectorIndex = 0;
+    g_cmdSectorsLeft = static_cast<uint32_t>(count);
+    if (g_traceCmd && !g_cntfrqPrinted) {
+        g_cntfrqPrinted = true;
+        IOLog("NativeSdhciBlock: cntfrq_el0=%llu\n", readCntfrqEl0());
+    }
     IOLockLock(gate);
     if (trace) {
         IOLog("NativeSdhciBlock: req %s gate locked\n", windowName);
     }
     while (online && actual < count * kBlockBytes) {
+        g_cmdSectorsLeft = static_cast<uint32_t>((count * kBlockBytes - actual) / kBlockBytes);
         if (!readSector(partitionFirstLba + block + actual / kBlockBytes)) {
             if (trace) {
                 IOLog("NativeSdhciBlock: req %s readSector failed lba=0x%llx\n",
