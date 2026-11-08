@@ -68,3 +68,9 @@ bbk-a2-vfs-read-traces.patch
 # unconditionally and swamp the 115200 baud UART while the dyld path is traced.
 # Gate them behind the bbk-sysevent boot argument (silent by default).
 bbk-a2-quiet-system-events.patch
+# BBK A2 bring-up: there is no CHRP NVRAM controller on this board, so the
+# flash sync always failed with kIOReturnNotReady; AMFI then retried its
+# security-mode-change-enable write and leaked OSDictionary/kalloc objects
+# until the VM asserted.  Treat the no-controller sync as a success (the
+# variable dictionary is already updated in memory) and count the calls.
+bbk-a2-nvram-no-controller.patch

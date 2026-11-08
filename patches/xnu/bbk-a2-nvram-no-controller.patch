@@ -1,0 +1,39 @@
+diff --git a/iokit/Kernel/IONVRAMCHRPHandler.cpp b/iokit/Kernel/IONVRAMCHRPHandler.cpp
+index bff5658..6c4e244 100644
+--- a/iokit/Kernel/IONVRAMCHRPHandler.cpp
++++ b/iokit/Kernel/IONVRAMCHRPHandler.cpp
+@@ -38,6 +38,11 @@
+ 
+ #define NVRAM_CHRP_LENGTH_BLOCK_SIZE 0x10 // CHRP length field is in 16 byte blocks
+ 
++// BBK A2 bring-up: this board has no CHRP NVRAM controller (the UEFI variable
++// store is emulated), so every flash sync would fail.  Counting the syncs keeps
++// the failure rate observable while the write path is treated as a success.
++static uint32_t gBbkNoControllerSyncs;
++
+ typedef struct chrp_nvram_header { //16 bytes
+ 	uint8_t  sig;
+ 	uint8_t  cksum; // checksum on sig, len, and name
+@@ -612,7 +617,21 @@ IONVRAMCHRPHandler::serializeVariables(void)
+ 	NVRAMRegionInfo                   variableRegions[] = { { kIONVRAMPartitionCommon, _commonPartitionOffset, _commonPartitionSize},
+ 								{ kIONVRAMPartitionSystem, _systemPartitionOffset, _systemPartitionSize} };
+ 
+-	require_action(_nvramController != nullptr, exit, (ret = kIOReturnNotReady, DEBUG_ERROR("No _nvramController\n")));
++	if (_nvramController == nullptr) {
++		//
++		// BBK A2 bring-up: there is no CHRP NVRAM controller on this board (the
++		// UEFI variable store is emulated), so the flash write cannot happen.
++		// Report the in-memory variable dictionary as synced instead of
++		// kIOReturnNotReady: AMFI retries its security-mode-change-enable write
++		// whenever the sync fails and leaks OSDictionary/kalloc objects until
++		// the VM asserts on a duplicate page insertion.
++		//
++		uint32_t count = __atomic_add_fetch(&gBbkNoControllerSyncs, 1, __ATOMIC_RELAXED);
++		if ((count == 1) || ((count & 0xff) == 0)) {
++			printf("bbk nvram: no controller, sync treated as success (%u calls)\n", count);
++		}
++		return kIOReturnSuccess;
++	}
+ 	require_action(_newData == true, exit, (ret = kIOReturnSuccess, DEBUG_INFO("No _newData to sync\n")));
+ 	require_action(_bankSize != 0, exit, (ret = kIOReturnSuccess, DEBUG_INFO("No nvram size info\n")));
+ 	require_action(_nvramImage != nullptr, exit, (ret = kIOReturnSuccess, DEBUG_INFO("No nvram image info\n")));
