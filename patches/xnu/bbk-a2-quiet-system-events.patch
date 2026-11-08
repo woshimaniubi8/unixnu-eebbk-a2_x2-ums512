@@ -1,0 +1,26 @@
+diff --git a/libkern/os/system_event_log.c b/libkern/os/system_event_log.c
+--- a/libkern/os/system_event_log.c
++++ b/libkern/os/system_event_log.c
+@@ -4,6 +4,7 @@
+ #include <libkern/libkern.h>
+ #include <machine/machine_routines.h>
+ #include <os/system_event_log.h>
++#include <pexpert/pexpert.h>
+ 
+ static const char *
+ convert_subsystem_to_string(uint8_t subsystem)
+@@ -61,6 +62,14 @@
+ 	const uint64_t timestamp = mach_continuous_time();
+ 	absolutetime_to_nanoseconds(timestamp, &nanosecs);
+ 
++	// BBK A2 bring-up: these console lines dominate the 115200 baud UART while
++	// the dyld shared-cache path is traced, hiding the driver/VFS records that
++	// matter.  Print them only when the boot argument asks for it.
++	int bbk_sysevent = 0;
++	if (!PE_parse_boot_argn("bbk-sysevent", &bbk_sysevent, sizeof(bbk_sysevent)) || bbk_sysevent == 0) {
++		return;
++	}
++
+ 	printf("[System Event] [%llu] [%s] [Subsystem: %s] [Event: %.*s] %s\n", timestamp, type_string, subsystem_string, SYSTEM_EVENT_EVENT_MAX, event, payload);
+ }
+ 

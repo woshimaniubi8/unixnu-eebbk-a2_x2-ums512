@@ -64,3 +64,7 @@ bbk-a2-cs-traces.patch
 # entry, MAC read check, VNOP_READ entry/exit) so the native4k precheck stall
 # can be placed before or after the filesystem/block layer.
 bbk-a2-vfs-read-traces.patch
+# BBK A2 bring-up: the "[System Event]" console lines are emitted
+# unconditionally and swamp the 115200 baud UART while the dyld path is traced.
+# Gate them behind the bbk-sysevent boot argument (silent by default).
+bbk-a2-quiet-system-events.patch
