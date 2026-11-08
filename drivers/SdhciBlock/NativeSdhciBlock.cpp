@@ -962,6 +962,7 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
     if (trace) {
         IOLog("NativeSdhciBlock: req %s gate locked\n", windowName);
     }
+    uint64_t lastHeartbeat = mach_absolute_time();
     while (online && actual < count * kBlockBytes) {
         cmdSectorsLeft = static_cast<uint32_t>((count * kBlockBytes - actual) / kBlockBytes);
         if (!readSector(partitionFirstLba + block + actual / kBlockBytes)) {
@@ -985,6 +986,20 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
             IOLog("NativeSdhciBlock: req %s progress 0x%llx/0x%llx\n",
                   windowName, actual, count * kBlockBytes);
             nextProgress = actual + 256 * kBlockBytes;
+        }
+        // One-second heartbeat: tells a stalled request apart from a slow one
+        // even when the capture ends between the 256-sector progress lines.
+        if (trace) {
+            const uint64_t now = mach_absolute_time();
+            uint64_t elapsedNs = 0;
+            absolutetime_to_nanoseconds(now - lastHeartbeat, &elapsedNs);
+            if (elapsedNs >= 1000000000ULL) {
+                IOLog("NativeSdhciBlock: req %s id=%u heartbeat 0x%llx/0x%llx lba=0x%llx tid=%llu\n",
+                      windowName, reqId, actual, count * kBlockBytes,
+                      partitionFirstLba + block + actual / kBlockBytes,
+                      (unsigned long long)thread_tid(current_thread()));
+                lastHeartbeat = now;
+            }
         }
     }
     IOLockUnlock(gate);
