@@ -1,8 +1,8 @@
 diff --git a/iokit/Kernel/IOService.cpp b/iokit/Kernel/IOService.cpp
-index c22edff..109a66e 100644
+index c22edff..86ef13f 100644
 --- a/iokit/Kernel/IOService.cpp
 +++ b/iokit/Kernel/IOService.cpp
-@@ -6613,7 +6613,54 @@ IOService *
+@@ -6613,7 +6613,31 @@ IOService *
  IOService::waitForMatchingService( OSDictionary * matching,
      uint64_t timeout)
  {
@@ -10,48 +10,25 @@ index c22edff..109a66e 100644
 +	IOService *result = IOService::waitForMatchingServiceWithToken(matching, timeout, NULL);
 +
 +	//
-+	// BBK A2 bring-up: AMFI (prelinked, no source here) builds a matching
-+	// dictionary with serviceMatching("IODTNVRAM") and calls this function in a
-+	// tight retry loop.  No IODTNVRAM service is ever published on this board, so
-+	// the loop never ends (~67k calls/s), which starves the block I/O threads,
-+	// and the dictionary is never released (one leaked OSDictionary per call
-+	// until the VM asserted).  For that one caller:
-+	//   * consume the matching dictionary reference it drops, and
-+	//   * hand back a private in-memory IODTNVRAM stand-in so the loop ends
-+	//     (AMFI only reads and writes properties on the service).
-+	// Every other caller keeps the documented ownership rules.
++	// BBK A2 bring-up: AMFI's IODTNVRAM setter helper is entered millions of
++	// times (99.log: 32.5M calls) and never releases the matching dictionary it
++	// builds with serviceMatching("IODTNVRAM"), which leaked one OSDictionary
++	// per call.  Release that reference for the measured call site only, and
++	// keep a sparse record of the calling thread and its caller so the retry
++	// source can be identified without flooding the UART.
 +	//
 +	uintptr_t caller = (uintptr_t)__builtin_return_address(0);
-+	if ((matching != nullptr) &&
-+	    (caller >= 0xfffffff004aa0000ULL) && (caller < 0xfffffff004ac0000ULL)) {
-+		OSString *provider = OSDynamicCast(OSString, matching->getObject("IOProviderClass"));
-+		if ((provider != nullptr) &&
-+		    (strcmp(provider->getCStringNoCopy(), "IODTNVRAM") == 0)) {
-+			static uint32_t calls = 0;
-+			uint32_t count = __atomic_add_fetch(&calls, 1, __ATOMIC_RELAXED);
-+			if ((count <= 4) || ((count & 0xfffff) == 0)) {
-+				printf("bbk amfi: IODTNVRAM wait caller=0x%lx matching=%p result=%p timeout=0x%llx calls=%u\n",
-+				    (unsigned long)caller, matching, result,
-+				    (unsigned long long)timeout, count);
-+			}
-+			matching->release();
-+			if (result == nullptr) {
-+				static IOService *standin = nullptr;
-+				if (standin == nullptr) {
-+					IOService *service = new IOService;
-+					if ((service != nullptr) && service->init()) {
-+						service->setName("IODTNVRAM");
-+						standin = service;
-+					} else {
-+						OSSafeReleaseNULL(service);
-+					}
-+				}
-+				if (standin != nullptr) {
-+					standin->retain();
-+					result = standin;
-+				}
-+			}
++	if ((matching != nullptr) && (caller == 0xfffffff004aaed30ULL)) {
++		static uint32_t calls = 0;
++		uint32_t count = __atomic_add_fetch(&calls, 1, __ATOMIC_RELAXED);
++		if ((count <= 8) || ((count & 0xfffff) == 0)) {
++			printf("bbk amfi: wait caller=0x%lx outer=0x%lx matching=%p result=%p timeout=0x%llx tid=%lld calls=%u\n",
++			    (unsigned long)caller,
++			    (unsigned long)(uintptr_t)__builtin_return_address(1),
++			    matching, result, (unsigned long long)timeout,
++			    (long long)thread_tid(current_thread()), count);
 +		}
++		matching->release();
 +	}
 +
 +	return result;

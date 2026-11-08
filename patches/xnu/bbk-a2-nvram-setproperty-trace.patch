@@ -1,0 +1,32 @@
+diff --git a/iokit/Kernel/IONVRAM.cpp b/iokit/Kernel/IONVRAM.cpp
+index 5830f06..cc5ec89 100644
+--- a/iokit/Kernel/IONVRAM.cpp
++++ b/iokit/Kernel/IONVRAM.cpp
+@@ -1960,7 +1960,26 @@ IODTNVRAM::setPropertyInternal(const OSSymbol *aKey, OSObject *anObject)
+ bool
+ IODTNVRAM::setProperty(const OSSymbol *aKey, OSObject *anObject)
+ {
+-	return setPropertyInternal(aKey, anObject) == kIOReturnSuccess;
++	IOReturn bbk_ret = setPropertyInternal(aKey, anObject);
++
++	//
++	// BBK A2 bring-up: AMFI's IODTNVRAM helper is entered millions of times to
++	// write security-mode-change-enable; record the object type and the
++	// IOReturn so a rejected write can be told apart from an upper layer that
++	// retries unconditionally.  Sparse on purpose (first 8 + every 2^20).
++	//
++	if ((aKey != nullptr) &&
++	    (strcmp(aKey->getCStringNoCopy(), "security-mode-change-enable") == 0)) {
++		static uint32_t bbk_calls = 0;
++		uint32_t bbk_count = __atomic_add_fetch(&bbk_calls, 1, __ATOMIC_RELAXED);
++		if ((bbk_count <= 8) || ((bbk_count & 0xfffff) == 0)) {
++			printf("bbk nvram: set security-mode-change-enable class=%s ret=0x%x calls=%u\n",
++			    (anObject != nullptr) ? anObject->getMetaClass()->getClassName() : "null",
++			    bbk_ret, bbk_count);
++		}
++	}
++
++	return bbk_ret == kIOReturnSuccess;
+ }
+ 
+ void
