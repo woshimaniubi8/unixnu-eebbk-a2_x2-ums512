@@ -47,6 +47,7 @@
 #include <libkern/c++/OSString.h>
 #include <kern/clock.h>
 #include <kern/task.h>
+#include <kern/thread.h>
 #include <sys/param.h>
 #include <sys/types.h>
 
@@ -79,6 +80,8 @@ bool g_traceCmd = false;
 uint32_t g_cmdSectorIndex = 0;
 uint32_t g_cmdSectorsLeft = 0xFFFFFFFFU;
 bool g_cntfrqPrinted = false;
+uint32_t g_reqSeq = 0;
+bool g_completionTracing = false;
 
 // CNTFRQ_EL0 is what the System Event timestamps are scaled by; print it once
 // so tick counts in the log can be converted to seconds.
@@ -545,16 +548,14 @@ bool NativeSdhciBlock::dataCommandLocked(uint32_t commandIndex, uint64_t argumen
     dmaBarrier();
     cacheInvalidate(data, kBlockBytes);
 
-    if (pioWords != 0) {
-        const uint32_t words = (pioWords > 128) ? 128 : pioWords;
-        memcpy(data, pioBuffer, words * sizeof(uint32_t));
-        return true;
-    }
     if (spin > 2000) {
         IOLog("NativeSdhciBlock: cmd %u slow lba 0x%llx spin=%u status=0x%08x err=0x%04x adma=0x%02x ps=0x%08x resp=0x%08x\n",
               commandIndex, argument, spin, lastStatus, static_cast<unsigned>(lastError),
               static_cast<unsigned>(lastAdmaError), lastPresentState, response);
     }
+    // The transfer is only successful when the controller reported completion;
+    // the PIO words are a data source, never a substitute for that check (a
+    // single early word used to short-circuit the error/complete validation).
     if (!finished || (lastStatus & kIntError) != 0 ||
         (lastStatus & (kIntCommandComplete | kIntTransferComplete)) !=
             (kIntCommandComplete | kIntTransferComplete)) {
@@ -562,6 +563,10 @@ bool NativeSdhciBlock::dataCommandLocked(uint32_t commandIndex, uint64_t argumen
               commandIndex, argument, lastStatus, static_cast<unsigned>(lastError),
               static_cast<unsigned>(lastAdmaError), lastPresentState, response);
         return false;
+    }
+    if (pioWords != 0) {
+        const uint32_t words = (pioWords > 128) ? 128 : pioWords;
+        memcpy(data, pioBuffer, words * sizeof(uint32_t));
     }
     return true;
 }
@@ -934,11 +939,13 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
     // progress and completes.  Small requests stay silent.
     static uint32_t s_traceBudget = 6000;
     const bool trace = (count >= 64) && (s_traceBudget > 0);
+    const uint32_t reqId = ++g_reqSeq;
     uint64_t nextProgress = 0;
     if (trace) {
         s_traceBudget--;
-        IOLog("NativeSdhciBlock: req %s block=0x%llx count=0x%llx bytes=0x%llx\n",
-              windowName, block, count, count * kBlockBytes);
+        IOLog("NativeSdhciBlock: req %s id=%u block=0x%llx count=0x%llx bytes=0x%llx tid=%llu\n",
+              windowName, reqId, block, count, count * kBlockBytes,
+              (unsigned long long)thread_tid(current_thread()));
     }
     g_traceCmd = trace && (count >= 1024);
     g_cmdSectorIndex = 0;
@@ -979,10 +986,24 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
     IOLockUnlock(gate);
     g_traceCmd = false;
     if (trace) {
-        IOLog("NativeSdhciBlock: req %s completion result=0x%x actual=0x%llx\n",
-              windowName, static_cast<unsigned>(result), actual);
+        IOLog("NativeSdhciBlock: req %s id=%u result=0x%x actual=0x%llx t=%llu\n",
+              windowName, reqId, static_cast<unsigned>(result), actual,
+              (unsigned long long)mach_absolute_time());
+        IOLog("NativeSdhciBlock: req %s id=%u action=0x%llx target=0x%llx param=0x%llx tid=%llu t=%llu\n",
+              windowName, reqId, (unsigned long long)(uintptr_t)completion->action,
+              (unsigned long long)(uintptr_t)completion->target,
+              (unsigned long long)completion->parameter,
+              (unsigned long long)thread_tid(current_thread()),
+              (unsigned long long)mach_absolute_time());
     }
+    g_completionTracing = trace;
     completion->action(completion->target, completion->parameter, result, actual);
+    if (g_completionTracing) {
+        IOLog("NativeSdhciBlock: req %s id=%u action returned tid=%llu t=%llu\n",
+              windowName, reqId, (unsigned long long)thread_tid(current_thread()),
+              (unsigned long long)mach_absolute_time());
+        g_completionTracing = false;
+    }
     return kIOReturnSuccess;
 }
 
