@@ -1,0 +1,40 @@
+diff --git a/iokit/Kernel/IOService.cpp b/iokit/Kernel/IOService.cpp
+index c22edff..580ea59 100644
+--- a/iokit/Kernel/IOService.cpp
++++ b/iokit/Kernel/IOService.cpp
+@@ -6613,7 +6613,34 @@ IOService *
+ IOService::waitForMatchingService( OSDictionary * matching,
+     uint64_t timeout)
+ {
+-	return IOService::waitForMatchingServiceWithToken(matching, timeout, NULL);
++	IOService *result = IOService::waitForMatchingServiceWithToken(matching, timeout, NULL);
++
++	//
++	// BBK A2 bring-up: AMFI (prelinked, no source here) builds a matching
++	// dictionary with serviceMatching("IODTNVRAM") and then calls this function
++	// without ever releasing the dictionary.  waitForMatchingService does not
++	// consume the reference, so each call leaked one OSDictionary (~94/s,
++	// ~44k objects before the VM asserted on a duplicate page insertion).
++	// Consume that one caller's reference, identified by its return address and
++	// the provider class it asks for, so every other caller keeps the documented
++	// ownership rules.
++	//
++	uintptr_t caller = (uintptr_t)__builtin_return_address(0);
++	if ((matching != nullptr) &&
++	    (caller >= 0xfffffff004aa0000ULL) && (caller < 0xfffffff004ac0000ULL)) {
++		OSString *provider = OSDynamicCast(OSString, matching->getObject("IOProviderClass"));
++		if ((provider != nullptr) &&
++		    (strcmp(provider->getCStringNoCopy(), "IODTNVRAM") == 0)) {
++			static uint32_t released = 0;
++			uint32_t count = __atomic_add_fetch(&released, 1, __ATOMIC_RELAXED);
++			if ((count == 1) || ((count & 0xff) == 0)) {
++				printf("bbk amfi: released IODTNVRAM matching dictionary (%u)\n", count);
++			}
++			matching->release();
++		}
++	}
++
++	return result;
+ }
+ 
+ IOService *

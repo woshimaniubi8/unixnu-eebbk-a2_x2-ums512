@@ -74,3 +74,10 @@ bbk-a2-quiet-system-events.patch
 # until the VM asserted.  Treat the no-controller sync as a success (the
 # variable dictionary is already updated in memory) and count the calls.
 bbk-a2-nvram-no-controller.patch
+# BBK A2 bring-up: AMFI builds a matching dictionary with
+# serviceMatching("IODTNVRAM") and never releases it after
+# waitForMatchingService() (which does not consume the reference).  That leaked
+# one OSDictionary per call (~94/s) until the VM asserted.  Consume the
+# reference for that one caller, identified by its return address and provider
+# class, without changing the documented ownership for any other caller.
+bbk-a2-amfi-matching-leak.patch
