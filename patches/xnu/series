@@ -75,9 +75,10 @@ bbk-a2-quiet-system-events.patch
 # variable dictionary is already updated in memory) and count the calls.
 bbk-a2-nvram-no-controller.patch
 # BBK A2 bring-up: AMFI builds a matching dictionary with
-# serviceMatching("IODTNVRAM") and never releases it after
-# waitForMatchingService() (which does not consume the reference).  That leaked
-# one OSDictionary per call (~94/s) until the VM asserted.  Consume the
-# reference for that one caller, identified by its return address and provider
-# class, without changing the documented ownership for any other caller.
+# serviceMatching("IODTNVRAM") and retries in a tight loop because no IODTNVRAM
+# service is ever published on this board (~67k calls/s, starving the block I/O
+# threads), and it never releases the dictionary (one leaked OSDictionary per
+# call until the VM asserted).  For that one caller, consume the reference and
+# hand back a private in-memory IODTNVRAM stand-in so the loop terminates;
+# every other caller keeps the documented ownership rules.
 bbk-a2-amfi-matching-leak.patch
