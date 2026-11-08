@@ -1,8 +1,8 @@
 diff --git a/iokit/Kernel/IOService.cpp b/iokit/Kernel/IOService.cpp
-index c22edff..86ef13f 100644
+index c22edff..60b9ba9 100644
 --- a/iokit/Kernel/IOService.cpp
 +++ b/iokit/Kernel/IOService.cpp
-@@ -6613,7 +6613,31 @@ IOService *
+@@ -6613,7 +6613,37 @@ IOService *
  IOService::waitForMatchingService( OSDictionary * matching,
      uint64_t timeout)
  {
@@ -22,11 +22,17 @@ index c22edff..86ef13f 100644
 +		static uint32_t calls = 0;
 +		uint32_t count = __atomic_add_fetch(&calls, 1, __ATOMIC_RELAXED);
 +		if ((count <= 8) || ((count & 0xfffff) == 0)) {
-+			printf("bbk amfi: wait caller=0x%lx outer=0x%lx matching=%p result=%p timeout=0x%llx tid=%lld calls=%u\n",
++			//
++			// The caller address alone only identifies AMFI's own helper; walk a
++			// few frames so the outer loop that keeps re-entering it becomes
++			// visible.  Bounded to four frames and only on the sparse samples.
++			//
++			printf("bbk amfi: wait caller=0x%lx outer1=0x%lx outer2=0x%lx outer3=0x%lx result=%p tid=%lld calls=%u\n",
 +			    (unsigned long)caller,
 +			    (unsigned long)(uintptr_t)__builtin_return_address(1),
-+			    matching, result, (unsigned long long)timeout,
-+			    (long long)thread_tid(current_thread()), count);
++			    (unsigned long)(uintptr_t)__builtin_return_address(2),
++			    (unsigned long)(uintptr_t)__builtin_return_address(3),
++			    result, (long long)thread_tid(current_thread()), count);
 +		}
 +		matching->release();
 +	}

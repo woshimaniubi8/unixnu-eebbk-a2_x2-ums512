@@ -82,6 +82,7 @@ bbk-a2-nvram-no-controller.patch
 # and its caller; every other caller keeps the documented ownership rules.
 bbk-a2-amfi-matching-leak.patch
 # BBK A2 bring-up: record the object type and IOReturn of AMFI's
-# security-mode-change-enable property write, so a rejected write can be told
-# apart from an upper layer that retries unconditionally.
+# security-mode-change-enable property write, plus the read-back value, so a
+# caller that loops on the value can be told apart from one that retries
+# unconditionally.
 bbk-a2-nvram-setproperty-trace.patch

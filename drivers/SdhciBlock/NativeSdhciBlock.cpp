@@ -76,9 +76,6 @@ namespace {
 // every sector would swamp the 115200 baud UART and perturb the timing under
 // investigation, so the per-sector lines are sampled every 64 sectors and the
 // slow/failed paths always print their controller state.
-bool g_traceCmd = false;
-uint32_t g_cmdSectorIndex = 0;
-uint32_t g_cmdSectorsLeft = 0xFFFFFFFFU;
 bool g_cntfrqPrinted = false;
 uint32_t g_reqSeq = 0;
 bool g_completionTracing = false;
@@ -92,12 +89,6 @@ uint64_t readCntfrqEl0()
     return value;
 }
 
-// Sample every 64th sector, plus every sector of the last 128 sectors of a
-// traced request (the window where the stall has been observed).
-bool traceSampled()
-{
-    return g_traceCmd && (((g_cmdSectorIndex & 63) == 0) || (g_cmdSectorsLeft <= 128));
-}
 
 // The kernel does not declare strstr() for driver code; the only substring
 // check here is the ADT node-name marker of the second window.
@@ -293,6 +284,19 @@ private:
     uint8_t manifestBlock[4096] = {};
     char windowName[32] = {};          // SHNGROOT window this instance publishes
 
+    // TEMPORARY bring-up trace state.  Per instance (and reset per request) so
+    // the two published windows cannot corrupt each other's sampling.
+    bool traceCmd = false;
+    uint32_t cmdSectorIndex = 0;
+    uint32_t cmdSectorsLeft = 0xFFFFFFFFU;
+
+    // Sample every 64th sector, plus every sector of the last 128 sectors of a
+    // traced request (the window where a stall has been observed).
+    bool traceSampled() const
+    {
+        return traceCmd && (((cmdSectorIndex & 63) == 0) || (cmdSectorsLeft <= 128));
+    }
+
     uint32_t read32(uint32_t offset) const
     {
         return *reinterpret_cast<volatile uint32_t *>(registers + offset);
@@ -422,7 +426,7 @@ bool NativeSdhciBlock::waitCommandIdle(uint32_t milliseconds)
         if ((read32(kPresentState) & (kPresentCmdInhibit | kPresentDatInhibit)) == 0) {
             return true;
         }
-        if (g_traceCmd && (waited == 20)) {
+        if (traceCmd && (waited == 20)) {
             IOLog("NativeSdhciBlock: waitCommandIdle slow after %ums present=0x%08x\n",
                   waited, read32(kPresentState));
         }
@@ -436,7 +440,7 @@ bool NativeSdhciBlock::dataCommand(uint32_t commandIndex, uint64_t argument)
     IOLock *lock = controllerLock();
     // Lock lines stay at the 64-sector sampling rate even inside the last-128
     // window: the issued/done pair there already pinpoints the sector.
-    const bool sampled = g_traceCmd && ((g_cmdSectorIndex & 63) == 0);
+    const bool sampled = traceCmd && ((cmdSectorIndex & 63) == 0);
     if (sampled) {
         IOLog("NativeSdhciBlock: cmd%u lock enter lba=0x%llx\n", commandIndex, argument);
     }
@@ -573,7 +577,7 @@ bool NativeSdhciBlock::dataCommandLocked(uint32_t commandIndex, uint64_t argumen
 
 bool NativeSdhciBlock::readSector(uint64_t emmcLba)
 {
-    ++g_cmdSectorIndex;
+    ++cmdSectorIndex;
     if (!dataCommand(17, emmcLba)) {
         __atomic_fetch_add(&native_sdhci_read_failures, 1, __ATOMIC_RELAXED);
         // One-shot probe: retry the failing sector and both neighbours so a
@@ -947,10 +951,10 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
               windowName, reqId, block, count, count * kBlockBytes,
               (unsigned long long)thread_tid(current_thread()));
     }
-    g_traceCmd = trace && (count >= 1024);
-    g_cmdSectorIndex = 0;
-    g_cmdSectorsLeft = static_cast<uint32_t>(count);
-    if (g_traceCmd && !g_cntfrqPrinted) {
+    traceCmd = trace && (count >= 1024);
+    cmdSectorIndex = 0;
+    cmdSectorsLeft = static_cast<uint32_t>(count);
+    if (traceCmd && !g_cntfrqPrinted) {
         g_cntfrqPrinted = true;
         IOLog("NativeSdhciBlock: cntfrq_el0=%llu\n", readCntfrqEl0());
     }
@@ -959,7 +963,7 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
         IOLog("NativeSdhciBlock: req %s gate locked\n", windowName);
     }
     while (online && actual < count * kBlockBytes) {
-        g_cmdSectorsLeft = static_cast<uint32_t>((count * kBlockBytes - actual) / kBlockBytes);
+        cmdSectorsLeft = static_cast<uint32_t>((count * kBlockBytes - actual) / kBlockBytes);
         if (!readSector(partitionFirstLba + block + actual / kBlockBytes)) {
             if (trace) {
                 IOLog("NativeSdhciBlock: req %s readSector failed lba=0x%llx\n",
@@ -984,7 +988,7 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
         }
     }
     IOLockUnlock(gate);
-    g_traceCmd = false;
+    traceCmd = false;
     if (trace) {
         IOLog("NativeSdhciBlock: req %s id=%u result=0x%x actual=0x%llx t=%llu\n",
               windowName, reqId, static_cast<unsigned>(result), actual,

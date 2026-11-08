@@ -1,8 +1,35 @@
 diff --git a/iokit/Kernel/IONVRAM.cpp b/iokit/Kernel/IONVRAM.cpp
-index 5830f06..cc5ec89 100644
+index 5830f06..e144f10 100644
 --- a/iokit/Kernel/IONVRAM.cpp
 +++ b/iokit/Kernel/IONVRAM.cpp
-@@ -1960,7 +1960,26 @@ IODTNVRAM::setPropertyInternal(const OSSymbol *aKey, OSObject *anObject)
+@@ -1736,7 +1736,25 @@ IODTNVRAM::copyProperty(const OSSymbol *aKey) const
+ 
+ 	parseVariableName(aKey->getCStringNoCopy(), &varGuid, &variableName);
+ 
+-	return copyPropertyWithGUIDAndName(varGuid, variableName);
++	OSSharedPtr<OSObject> bbk_value = copyPropertyWithGUIDAndName(varGuid, variableName);
++
++	//
++	// BBK A2 bring-up: AMFI writes security-mode-change-enable and then keeps
++	// re-entering its setter helper.  Record the read-back value so a caller
++	// that loops on the value can be told apart from one that loops
++	// unconditionally.  Sparse on purpose (first 8 + every 2^20).
++	//
++	if (strcmp(variableName, "security-mode-change-enable") == 0) {
++		static uint32_t bbk_calls = 0;
++		uint32_t bbk_count = __atomic_add_fetch(&bbk_calls, 1, __ATOMIC_RELAXED);
++		if ((bbk_count <= 8) || ((bbk_count & 0xfffff) == 0)) {
++			printf("bbk nvram: get security-mode-change-enable class=%s calls=%u\n",
++			    (bbk_value.get() != nullptr) ? bbk_value.get()->getMetaClass()->getClassName() : "null",
++			    bbk_count);
++		}
++	}
++
++	return bbk_value;
+ }
+ 
+ OSSharedPtr<OSObject>
+@@ -1960,7 +1978,26 @@ IODTNVRAM::setPropertyInternal(const OSSymbol *aKey, OSObject *anObject)
  bool
  IODTNVRAM::setProperty(const OSSymbol *aKey, OSObject *anObject)
  {
