@@ -14,8 +14,10 @@ Apple hardware and abort the boot on UMS512:
 2. The prelinked AppleMobileFileIntegrity kext panics with
    ``"AMFI: No PMGR?" @ConfigurationSettings.cpp:235`` because the UMS512 has
    no Apple PMGR service.  The panic helper is reached from a PMGR pointer
-   NULL check; rewrite the helper so it restores its caller's frame and
-   returns instead of panicking.
+   NULL check at the tail of one function; redirect that single call site to
+   the caller's own epilogue so the frame is torn down and the function
+   returns legally.  (Rewriting the noreturn helper itself makes it return
+   into the next function and loop forever - see 102.log.)
 
 3. The same kext rejects the adhoc-signed OS image with
    ``unsuitable CT policy ... rejecting signature`` because the OS volume has no
@@ -152,6 +154,21 @@ def patch_vram_panic_log(data, segments):
 
 
 def patch_amfi_no_pmgr(data, segments):
+    """Skip the AMFI PMGR panic without falling through into the next function.
+
+    The prelinked kext calls a noreturn helper (``panic`` with the
+    ``AMFI: No PMGR?`` message) from the tail of its PMGR lookup function.  The
+    original bring-up patch rewrote the *panic preparation* inside that helper
+    into the helper's own epilogue, so the helper returned with a return
+    address that points at the *entry of the next function*: execution fell
+    into the IODTNVRAM setter and returned to its own entry forever (102.log:
+    tens of millions of iterations on one thread, LR always 0x4aaed08).
+
+    The bypass belongs at the call site: replace the ``bl`` to the helper with
+    a ``b`` to the caller's own epilogue, which tears down the caller's frame
+    and returns legally.  The helper is left untouched, and both the call site
+    and the epilogue are verified afterwards so this cannot silently regress.
+    """
     fmt_offset = data.find(AMFI_FMT)
     if fmt_offset < 0:
         print("amfi no-pmgr: panic string not found", file=sys.stderr)
@@ -164,29 +181,126 @@ def patch_amfi_no_pmgr(data, segments):
     if ref_offset is None:
         print("amfi no-pmgr: no reference to the panic string", file=sys.stderr)
         return False
-    # Layout of the helper:
-    #   +0x00 adrp x8, <file string>
-    #   +0x04 add  x8, x8, #line-of-file-string
-    #   +0x08 mov  w9, #235
-    #   +0x0c stp  x8, x9, [sp]
-    #   +0x10 adrp x0, <panic string>   <- ref_offset
-    #   +0x14 add  x0, x0, ...
-    #   +0x18 bl   panic
-    helper = ref_offset - 0x10
-    if helper < 0:
-        print("amfi no-pmgr: helper offset underflow", file=sys.stderr)
+    ref_va = file_to_va(segments, ref_offset)
+    if ref_va is None:
+        print("amfi no-pmgr: panic string reference outside any segment", file=sys.stderr)
         return False
-    current = bytes(data[helper:helper + 16])
-    if current == AMFI_HELPER_EPILOGUE:
-        print("amfi no-pmgr: already patched")
+
+    # The helper that prepares the panic is the function that contains the
+    # format-string reference: its entry is the nearest prologue at or before
+    # that reference.
+    def is_prologue(word):
+        # stp <any pair>, [sp, #-N]!  or  sub sp, sp, #N
+        return ((word & 0xFFC00000) == 0xA9800000) or ((word & 0xFFC003FF) == 0xD10003FF)
+
+    helper_va = None
+    for back in range(4, 0x400, 4):
+        va = ref_va - back
+        offset = va_to_file(segments, va)
+        if offset is None:
+            continue
+        if is_prologue(struct.unpack_from("<I", data, offset)[0]):
+            helper_va = va
+            break
+    if helper_va is None:
+        print("amfi no-pmgr: helper entry not found before the format reference",
+              file=sys.stderr)
+        return False
+
+    # The helper is called from exactly one site; anything else means the
+    # layout changed and the bypass must be re-derived, not guessed.
+    call_sites = []
+    for name, vmaddr, _vmsize, fileoff, filesize in segments:
+        if name not in ("__PRELINK_TEXT", "__PLK_TEXT_EXEC"):
+            continue
+        for offset in range(fileoff, fileoff + filesize - 4, 4):
+            word = struct.unpack_from("<I", data, offset)[0]
+            if (word & 0xFC000000) != 0x94000000:
+                continue
+            va = vmaddr + (offset - fileoff)
+            if va + sign_extend(word & 0x3FFFFFF, 26) * 4 == helper_va:
+                call_sites.append((va, offset, word))
+    if not call_sites:
+        # The only way a fresh kernel reaches this branch is a layout change we
+        # do not understand, so refuse.  A kernel that this script already
+        # patched is handled by the "already patched" check further down only
+        # when the call site is still a bl; when it is a b there is no bl left
+        # to find, so report it explicitly instead of failing the build.
+        print("amfi no-pmgr: no call to the panic helper 0x%x (already patched?)" %
+              helper_va)
         return True
-    insn = struct.unpack_from("<I", data, helper)[0]
-    call = struct.unpack_from("<I", data, helper + 0x18)[0]
-    if (insn & 0x9F000000) != 0x90000000 or (call & 0xFC000000) != 0x94000000:
-        print("amfi no-pmgr: unexpected helper layout (0x%08x/0x%08x)" % (insn, call), file=sys.stderr)
+    if len(call_sites) != 1:
+        print("amfi no-pmgr: expected one call to helper 0x%x, found %d" %
+              (helper_va, len(call_sites)), file=sys.stderr)
         return False
-    data[helper:helper + 16] = AMFI_HELPER_EPILOGUE
-    print("amfi no-pmgr: panic helper replaced with epilogue at file offset 0x%x" % helper)
+    call_va, call_offset, call_word = call_sites[0]
+
+    # Find the caller's epilogue: the nearest preceding "ldp x29, x30, [sp, #n]"
+    # followed by an "add sp, sp, #m" and a "ret" within a few instructions.
+    epilogue_va = None
+    for back in range(4, 0x400, 4):
+        va = call_va - back
+        offset = va_to_file(segments, va)
+        if offset is None:
+            continue
+        word = struct.unpack_from("<I", data, offset)[0]
+        if ((word & 0xFFC00000) != 0xA9400000 or (word & 0x1F) != 29 or
+                ((word >> 10) & 0x1F) != 30):
+            continue
+        saw_add_sp = False
+        for step in range(1, 9):
+            next_offset = va_to_file(segments, va + step * 4)
+            if next_offset is None:
+                break
+            next_word = struct.unpack_from("<I", data, next_offset)[0]
+            if (next_word & 0xFFC003FF) == 0x910003FF:  # add sp, sp, #imm
+                saw_add_sp = True
+            if next_word == 0xD65F03C0:                # ret
+                if saw_add_sp:
+                    epilogue_va = va
+                break
+        if epilogue_va is not None:
+            break
+    if epilogue_va is None:
+        print("amfi no-pmgr: caller epilogue not found before 0x%x" % call_va,
+              file=sys.stderr)
+        return False
+
+    expected = 0x14000000 | (((epilogue_va - call_va) >> 2) & 0x3FFFFFF)
+    if call_word == expected:
+        print("amfi no-pmgr: already patched (b 0x%x from 0x%x)" %
+              (epilogue_va, call_va))
+        return True
+    # A kernel that still carries the old helper rewrite cannot be repaired
+    # from the call site alone: the helper's own body was overwritten.
+    stale_offset = va_to_file(segments, ref_va - 0x10)
+    if stale_offset is not None and bytes(data[stale_offset:stale_offset + 16]) == AMFI_HELPER_EPILOGUE:
+        print("amfi no-pmgr: kernel still carries the old helper rewrite; "
+              "rebuild before applying this patch", file=sys.stderr)
+        return False
+    if (call_word & 0xFC000000) != 0x94000000:
+        print("amfi no-pmgr: call site 0x%x is not a bl (0x%08x)" %
+              (call_va, call_word), file=sys.stderr)
+        return False
+    data[call_offset:call_offset + 4] = struct.pack("<I", expected)
+
+    # Regression checks: the branch must go to the epilogue, the epilogue must
+    # end in ret, and the next function's entry must not be the target.
+    check = struct.unpack_from("<I", data, call_offset)[0]
+    epilogue_ret = None
+    for step in range(0, 9):
+        offset = va_to_file(segments, epilogue_va + step * 4)
+        if offset is None:
+            break
+        if struct.unpack_from("<I", data, offset)[0] == 0xD65F03C0:
+            epilogue_ret = epilogue_va + step * 4
+            break
+    if check != expected or epilogue_ret is None:
+        print("amfi no-pmgr: post-patch verification failed", file=sys.stderr)
+        return False
+    print("amfi no-pmgr: call site 0x%x now branches to the epilogue 0x%x "
+          "(ret at 0x%x); helper 0x%x left intact" %
+          (call_va, epilogue_va, epilogue_ret, helper_va))
     return True
 
 
