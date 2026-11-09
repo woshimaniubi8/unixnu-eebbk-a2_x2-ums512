@@ -46,6 +46,7 @@
 #include <libkern/c++/OSNumber.h>
 #include <libkern/c++/OSString.h>
 #include <kern/clock.h>
+#include <libkern/crypto/sha2.h>
 #include <kern/task.h>
 #include <kern/thread.h>
 #include <sys/param.h>
@@ -67,6 +68,20 @@ volatile uint32_t native_sdhci_read_requests = 0;
 volatile uint32_t native_sdhci_read_failures = 0;
 volatile uint64_t native_sdhci_sectors = 0;
 volatile uint64_t native_sdhci_mmio_physical = 0;
+
+// Defined further down; declared here so the manifest digest provider can
+// resolve a volume UUID to its BSD device.
+int native_verified_block_volume_device(const char *uuid, dev_t *device, char *path, size_t size);
+
+// SHNGROOT manifest of each published window, so the owner boot-manifest path
+// (XNU_OWNER_BOOT_MANIFEST) can hash the real bytes instead of inventing an
+// identity.  Filled by readRootLayout() during probe.
+struct BbkWindowManifest {
+    char name[32];
+    uint8_t bytes[4096];
+    bool valid;
+};
+BbkWindowManifest gBbkWindowManifests[2];
 }
 
 namespace {
@@ -821,6 +836,15 @@ bool NativeSdhciBlock::readRootLayout()
         native_sdhci_window_blocks = blocks;
         IOLog("NativeSdhciBlock: window %s offset=0x%llx size=%llu blocks=0x%llx -> base_lba=0x%llx\n",
               windowName, offset, size, blocks, partitionFirstLba);
+        for (unsigned slot = 0; slot < 2; ++slot) {
+            if (!gBbkWindowManifests[slot].valid || strcmp(gBbkWindowManifests[slot].name, windowName) == 0) {
+                strlcpy(gBbkWindowManifests[slot].name, windowName,
+                        sizeof(gBbkWindowManifests[slot].name));
+                memcpy(gBbkWindowManifests[slot].bytes, manifestBlock, sizeof(gBbkWindowManifests[slot].bytes));
+                gBbkWindowManifests[slot].valid = true;
+                break;
+            }
+        }
         return true;
     }
     IOLog("NativeSdhciBlock: SHNGROOT has no %s window\n", windowName);
@@ -1105,6 +1129,35 @@ void NativeSdhciBlock::free()
 // would verify a signed root manifest here instead (see the VirtioMmioBlock
 // implementation for that shape); the bring-up build deliberately keeps the
 // owner responsible for its own image.
+// SHA-384 of the SHNGROOT manifest of the window that published the volume the
+// caller names.  The kernel hashes this into the owner boot-manifest identity,
+// so the value must come from the bytes on the device, never a constant.
+extern "C" int native_verified_block_manifest_sha384(dev_t device, const char *uuid, uint8_t digest[48])
+{
+    static const char kSystemOsUuid[] = "8846FE78-2910-4297-AF97-D59BB6F8FC16";
+
+    if (!uuid || !digest || strlen(uuid) != 36) {
+        return 0;
+    }
+    dev_t resolved = NODEV;
+    char path[64] = {};
+    if (!native_verified_block_volume_device(uuid, &resolved, path, sizeof(path)) || resolved != device) {
+        return 0;
+    }
+    const char *window = (strcmp(uuid, kSystemOsUuid) == 0) ? "SystemOS" : "OS";
+    for (unsigned slot = 0; slot < 2; ++slot) {
+        if (!gBbkWindowManifests[slot].valid || strcmp(gBbkWindowManifests[slot].name, window) != 0) {
+            continue;
+        }
+        SHA384_CTX context;
+        SHA384_Init(&context);
+        SHA384_Update(&context, gBbkWindowManifests[slot].bytes, sizeof(gBbkWindowManifests[slot].bytes));
+        SHA384_Final(digest, &context);
+        return 1;
+    }
+    return 0;
+}
+
 extern "C" int native_verified_block_root_authorized(dev_t device)
 {
     (void)device;

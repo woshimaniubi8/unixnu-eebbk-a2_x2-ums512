@@ -46,3 +46,9 @@ CONFIG_XNU_OWNER_CACHE_MOUNT=y
 CONFIG_XNU_OWNER_CACHE_CARRIER=y
 CONFIG_XNU_OWNER_CACHE_STARTUP=y
 CONFIG_XNU_OWNER_CACHE_VOLUME_UUID="8846FE78-2910-4297-AF97-D59BB6F8FC16"
+# launchd's mount -P 1 requires /chosen/boot-manifest-hash; the kernel's
+# owner path publishes it from the SHA-384 of the SHNGROOT manifest of the
+# OS and SystemOS windows (native_verified_block_manifest_sha384 in the
+# SdhciBlock transport).  Without this the mount helper exits 66 and the
+# kernel panics on the critical-process policy.
+CONFIG_XNU_OWNER_BOOT_MANIFEST=y
