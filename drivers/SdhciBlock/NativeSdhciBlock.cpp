@@ -289,6 +289,9 @@ private:
     bool traceCmd = false;
     uint32_t cmdSectorIndex = 0;
     uint32_t cmdSectorsLeft = 0xFFFFFFFFU;
+    // Set once a traced request has been running long enough that every sector
+    // must print its command path (a stall inside readSector has to be visible).
+    bool verboseCmd = false;
 
     // Sample every 64th sector, plus every sector of the last 128 sectors of a
     // traced request (the window where a stall has been observed).
@@ -426,9 +429,9 @@ bool NativeSdhciBlock::waitCommandIdle(uint32_t milliseconds)
         if ((read32(kPresentState) & (kPresentCmdInhibit | kPresentDatInhibit)) == 0) {
             return true;
         }
-        if (traceCmd && (waited == 20)) {
-            IOLog("NativeSdhciBlock: waitCommandIdle slow after %ums present=0x%08x\n",
-                  waited, read32(kPresentState));
+        if (traceCmd && verboseCmd && (waited == 20)) {
+            IOLog("NativeSdhciBlock: waitCommandIdle slow after %ums present=0x%08x idx=%u\n",
+                  waited, read32(kPresentState), cmdSectorIndex);
         }
         IODelay(1000);
     }
@@ -439,17 +442,26 @@ bool NativeSdhciBlock::dataCommand(uint32_t commandIndex, uint64_t argument)
 {
     IOLock *lock = controllerLock();
     // Lock lines stay at the 64-sector sampling rate even inside the last-128
-    // window: the issued/done pair there already pinpoints the sector.
+    // window: the issued/done pair there already pinpoints the sector.  Once a
+    // request has been running long enough (verboseCmd) every sector prints the
+    // full command path, because that is where a stall has to be localised.
     const bool sampled = traceCmd && ((cmdSectorIndex & 63) == 0);
-    if (sampled) {
-        IOLog("NativeSdhciBlock: cmd%u lock enter lba=0x%llx\n", commandIndex, argument);
+    const bool verbose = traceCmd && verboseCmd;
+    const uint64_t lockStart = mach_absolute_time();
+    if (sampled || verbose) {
+        IOLog("NativeSdhciBlock: cmd%u lock wait lba=0x%llx idx=%u tid=%llu\n",
+              commandIndex, argument, cmdSectorIndex,
+              (unsigned long long)thread_tid(current_thread()));
     }
     if (lock) {
         IOLockLock(lock);
     }
-    if (sampled) {
-        IOLog("NativeSdhciBlock: cmd%u lock acquired ps=0x%08x\n", commandIndex,
-              read32(kPresentState));
+    uint64_t lockNs = 0;
+    absolutetime_to_nanoseconds(mach_absolute_time() - lockStart, &lockNs);
+    if (sampled || verbose || (lockNs >= 5000000ULL)) {
+        IOLog("NativeSdhciBlock: cmd%u lock acquired ns=%llu lba=0x%llx ps=0x%08x idx=%u\n",
+              commandIndex, (unsigned long long)lockNs, argument,
+              read32(kPresentState), cmdSectorIndex);
     }
     const bool ok = dataCommandLocked(commandIndex, argument);
     if (lock) {
@@ -487,11 +499,20 @@ bool NativeSdhciBlock::dataCommandLocked(uint32_t commandIndex, uint64_t argumen
     write32(kNormalIntStatus, 0xFFFFFFFFU);
     write8(kTimeoutControl, 0x0E);
 
+    const bool verbose = traceCmd && verboseCmd;
+    if (verbose) {
+        IOLog("NativeSdhciBlock: cmd%u locked enter lba=0x%llx ps=0x%08x idx=%u\n",
+              commandIndex, argument, read32(kPresentState), cmdSectorIndex);
+    }
     if (!waitCommandIdle(2000)) {
         lastPresentState = read32(kPresentState);
         IOLog("NativeSdhciBlock: command %u inhibited, present=0x%08x\n",
               commandIndex, lastPresentState);
         return false;
+    }
+    if (verbose) {
+        IOLog("NativeSdhciBlock: cmd%u idle ok lba=0x%llx ps=0x%08x\n",
+              commandIndex, argument, read32(kPresentState));
     }
 
     write16(kBlockSize, static_cast<uint16_t>((kBlockBytes & 0xFFFU) | 0x7000U));
@@ -505,9 +526,9 @@ bool NativeSdhciBlock::dataCommandLocked(uint32_t commandIndex, uint64_t argumen
     dmaBarrier();
 
     write32(kTransferMode, ((commandIndex & 0x3FU) << 24) | kCommandDataPresent | kTransferModeRead);
-    if (traceSampled()) {
-        IOLog("NativeSdhciBlock: cmd%u issued lba=0x%llx ps=0x%08x\n", commandIndex, argument,
-              read32(kPresentState));
+    if (traceSampled() || verbose) {
+        IOLog("NativeSdhciBlock: cmd%u issued lba=0x%llx ps=0x%08x idx=%u\n", commandIndex, argument,
+              read32(kPresentState), cmdSectorIndex);
     }
 
     uint32_t pioWords = 0;
@@ -963,8 +984,23 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
         IOLog("NativeSdhciBlock: req %s gate locked\n", windowName);
     }
     uint64_t lastHeartbeat = mach_absolute_time();
+    const uint64_t reqStart = mach_absolute_time();
+    verboseCmd = false;
     while (online && actual < count * kBlockBytes) {
         cmdSectorsLeft = static_cast<uint32_t>((count * kBlockBytes - actual) / kBlockBytes);
+        // A request that is already slow gets the full command path for every
+        // remaining sector: a stall inside readSector() is invisible to the
+        // per-request heartbeat because that only runs after readSector returns.
+        if (trace && !verboseCmd) {
+            uint64_t reqNs = 0;
+            absolutetime_to_nanoseconds(mach_absolute_time() - reqStart, &reqNs);
+            if (reqNs >= 2000000000ULL) {
+                verboseCmd = true;
+                IOLog("NativeSdhciBlock: req %s id=%u verbose cmd tracing on at 0x%llx/0x%llx lba=0x%llx\n",
+                      windowName, reqId, actual, count * kBlockBytes,
+                      partitionFirstLba + block + actual / kBlockBytes);
+            }
+        }
         if (!readSector(partitionFirstLba + block + actual / kBlockBytes)) {
             if (trace) {
                 IOLog("NativeSdhciBlock: req %s readSector failed lba=0x%llx\n",
@@ -1004,6 +1040,7 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
     }
     IOLockUnlock(gate);
     traceCmd = false;
+    verboseCmd = false;
     if (trace) {
         IOLog("NativeSdhciBlock: req %s id=%u result=0x%x actual=0x%llx t=%llu\n",
               windowName, reqId, static_cast<unsigned>(result), actual,

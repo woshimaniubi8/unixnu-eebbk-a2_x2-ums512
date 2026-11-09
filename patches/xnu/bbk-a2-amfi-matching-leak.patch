@@ -1,8 +1,8 @@
 diff --git a/iokit/Kernel/IOService.cpp b/iokit/Kernel/IOService.cpp
-index c22edff..60b9ba9 100644
+index c22edff..71d4ecf 100644
 --- a/iokit/Kernel/IOService.cpp
 +++ b/iokit/Kernel/IOService.cpp
-@@ -6613,7 +6613,37 @@ IOService *
+@@ -6613,7 +6613,51 @@ IOService *
  IOService::waitForMatchingService( OSDictionary * matching,
      uint64_t timeout)
  {
@@ -23,16 +23,30 @@ index c22edff..60b9ba9 100644
 +		uint32_t count = __atomic_add_fetch(&calls, 1, __ATOMIC_RELAXED);
 +		if ((count <= 8) || ((count & 0xfffff) == 0)) {
 +			//
-+			// The caller address alone only identifies AMFI's own helper; walk a
-+			// few frames so the outer loop that keeps re-entering it becomes
-+			// visible.  Bounded to four frames and only on the sparse samples.
++			// The return-address slots above the helper are not reliable through
++			// __builtin_return_address(), so walk the real frame-pointer chain
++			// instead and print each saved LR.  Bounded to six frames, only on
++			// the sparse samples, and every hop is validated as a plausible
++			// kernel stack address before it is dereferenced.
 +			//
-+			printf("bbk amfi: wait caller=0x%lx outer1=0x%lx outer2=0x%lx outer3=0x%lx result=%p tid=%lld calls=%u\n",
++			printf("bbk amfi: wait caller=0x%lx fp=0x%lx result=%p tid=%lld calls=%u\n",
 +			    (unsigned long)caller,
-+			    (unsigned long)(uintptr_t)__builtin_return_address(1),
-+			    (unsigned long)(uintptr_t)__builtin_return_address(2),
-+			    (unsigned long)(uintptr_t)__builtin_return_address(3),
++			    (unsigned long)(uintptr_t)__builtin_frame_address(0),
 +			    result, (long long)thread_tid(current_thread()), count);
++			uint64_t *frame = (uint64_t *)__builtin_frame_address(0);
++			for (int depth = 0; (depth < 6) && (frame != nullptr); depth++) {
++				const uint64_t next = frame[0];
++				const uint64_t ret = frame[1];
++				if ((next <= (uint64_t)(uintptr_t)frame) ||
++				    ((next & 0xfULL) != 0) ||
++				    (next < 0xfffffff000000000ULL) ||
++				    (next > 0xffffffffffffffffULL)) {
++					break;
++				}
++				printf("bbk amfi: frame[%d] ret=0x%lx fp=0x%lx\n",
++				    depth, (unsigned long)ret, (unsigned long)next);
++				frame = (uint64_t *)(uintptr_t)next;
++			}
 +		}
 +		matching->release();
 +	}
