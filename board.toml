@@ -14,7 +14,7 @@ description = "BBK(EEBBK) A2/X2/A2P"
 # payload/prelink tooling + the SDHCI eMMC transport that publishes the
 # userdata partition (drivers/SdhciBlock, device-owned component registered by
 # .github/workflows/macos.yml through components/SdhciBlock.toml).
-include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "XnuPrelink", "DarwinBoot", "SdhciBlock"]
+include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "XnuPrelink", "DarwinBoot", "SdhciBlock", "RamBlock"]
 
 [kernel]
 defconfig = "bbk-a2_defconfig"
