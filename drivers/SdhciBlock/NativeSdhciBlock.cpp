@@ -47,6 +47,7 @@
 #include <libkern/c++/OSString.h>
 #include <kern/clock.h>
 #include <libkern/crypto/sha2.h>
+#include <pexpert/pexpert.h>
 #include <kern/task.h>
 #include <kern/thread.h>
 #include <sys/param.h>
@@ -82,6 +83,11 @@ struct BbkWindowManifest {
     bool valid;
 };
 BbkWindowManifest gBbkWindowManifests[2];
+
+// Per-sector command tracing is a debugging aid, not something a normal boot
+// should pay for: it is off unless the kernel command line says
+// bbk-sdhci-verbose=1.
+bool gBbkSdhciVerbose = false;
 }
 
 namespace {
@@ -882,6 +888,13 @@ bool NativeSdhciBlock::start(IOService *provider)
         strlcpy(windowName, "OS", sizeof(windowName));
     }
     IOLog("NativeSdhciBlock: window=%s\n", windowName);
+    {
+        int verboseArg = 0;
+        if (PE_parse_boot_argn("bbk-sdhci-verbose", &verboseArg, sizeof(verboseArg))) {
+            gBbkSdhciVerbose = verboseArg != 0;
+        }
+        IOLog("NativeSdhciBlock: verbose tracing %s\n", gBbkSdhciVerbose ? "on" : "off");
+    }
     if (!IOBlockStorageDevice::start(provider)) {
         IOLog("NativeSdhciBlock: IOBlockStorageDevice::start failed\n");
         return false;
@@ -1014,7 +1027,7 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
         // A request that is already slow gets the full command path for every
         // remaining sector: a stall inside readSector() is invisible to the
         // per-request heartbeat because that only runs after readSector returns.
-        if (trace && !verboseCmd) {
+        if (trace && gBbkSdhciVerbose && !verboseCmd) {
             uint64_t reqNs = 0;
             absolutetime_to_nanoseconds(mach_absolute_time() - reqStart, &reqNs);
             if (reqNs >= 2000000000ULL) {
