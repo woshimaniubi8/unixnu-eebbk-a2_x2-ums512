@@ -110,17 +110,18 @@ jobs:
           git -C UniXNU add $FALLBACKS
           git -C UniXNU -c user.name=ci -c user.email=ci@localhost commit -q -m "ci: pin submodules whose recorded commits are gone"
           # The bootstrap pass links before the archive builders have produced
-          # libmockfs_fixture.a, so vfs_conf.o must not reference the mockfs
-          # vfsops in that pass.  Force MOCKFS off for the bootstrap only; the
-          # real build recompiles vfs_conf.o (the mode stamp changes) and links
-          # the fixture archive as usual.
+          # libmockfs_fixture.a and libSdhciBlock.a, so it must not reference
+          # either the mockfs vfsops or the owner data mount (whose GPU addon
+          # hook lives in the block transport archive).  Force both off for the
+          # bootstrap only; the real build recompiles those objects and links
+          # the archives as usual.
           python3 - <<'PY_PATCH'
           from pathlib import Path
           path = Path("UniXNU/scripts/unixnu/kernel.py")
           text = path.read_text()
           old = "subprocess_env = {**env, 'XNU_BOOT_PROGRESS': '0', 'XNU_BOOTSTRAP': '1'}"
           new = ("subprocess_env = {**env, 'XNU_BOOT_PROGRESS': '0', 'XNU_BOOTSTRAP': '1', "
-                 "'XNU_SOURCE_MOCKFS': '0'}")
+                 "'XNU_SOURCE_MOCKFS': '0', 'XNU_OWNER_DATA_MOUNT': '0'}")
           if old not in text:
               raise SystemExit("kernel.py bootstrap environment not found")
           path.write_text(text.replace(old, new, 1))
