@@ -52,9 +52,3 @@ CONFIG_XNU_OWNER_CACHE_VOLUME_UUID="8846FE78-2910-4297-AF97-D59BB6F8FC16"
 # SdhciBlock transport).  Without this the mount helper exits 66 and the
 # kernel panics on the critical-process policy.
 CONFIG_XNU_OWNER_BOOT_MANIFEST=y
-# launchd's mount -P 1 leaves /private/var unwritable unless the payload
-# ramdisk is mounted there.  native_owner_data_prepare() binds the boot
-# ramdisk (/dev/md0, created by bsd_init from the ADT RAMDisk) and mounts
-# its APFS volume at /private/var; without this flag the block is compiled
-# out and every /private/var write returns EROFS (tzinit then exits 30).
-CONFIG_XNU_OWNER_DATA_MOUNT=y
