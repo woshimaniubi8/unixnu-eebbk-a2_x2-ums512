@@ -308,11 +308,13 @@ private:
     // must print its command path (a stall inside readSector has to be visible).
     bool verboseCmd = false;
 
-    // Sample every 64th sector, plus every sector of the last 128 sectors of a
-    // traced request (the window where a stall has been observed).
+    // Per-sector detail is only printed once a request has been running long
+    // enough to be interesting (verboseCmd).  A healthy boot then costs a
+    // handful of lines per MiB instead of a hundred, which is what makes a
+    // full precheck capture fit in a manageable log.
     bool traceSampled() const
     {
-        return traceCmd && (((cmdSectorIndex & 63) == 0) || (cmdSectorsLeft <= 128));
+        return traceCmd && verboseCmd;
     }
 
     uint32_t read32(uint32_t offset) const
@@ -460,7 +462,7 @@ bool NativeSdhciBlock::dataCommand(uint32_t commandIndex, uint64_t argument)
     // window: the issued/done pair there already pinpoints the sector.  Once a
     // request has been running long enough (verboseCmd) every sector prints the
     // full command path, because that is where a stall has to be localised.
-    const bool sampled = traceCmd && ((cmdSectorIndex & 63) == 0);
+    const bool sampled = false;   // keep only the verbose path
     const bool verbose = traceCmd && verboseCmd;
     const uint64_t lockStart = mach_absolute_time();
     if (sampled || verbose) {
@@ -1004,9 +1006,6 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
         IOLog("NativeSdhciBlock: cntfrq_el0=%llu\n", readCntfrqEl0());
     }
     IOLockLock(gate);
-    if (trace) {
-        IOLog("NativeSdhciBlock: req %s gate locked\n", windowName);
-    }
     uint64_t lastHeartbeat = mach_absolute_time();
     const uint64_t reqStart = mach_absolute_time();
     verboseCmd = false;
@@ -1045,7 +1044,7 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
         if (trace && actual >= nextProgress) {
             IOLog("NativeSdhciBlock: req %s progress 0x%llx/0x%llx\n",
                   windowName, actual, count * kBlockBytes);
-            nextProgress = actual + 256 * kBlockBytes;
+            nextProgress = actual + 2048 * kBlockBytes;
         }
         // One-second heartbeat: tells a stalled request apart from a slow one
         // even when the capture ends between the 256-sector progress lines.
@@ -1066,24 +1065,19 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
     traceCmd = false;
     verboseCmd = false;
     if (trace) {
-        IOLog("NativeSdhciBlock: req %s id=%u result=0x%x actual=0x%llx t=%llu\n",
+        uint64_t elapsedNs = 0;
+        absolutetime_to_nanoseconds(mach_absolute_time() - reqStart, &elapsedNs);
+        IOLog("NativeSdhciBlock: req %s id=%u result=0x%x actual=0x%llx elapsed_us=%llu\n",
               windowName, reqId, static_cast<unsigned>(result), actual,
-              (unsigned long long)mach_absolute_time());
-        IOLog("NativeSdhciBlock: req %s id=%u action=0x%llx target=0x%llx param=0x%llx tid=%llu t=%llu\n",
+              (unsigned long long)(elapsedNs / 1000));
+    }
+    if (verboseCmd) {
+        IOLog("NativeSdhciBlock: req %s id=%u action=0x%llx tid=%llu (slow request)\n",
               windowName, reqId, (unsigned long long)(uintptr_t)completion->action,
-              (unsigned long long)(uintptr_t)completion->target,
-              (unsigned long long)completion->parameter,
-              (unsigned long long)thread_tid(current_thread()),
-              (unsigned long long)mach_absolute_time());
+              (unsigned long long)thread_tid(current_thread()));
     }
-    g_completionTracing = trace;
+    g_completionTracing = false;
     completion->action(completion->target, completion->parameter, result, actual);
-    if (g_completionTracing) {
-        IOLog("NativeSdhciBlock: req %s id=%u action returned tid=%llu t=%llu\n",
-              windowName, reqId, (unsigned long long)thread_tid(current_thread()),
-              (unsigned long long)mach_absolute_time());
-        g_completionTracing = false;
-    }
     return kIOReturnSuccess;
 }
 
