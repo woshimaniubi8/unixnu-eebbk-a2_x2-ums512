@@ -58,6 +58,14 @@ CONFIG_XNU_OWNER_BOOT_MANIFEST=y
 # its APFS volume at /private/var; without this flag the block is compiled
 # out and every /private/var write returns EROFS (tzinit then exits 30).
 CONFIG_XNU_OWNER_DATA_MOUNT=y
+# The payload seed must reach APFS through the block transport, not the
+# legacy /dev/md0 container path (that path yields fsindex=-1 and ENOENT).
+# RamBlock publishes the seed as IOMedia; the kernel then mounts the real
+# APFS volume device selected by UUID.
+CONFIG_XNU_NATIVE_RAM_BLOCK=y
+# The seed is created by hdiutil without a volume UUID, so APFS reports the
+# zero UUID; the selector matches that published value.
+CONFIG_XNU_OWNER_DATA_VOLUME_UUID="00000000-0000-0000-0000-000000000000"
 # vfs_conf.o references the mockfs vfsops when this is set; the fixture
 # archive built by build-mockfs-fixture.py is force-loaded into the same
 # link, which is what keeps those symbols resolved.
