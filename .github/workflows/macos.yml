@@ -79,24 +79,36 @@ jobs:
           git clone -q --depth 1 https://github.com/UniXNU/UniXNU.git UniXNU
           test -f UniXNU/scripts/unixnu/cli.py
           test -f UniXNU/package/UniXNUPkg/Application/UniXNU/UniXNU.inf
-          # Upstream's drivers/ArmCpu gitlink currently names a commit that the
-          # ArmCpu repository no longer advertises ("upload-pack: not our ref"),
-          # so a recursive clone fails the whole job.  Initialise every other
-          # submodule from its recorded commit and take ArmCpu from a commit
-          # that exists (the one this board was built against).
+          # Upstream gitlinks occasionally name commits that the component
+          # repository no longer advertises ("upload-pack: not our ref"), which
+          # fails a recursive clone.  Initialise every submodule; when its
+          # recorded commit is unavailable, fall back to the component's current
+          # HEAD and record that commit in the module index so unixnu's own
+          # `git submodule update --recursive` does not re-sync to the broken
+          # pin.
+          FALLBACKS=""
           for path in $(git -C UniXNU config --file .gitmodules --get-regexp '\.path$' | awk '{print $2}'); do
             case "$path" in
               drivers/ArmCpu) continue ;;
             esac
-            git -C UniXNU submodule update --init -- "$path"
+            if git -C UniXNU submodule update --init -- "$path"; then
+              continue
+            fi
+            url=$(git -C UniXNU config --file .gitmodules --get "submodule.$path.url" || true)
+            if [ -z "$url" ]; then
+              url="https://github.com/UniXNU/$(basename "$path").git"
+            fi
+            echo "$path: recorded commit unavailable, using $url HEAD"
+            rm -rf "UniXNU/$path"
+            git clone -q "$url" "UniXNU/$path"
+            FALLBACKS="$FALLBACKS $path"
           done
+          # ArmCpu keeps the commit this board was validated against.
           git clone -q https://github.com/UniXNU/ArmCpu.git UniXNU/drivers/ArmCpu
           git -C UniXNU/drivers/ArmCpu checkout -q 9066b53bbc82e92a98ec44a11dd50fd13eaf1a1b
-          # unixnu's own fetch runs `git submodule update --init --recursive` from
-          # the module root, which would re-sync ArmCpu to the broken gitlink.
-          # Record the existing commit in the module index instead.
-          git -C UniXNU add drivers/ArmCpu
-          git -C UniXNU -c user.name=ci -c user.email=ci@localhost commit -q -m "ci: pin ArmCpu to an existing commit"
+          FALLBACKS="$FALLBACKS drivers/ArmCpu"
+          git -C UniXNU add $FALLBACKS
+          git -C UniXNU -c user.name=ci -c user.email=ci@localhost commit -q -m "ci: pin submodules whose recorded commits are gone"
           du -sh UniXNU
 
       - uses: actions/setup-python@v5
