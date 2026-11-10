@@ -277,11 +277,13 @@ jobs:
           set -euxo pipefail
           # macOS ships bash 3.2, where expanding an empty array under `set -u`
           # fails; keep the optional argument in a plain string instead.
-          SEED=""
-          if [ "${{ inputs.data_seed }}" = "true" ]; then
-            SEED="--data-ramdisk build/owner-data-fixture/owner-data-32.cdr"
+          if [ "${{ inputs.data_seed }}" != "true" ]; then
+            # Derivation runs only need the kernel; the owner Data mount config
+            # makes the payload step require a Data seed that is not built here.
+            echo "derivation run: payload build skipped (no Data seed)" | tee "$GITHUB_WORKSPACE/payload.log"
+            exit 0
           fi
-          ./unixnu build payload $SEED 2>&1 | tee "$GITHUB_WORKSPACE/payload.log"
+          ./unixnu build payload --data-ramdisk build/owner-data-fixture/owner-data-32.cdr 2>&1 | tee "$GITHUB_WORKSPACE/payload.log"
 
       - name: Report artifacts
         if: always()
