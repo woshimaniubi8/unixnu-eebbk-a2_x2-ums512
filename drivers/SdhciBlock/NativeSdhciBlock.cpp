@@ -1165,6 +1165,21 @@ extern "C" int native_verified_block_manifest_sha384(dev_t device, const char *u
     return 0;
 }
 
+// The owner Data mount path calls native_gpu_addon_prepare(), which asks the
+// RAM block transport for an optional GPU firmware addon.  This board ships no
+// such addon, so report "none" instead of leaving the weak import unresolved in
+// the statically linked kernel.
+extern "C" int native_ram_block_gpu_addon(const uint8_t **bytes, uint64_t *size)
+{
+    if (bytes) {
+        *bytes = nullptr;
+    }
+    if (size) {
+        *size = 0;
+    }
+    return 0;
+}
+
 extern "C" int native_verified_block_root_authorized(dev_t device)
 {
     (void)device;
