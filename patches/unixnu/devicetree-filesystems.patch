@@ -1,0 +1,60 @@
+diff --git a/scripts/unixnu/devicetree.py b/scripts/unixnu/devicetree.py
+index de51866..fcd6f38 100644
+--- a/scripts/unixnu/devicetree.py
++++ b/scripts/unixnu/devicetree.py
+@@ -216,7 +216,12 @@ def hardware_properties(entry, handles, base=0):
+             entry.strings(key)
+             properties.append((key, raw))
+         elif key in U32:
+-            properties.append((key, struct.pack('<I', entry.scalar(key))))
++            # XNU resolves device-tree handles through the Apple key
++            # (gIODTPHandleKey == 'AAPL,phandle'), so a plain 'phandle'
++            # property is invisible to IODTGetInterruptController and the
++            # interrupt mapping then dereferences NULL.
++            name = 'AAPL,phandle' if key == 'phandle' else key
++            properties.append((name, struct.pack('<I', entry.scalar(key))))
+         elif key in U64:
+             cells = entry.cells(key)
+             if len(cells) not in (1, 2):
+@@ -376,6 +381,9 @@ def generate(dtb, config, *, unique_chip_id=None, data=False, trust=False, addon
+     for name in ('defaults', 'options', 'product', 'buttons'):
+         if name in platform or name in ('defaults', 'options', 'product'):
+             children.append(platform_node(name, platform.get(name, {})))
++    filesystems = next((entry for entry in root.children if entry.name == 'filesystems'), None)
++    if filesystems is not None:
++        children.append(filesystems_node(filesystems))
+     # A configured root 'compatible' goes before the hardware DTS's own entries: an OS identity's board name comes first (the OS
+     # reads the first entry as the hardware model) and the board's compatible strings stay matchable after it.
+     configured = dict(typed_properties(platform.get('root', {})))
+@@ -387,6 +395,31 @@ def generate(dtb, config, *, unique_chip_id=None, data=False, trust=False, addon
+     return node('device-tree', root_properties, children)
+ 
+ 
++FILESYSTEM_FLAGS = {'e-apfs', 'e-apfs-1', 'vol.fs_ephemeral'}
++
++
++def filesystems_node(entry):
++    """Serialize the root-level /filesystems subtree exactly as Apple expects.
++
++    Unlike hardware nodes this keeps every property: flags (zero length), ADT
++    strings and little-endian U32 cells.  mount reads the fstab entries through
++    IODeviceTree:/filesystems/fstab and matches the vol.fs_* field names.
++    """
++    properties = []
++    for name, value in entry.properties.items():
++        if len(name) > 31:
++            raise Error(f'ADT property name exceeds 31 bytes: {name}')
++        if name in FILESYSTEM_FLAGS or value == b'':
++            properties.append((name, b''))
++        elif len(value) % 4 == 0 and len(value) <= 16:
++            cells = b''.join(struct.pack('<I', struct.unpack('>I', value[offset:offset + 4])[0])
++                             for offset in range(0, len(value), 4))
++            properties.append((name, cells))
++        else:
++            properties.append((name, value if value.endswith(b'\0') else value + b'\0'))
++    return node(entry.name, properties, [filesystems_node(child) for child in entry.children])
++
++
+ def compile_hardware(ctx):
+     from .profiles import resolve_path
+     spec = ctx.board.get('device_tree', {})
