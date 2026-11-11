@@ -1,7 +1,16 @@
 diff --git a/drivers/RamBlock/NativeRamBlock.cpp b/drivers/RamBlock/NativeRamBlock.cpp
 --- a/drivers/RamBlock/NativeRamBlock.cpp
 +++ b/drivers/RamBlock/NativeRamBlock.cpp
-@@ -32,12 +32,12 @@
+@@ -24,7 +24,7 @@
+ extern "C" {
+ extern unsigned long gPhysBase, gPhysSize;
+ // The kernel's release of loader memory (payload-addon-release.patch); absent in a kernel without it.
+-bool ml_static_mfree_prepare(vm_offset_t, vm_size_t) __attribute__((weak_import));
++bool ml_static_mfree_prepare(vm_offset_t, vm_size_t);
+ void IODTFreeLoaderInfo(const char *, void *, int);
+ int native_ram_block_volume_device(const char *, dev_t *, char *, size_t);
+ volatile uint32_t native_ram_block_ready = 0;
+@@ -38,14 +38,14 @@
  uint8_t native_ram_block_seed_sha256[32];
  // Optional persistence of the changed pages through a board-provided store window (see PersistOverlay.h). All weak: a build
  // without the provider keeps the volatile disk.
@@ -9,31 +18,37 @@ diff --git a/drivers/RamBlock/NativeRamBlock.cpp b/drivers/RamBlock/NativeRamBlo
 -int native_ufs_store_open(uint64_t, uint64_t *, const char **) __attribute__((weak_import));
 -int native_ufs_store_read(uint64_t, uint32_t, void *) __attribute__((weak_import));
 -int native_ufs_store_write(uint64_t, uint32_t, const void *) __attribute__((weak_import));
--int native_ufs_store_sync(void) __attribute__((weak_import));
--unsigned native_ufs_store_gpt_check(void) __attribute__((weak_import));
 +unsigned native_ufs_store_mode(void);
 +int native_ufs_store_open(uint64_t, uint64_t *, const char **);
 +int native_ufs_store_read(uint64_t, uint32_t, void *);
 +int native_ufs_store_write(uint64_t, uint32_t, const void *);
+ // Write without forced unit access (the device's write cache may hold it until native_ufs_store_sync). Present: write back.
+-int native_ufs_store_write_cached(uint64_t, uint32_t, const void *) __attribute__((weak_import));
+-int native_ufs_store_sync(void) __attribute__((weak_import));
+-unsigned native_ufs_store_gpt_check(void) __attribute__((weak_import));
++int native_ufs_store_write_cached(uint64_t, uint32_t, const void *);
 +int native_ufs_store_sync(void);
 +unsigned native_ufs_store_gpt_check(void);
- // Diagnostics. state: 0 off, 1 blank (read-only probe), 2 resumed, 3 fresh, 4 refused/failed, 5 degraded after an I/O error,
- // 6 resumed read-only (probe). header: persist::checkHeader result.
- volatile uint32_t native_data_persist_state = 0, native_data_persist_header = 9, native_data_persist_gpt = 0xff, native_data_persist_gpt_after = 0xff;
-@@ -451,3 +451,16 @@
+ // Diagnostics. state: 0 off, 1 blank (read-only probe), 2 resumed, 3 fresh (Install and boot), 4 refused/failed, 5 degraded after an I/O
+ // error, 6 resumed read-only (probe), 7 kept: the store holds no Data of this seed and no reset was asked, so it is left untouched and
+ // this boot's Data runs from the seed alone (header: why). header: persist::checkHeader result.
+@@ -715,3 +715,19 @@
    *base=0;*bytes=0;memset(digest,0,32);
    return selectVolumeSeed(uuid,device,path,size,base,bytes,digest);
  }
 +
-+// The BBK A2 kernel links RamBlock without a persistent-store provider.  The
-+// weak_import declarations above do not survive XNU's static link (ld reports
-+// the symbols as undefined), so provide the volatile-disk behaviour directly:
-+// mode 0 makes attachStore() keep the RAM-only disk.
++// The BBK A2 kernel links RamBlock without a persistent-store provider and
++// without the loader-memory release patch.  The weak_import declarations do
++// not survive XNU's static link (ld reports them as undefined), so provide
++// the volatile-disk behaviour directly: mode 0 makes attachStore() keep the
++// RAM-only disk, and a false release keeps the seed pages mapped.
 +extern "C" {
++bool ml_static_mfree_prepare(vm_offset_t, vm_size_t) { return false; }
 +unsigned native_ufs_store_mode(void) { return 0; }
 +int native_ufs_store_open(uint64_t, uint64_t *, const char **) { return 0; }
 +int native_ufs_store_read(uint64_t, uint32_t, void *) { return 0; }
 +int native_ufs_store_write(uint64_t, uint32_t, const void *) { return 0; }
++int native_ufs_store_write_cached(uint64_t, uint32_t, const void *) { return 0; }
 +int native_ufs_store_sync(void) { return 0; }
 +unsigned native_ufs_store_gpt_check(void) { return 0; }
 +}
