@@ -89,6 +89,11 @@ def probe_mount_fstab_schema(mount_root):
     for line in lines:
         if "ramdisk" in line.lower():
             print("   ", line[:200])
+    print("-- mount fstab/ramdisk candidates --")
+    for line in lines:
+        low = line.lower()
+        if any(token in low for token in ("ramdisk", "md0", "size=", "fstab", "apfs", "%s %s", "mnt_opts")):
+            print("   ", line[:220])
     print("-- fstab neighbours --")
     for index, line in enumerate(lines):
         if "fstab" in line.lower():
