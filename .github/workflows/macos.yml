@@ -133,6 +133,10 @@ jobs:
           # Root-level /filesystems is not a hardware node, so the ADT builder
           # needs a dedicated serializer to keep Apple's vol.fs_* fstab fields.
           git -C UniXNU apply "$GITHUB_WORKSPACE/device/patches/unixnu/devicetree-filesystems.patch"
+          # RamBlock's persistent-store hooks are weak imports upstream; XNU's
+          # static link does not resolve them.  The device patch supplies the
+          # volatile-disk stubs so the RAM Data seed can link.
+          git -C UniXNU/drivers/RamBlock apply -p3 "$GITHUB_WORKSPACE/device/patches/unixnu/ramblock-link.patch"
           du -sh UniXNU
 
       - uses: actions/setup-python@v5

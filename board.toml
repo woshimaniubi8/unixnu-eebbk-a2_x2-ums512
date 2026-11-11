@@ -14,7 +14,7 @@ description = "BBK(EEBBK) A2/X2/A2P"
 # payload/prelink tooling + the SDHCI eMMC transport that publishes the
 # userdata partition (drivers/SdhciBlock, device-owned component registered by
 # .github/workflows/macos.yml through components/SdhciBlock.toml).
-include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "XnuPrelink", "DarwinBoot", "SdhciBlock"]
+include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "XnuPrelink", "DarwinBoot", "SdhciBlock", "RamBlock"]
 
 [kernel]
 defconfig = "bbk-a2_defconfig"
@@ -39,6 +39,7 @@ archives = [
   "build-mockfs-fixture.py",
   "build-libpthread-kernel.py",
   "component:SdhciBlock",
+  "component:RamBlock",
 ]
 
 [device_tree]
@@ -102,7 +103,7 @@ title = "UniXNU BBK A2/X2"
 dram_size = "0x100000000"
 panic_screen = false
 timeout = 0
-kernel_args = ["debug=0x144", "serial=3", "amfi_get_out_of_my_way=1", "bbk-skip-rootauth=1"]
+kernel_args = ["debug=0x144", "serial=3", "amfi_get_out_of_my_way=1", "bbk-skip-rootauth=1", "sheng-gpu-addon=1"]
 # Static + System trust cache bundle built from this IPSW's StaticTrustCache and
 # Cryptex1,SystemTrustCache components (bundle format: <3I> header + modules).
 # Without it AMFI falls back to the amfid daemon port and rejects launchd/dyld.
@@ -117,6 +118,11 @@ unique_chip_id = "required"
 # (extracted from the iPadOS 17.7.11 restore image); XNU matches the
 # IOMedia UUID through /chosen/root-matching.
 root_match_volume_uuid = "04769D26-2CA0-4825-B443-E2E5F88300F2"
+# launchd's mount-phase-1 builds /private/preboot/<boot-manifest-hash>/
+# usr/standalone/firmware.  This is the hash the kernel publishes from the
+# SHNGROOT manifest (SHA384 of the OwnerBootSet domain); the seed builder puts
+# the original IPSW's Firmware/all_flash tree under the same directory.
+preboot_manifest_hash = "0AF4F61D24CBA408AE4E1B88C69881A4776BB65F52F75B3196D1C5CFDDD0AAC36FCEEB34CD6521E6E641EC3AB1EA0454"
 dram_size = "0x100000000"
 owned_memory_size = "0x40000000"
 psci_method = "smc"

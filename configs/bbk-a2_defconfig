@@ -32,6 +32,15 @@ CONFIG_XNU_EXTRA_LD_ARCHIVES="-Wl,-force_load,{tree}/build/sdhciblock/libSdhciBl
 # cache-mount guard to accept this transport instead of the Virtio one.
 CONFIG_XNU_NATIVE_SDHCI_BLOCK=y
 
+# The Data seed reaches APFS through the RAM block transport, not the legacy
+# /dev/md0 container path (that path yields fsindex=-1 and ENOENT).  RamBlock
+# publishes the seed as IOMedia; the kernel mounts the real APFS volume device
+# selected by UUID.  The UUID is rewritten to this fixed value by
+# scripts/prepare-preboot-tree.py after the seed is formatted.
+CONFIG_XNU_NATIVE_RAM_BLOCK=y
+CONFIG_XNU_OWNER_DATA_MOUNT=y
+CONFIG_XNU_OWNER_DATA_VOLUME_UUID="11111111-2222-3333-4444-555555555555"
+
 # Offline-owner dyld shared cache path (milestone 8).
 #
 # The OS volume has no dyld shared cache; the SystemOS window does.  The

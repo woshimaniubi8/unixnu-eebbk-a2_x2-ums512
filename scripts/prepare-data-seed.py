@@ -19,7 +19,11 @@ helper does the macOS side of that contract:
 3. ``scripts/prepare-owner-data-fixture.py`` writes
    ``build/owner-data-fixture/owner-data-32.cdr`` (raw APFS, dense delivery) and
    ``seed.json``.
-4. ``hdiutil detach`` unmounts the OS volume again.
+4. ``scripts/prepare-preboot-tree.py`` copies the IPSW's Firmware/all_flash
+   files into the seed's ``/private/var/ngpu/preboot/<boot-manifest-hash>``
+   tree (the source the kernel's cryptex union shows over /private/preboot)
+   and pins the Data volume UUID to the value in the defconfig.
+5. ``hdiutil detach`` unmounts the OS volume again.
 
 Pass the printed seed path to ``./unixnu build payload --data-ramdisk FILE``.
 The board file needs ``[payload] size_mib`` big enough for the kernel, the ADT
@@ -31,8 +35,11 @@ Usage: prepare-data-seed.py [--tree DIR] [--output FILE] [--force] [--keep-mount
 import argparse
 import hashlib
 import json
+import shutil
 import subprocess
 import sys
+import tempfile
+import tomllib
 from pathlib import Path
 
 SEED_BYTES = 32 * 1024 * 1024
@@ -63,6 +70,40 @@ def extract_os_dmg(tree):
     if not path.is_file() or path.stat().st_size == 0:
         raise SystemExit(f"the OS image was not extracted: {path}")
     return path
+
+
+def extract_all_flash(tree, device):
+    """Extract Firmware/all_flash from the pinned IPSW through the range reader."""
+    sys.path.insert(0, str(tree / "scripts"))
+    from unixnu.ipsw import Ipsw
+
+    profile = tomllib.loads((tree / "profiles/os/ipados-17.7.11-21H461/profile.toml").read_text())
+    board = tomllib.loads((device / "board.toml").read_text())
+    board["ipsw"] = profile["ipsw"]
+
+    class Context:
+        def __init__(self):
+            self.board = board
+            self.out_root = tree / "out"
+
+        def option_text(self, *names):
+            return None
+
+    ipsw = Ipsw(Context())
+    destination = Path(tempfile.mkdtemp(prefix="bbk-preboot-firmware-"))
+    count = 0
+    for name in ipsw.zip.namelist():
+        if not name.startswith("Firmware/all_flash/") or name.endswith("/"):
+            continue
+        relative = Path(name).relative_to("Firmware/all_flash")
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(ipsw.zip.read(name))
+        count += 1
+    if not count:
+        raise SystemExit("the IPSW has no Firmware/all_flash entries")
+    print(f"all_flash: {count} file(s) in {destination}")
+    return destination
 
 
 def probe_mount_fstab_schema(mount_root):
@@ -111,19 +152,28 @@ def main():
     parser.add_argument("--force", action="store_true", help="replace an existing seed")
     parser.add_argument("--keep-mounted", action="store_true",
                         help="leave the OS volume mounted for inspection")
+    parser.add_argument("--preboot-hash", default=None,
+                        help="boot-manifest-hash for the Preboot tree (default: board.toml [payload.adt])")
     args = parser.parse_args()
 
     tree = args.tree.resolve()
     output = (tree / args.output).resolve() if not args.output.is_absolute() else args.output
     mountpoint = tree / ".cache/firmware/target-volumes/os-mount"
+    device = Path(__file__).resolve().parents[1]
+    board_config = tomllib.loads((device / "board.toml").read_text())
+    preboot_hash = args.preboot_hash or board_config.get("payload", {}).get("adt", {}).get(
+        "preboot_manifest_hash")
+    if not preboot_hash:
+        raise SystemExit("no Preboot boot-manifest-hash: pass --preboot-hash or set "
+                         "[payload.adt] preboot_manifest_hash in board.toml")
 
-    if output.is_file() and not args.force:
+    if output.is_file() and (output.parent / "preboot.json").is_file() and not args.force:
         print(f"seed already present: {output} ({output.stat().st_size} bytes, "
               f"sha256 {sha256_file(output)})")
         return 0
     if args.force:
         fixture = output.parent
-        for name in ("owner-data-32.cdr", "seed.json"):
+        for name in ("owner-data-32.cdr", "seed.json", "preboot.json"):
             (fixture / name).unlink(missing_ok=True)
 
     dmg = extract_os_dmg(tree)
@@ -143,6 +193,13 @@ def main():
             raise SystemExit(f"unexpected sbin/launchd (sha256 {digest}); the seed "
                              "fixture requires the unchanged original OS volume")
         run([sys.executable, "scripts/prepare-owner-data-fixture.py"], tree)
+        firmware = extract_all_flash(tree, device)
+        try:
+            run([sys.executable, str(Path(__file__).with_name("prepare-preboot-tree.py")),
+                 "--seed", str(output), "--firmware-dir", str(firmware),
+                 "--boot-manifest-hash", preboot_hash], tree)
+        finally:
+            shutil.rmtree(firmware, ignore_errors=True)
     finally:
         if attached and not args.keep_mounted:
             run(["hdiutil", "detach", str(mountpoint)], tree, check=False)

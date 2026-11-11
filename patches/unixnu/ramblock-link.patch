@@ -1,0 +1,39 @@
+diff --git a/drivers/RamBlock/NativeRamBlock.cpp b/drivers/RamBlock/NativeRamBlock.cpp
+--- a/drivers/RamBlock/NativeRamBlock.cpp
++++ b/drivers/RamBlock/NativeRamBlock.cpp
+@@ -32,12 +32,12 @@
+ uint8_t native_ram_block_seed_sha256[32];
+ // Optional persistence of the changed pages through a board-provided store window (see PersistOverlay.h). All weak: a build
+ // without the provider keeps the volatile disk.
+-unsigned native_ufs_store_mode(void) __attribute__((weak_import));
+-int native_ufs_store_open(uint64_t, uint64_t *, const char **) __attribute__((weak_import));
+-int native_ufs_store_read(uint64_t, uint32_t, void *) __attribute__((weak_import));
+-int native_ufs_store_write(uint64_t, uint32_t, const void *) __attribute__((weak_import));
+-int native_ufs_store_sync(void) __attribute__((weak_import));
+-unsigned native_ufs_store_gpt_check(void) __attribute__((weak_import));
++unsigned native_ufs_store_mode(void);
++int native_ufs_store_open(uint64_t, uint64_t *, const char **);
++int native_ufs_store_read(uint64_t, uint32_t, void *);
++int native_ufs_store_write(uint64_t, uint32_t, const void *);
++int native_ufs_store_sync(void);
++unsigned native_ufs_store_gpt_check(void);
+ // Diagnostics. state: 0 off, 1 blank (read-only probe), 2 resumed, 3 fresh, 4 refused/failed, 5 degraded after an I/O error,
+ // 6 resumed read-only (probe). header: persist::checkHeader result.
+ volatile uint32_t native_data_persist_state = 0, native_data_persist_header = 9, native_data_persist_gpt = 0xff, native_data_persist_gpt_after = 0xff;
+@@ -451,3 +451,16 @@
+   *base=0;*bytes=0;memset(digest,0,32);
+   return selectVolumeSeed(uuid,device,path,size,base,bytes,digest);
+ }
++
++// The BBK A2 kernel links RamBlock without a persistent-store provider.  The
++// weak_import declarations above do not survive XNU's static link (ld reports
++// the symbols as undefined), so provide the volatile-disk behaviour directly:
++// mode 0 makes attachStore() keep the RAM-only disk.
++extern "C" {
++unsigned native_ufs_store_mode(void) { return 0; }
++int native_ufs_store_open(uint64_t, uint64_t *, const char **) { return 0; }
++int native_ufs_store_read(uint64_t, uint32_t, void *) { return 0; }
++int native_ufs_store_write(uint64_t, uint32_t, const void *) { return 0; }
++int native_ufs_store_sync(void) { return 0; }
++unsigned native_ufs_store_gpt_check(void) { return 0; }
++}
