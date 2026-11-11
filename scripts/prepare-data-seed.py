@@ -79,11 +79,22 @@ def probe_mount_fstab_schema(mount_root):
     except Exception as error:
         print("strings failed:", error)
         return
+    lines = out.splitlines()
     for pattern in ("filesystems/fstab", "DT_get_fstab", "IODeviceTree", "fstab"):
-        hits = [line for line in out.splitlines() if pattern in line]
+        hits = [line for line in lines if pattern in line]
         print("-- %s: %d hit(s)" % (pattern, len(hits)))
         for line in hits[:10]:
             print("   ", line[:200])
+    print("-- ramdisk strings (case-insensitive) --")
+    for line in lines:
+        if "ramdisk" in line.lower():
+            print("   ", line[:200])
+    print("-- fstab neighbours --")
+    for index, line in enumerate(lines):
+        if "fstab" in line.lower():
+            for neighbour in lines[max(0, index - 3):index + 4]:
+                print("   ", neighbour[:200])
+            print("   ---")
 
 
 def main():
