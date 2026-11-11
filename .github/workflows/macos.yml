@@ -123,7 +123,8 @@ jobs:
           new = ("subprocess_env = {**env, 'XNU_BOOT_PROGRESS': '0', 'XNU_BOOTSTRAP': '1', "
                  "'XNU_SOURCE_MOCKFS': '0', 'XNU_OWNER_DATA_MOUNT': '0', "
                  "'XNU_OWNER_CACHE_MOUNT': '0', 'XNU_OWNER_CACHE_CARRIER': '0', "
-                 "'XNU_OWNER_CACHE_STARTUP': '0', 'XNU_OWNER_BOOT_MANIFEST': '0'}")
+                 "'XNU_OWNER_CACHE_STARTUP': '0', 'XNU_OWNER_BOOT_MANIFEST': '0', "
+                 "'XNU_NATIVE_RAM_BLOCK': '0'}")
           if old not in text:
               raise SystemExit("kernel.py bootstrap environment not found")
           path.write_text(text.replace(old, new, 1))
