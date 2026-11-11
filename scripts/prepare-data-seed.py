@@ -65,6 +65,27 @@ def extract_os_dmg(tree):
     return path
 
 
+def probe_mount_fstab_schema(mount_root):
+    """Print the device-tree fstab schema mount expects (diagnostic only)."""
+    import shutil
+    binary = mount_root / "sbin/mount"
+    print("== mount fstab schema probe ==")
+    print("binary:", binary, "exists:", binary.exists())
+    if not binary.exists():
+        return
+    strings = shutil.which("strings") or "/usr/bin/strings"
+    try:
+        out = subprocess.run([strings, "-a", str(binary)], capture_output=True, text=True, timeout=180).stdout
+    except Exception as error:
+        print("strings failed:", error)
+        return
+    for pattern in ("filesystems/fstab", "DT_get_fstab", "IODeviceTree", "fstab"):
+        hits = [line for line in out.splitlines() if pattern in line]
+        print("-- %s: %d hit(s)" % (pattern, len(hits)))
+        for line in hits[:10]:
+            print("   ", line[:200])
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -99,6 +120,7 @@ def main():
         run(["hdiutil", "attach", "-nobrowse", "-readonly",
              "-mountpoint", str(mountpoint), str(dmg)], tree)
         attached = True
+        probe_mount_fstab_schema(mountpoint)
         launchd = mountpoint / "sbin/launchd"
         if not launchd.is_file():
             raise SystemExit(f"the OS volume has no sbin/launchd: {mountpoint}")
