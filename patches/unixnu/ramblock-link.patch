@@ -32,6 +32,15 @@ diff --git a/drivers/RamBlock/NativeRamBlock.cpp b/drivers/RamBlock/NativeRamBlo
  // Diagnostics. state: 0 off, 1 blank (read-only probe), 2 resumed, 3 fresh (Install and boot), 4 refused/failed, 5 degraded after an I/O
  // error, 6 resumed read-only (probe), 7 kept: the store holds no Data of this seed and no reset was asked, so it is left untouched and
  // this boot's Data runs from the seed alone (header: why). header: persist::checkHeader result.
+@@ -410,7 +410,7 @@
+   // range leaves the registry's /chosen/memory-map, so a second start finds no seed instead of freed memory.
+   uint32_t release = 0;
+   if (packedInput && !memory && PE_parse_boot_argn("boot-payload-release", &release, sizeof release) && release == 1 &&
+-      ml_static_mfree_prepare && bytes <= INT32_MAX && ml_static_mfree_prepare(ml_static_ptovirt(physical), bytes)) {
++      &ml_static_mfree_prepare && bytes <= INT32_MAX && ml_static_mfree_prepare(ml_static_ptovirt(physical), bytes)) {
+     IODTFreeLoaderInfo("PackedRAMDisk", reinterpret_cast<void *>(physical), static_cast<int>(bytes));
+     native_ram_block_seed_released = static_cast<uint32_t>(bytes >> 12);
+   }
 @@ -715,3 +715,19 @@
    *base=0;*bytes=0;memset(digest,0,32);
    return selectVolumeSeed(uuid,device,path,size,base,bytes,digest);
