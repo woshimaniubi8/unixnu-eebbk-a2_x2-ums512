@@ -103,7 +103,7 @@ title = "UniXNU BBK A2/X2"
 dram_size = "0x100000000"
 panic_screen = false
 timeout = 0
-kernel_args = ["debug=0x144", "serial=3", "amfi_get_out_of_my_way=1", "bbk-skip-rootauth=1", "sheng-gpu-addon=1"]
+kernel_args = ["debug=0x144", "serial=3", "amfi_get_out_of_my_way=1", "bbk-skip-rootauth=1", "sheng-gpu-addon=1", "gpu-addon=1"]
 # Static + System trust cache bundle built from this IPSW's StaticTrustCache and
 # Cryptex1,SystemTrustCache components (bundle format: <3I> header + modules).
 # Without it AMFI falls back to the amfid daemon port and rejects launchd/dyld.
