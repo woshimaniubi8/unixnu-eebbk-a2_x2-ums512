@@ -88,3 +88,8 @@ bbk-a2-amfi-matching-leak.patch
 bbk-a2-nvram-setproperty-trace.patch
 # BBK A2 bring-up: print the RamBlock-selected Data volume device and the cryptex union stage/status.
 bbk-a2-data-mount-trace.patch
+# BBK A2 bring-up: mockfs' 0x6D6F636B type number made vfs_init() set
+# maxvfstypenum to ~1.8e9, so libc's getvfsbyname("tmpfs") scanned the whole
+# range before mount_tmpfs could report a missing tmpfs.  Give mockfs the next
+# small type and start dynamic allocations after it.
+bbk-a2-vfs-small-typenums.patch

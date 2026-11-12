@@ -1,0 +1,16 @@
+diff --git a/bsd/vfs/vfs_conf.c b/bsd/vfs/vfs_conf.c
+--- a/bsd/vfs/vfs_conf.c
++++ b/bsd/vfs/vfs_conf.c
+@@ -109,10 +109,10 @@
+ 	FT_ROUTEFS = 21,
+ 	FT_NULLFS = 22,
+ 	FT_BINDFS = 23,
+-	FT_MOCKFS  = 0x6D6F636B
++	FT_MOCKFS  = 24
+ };
+ 
+-int fstypenumstart = FT_BINDFS + 1;
++int fstypenumstart = FT_MOCKFS + 1;
+ /*
+  * Set up the filesystem operations for vnodes.
+  */

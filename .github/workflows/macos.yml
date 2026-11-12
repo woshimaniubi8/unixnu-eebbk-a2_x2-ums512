@@ -137,6 +137,21 @@ jobs:
           # static link does not resolve them.  The device patch supplies the
           # volatile-disk stubs so the RAM Data seed can link.
           git -C UniXNU/drivers/RamBlock apply -p3 "$GITHUB_WORKSPACE/device/patches/unixnu/ramblock-link.patch"
+          # mount_tmpfs (phase-2 ephemeral data) needs tmpfs registered.  The
+          # stock kernelcache contains com.apple.filesystems.tmpfs, but the
+          # curated prelink root list omits it; add it before the kernel build.
+          python3 - <<'PY_TMPFS'
+          from pathlib import Path
+          path = Path("UniXNU/profiles/os/ipados-17.7.11-21H461/profile.toml")
+          text = path.read_text()
+          if '"com.apple.filesystems.tmpfs"' not in text:
+              needle = '"com.apple.filesystems.apfs",'
+              if needle not in text:
+                  raise SystemExit("profile roots: apfs anchor not found")
+              text = text.replace(needle, needle + ' "com.apple.filesystems.tmpfs",', 1)
+              path.write_text(text)
+          print("tmpfs added to prelink roots")
+          PY_TMPFS
           du -sh UniXNU
 
       - uses: actions/setup-python@v5
