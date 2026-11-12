@@ -137,7 +137,14 @@
 		e-apfs;
 
 		fstab {
-			os_env_type = <1>;
+			/*
+			 * The offline Data seed lives in its own RAM APFS container, while
+			 * Apple's get_data_volume() only searches the boot container for
+			 * APFS_VOL_ROLE_DATA.  Keep the non-main environment so that lookup
+			 * is a warning instead of the phase-2 "missing data volume" exit;
+			 * the ephemeral entry below still mounts the seed template as tmpfs.
+			 */
+			os_env_type = <0>;
 			max_fs_entries = <1>;
 
 			ephemeral-data-vol {
