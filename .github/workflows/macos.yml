@@ -263,6 +263,10 @@ jobs:
           KERNEL=$(ls out/*/*/*/kernel/kernel.macho | head -n 1)
           test -f "$KERNEL"
           python3 "$GITHUB_WORKSPACE/device/scripts/patch-bringup-kernel.py" "$KERNEL"
+          # The offline Data seed is a plain unencrypted APFS volume.  Role=Data
+          # makes APFS enforce the Data-volume encryption policy; NOP the exact
+          # role/flag check in the prelinked APFS kext for this bring-up image.
+          python3 "$GITHUB_WORKSPACE/device/scripts/patch-apfs-unencrypted-data.py" "$KERNEL"
 
       - name: Prepare the Data seed
         # The offline OS image has no writable Data volume: the OS window carries
