@@ -36,6 +36,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -72,8 +73,8 @@ def extract_os_dmg(tree):
     return path
 
 
-def extract_all_flash(tree, device):
-    """Extract Firmware/all_flash from the pinned IPSW through the range reader."""
+def open_ipsw(tree, device):
+    """Open the pinned IPSW through the range reader and return (Ipsw, board)."""
     sys.path.insert(0, str(tree / "scripts"))
     from unixnu.ipsw import Ipsw
 
@@ -89,7 +90,12 @@ def extract_all_flash(tree, device):
         def option_text(self, *names):
             return None
 
-    ipsw = Ipsw(Context())
+    return Ipsw(Context()), board
+
+
+def extract_all_flash(tree, device):
+    """Extract Firmware/all_flash from the pinned IPSW through the range reader."""
+    ipsw, _board = open_ipsw(tree, device)
     destination = Path(tempfile.mkdtemp(prefix="bbk-preboot-firmware-"))
     count = 0
     for name in ipsw.zip.namelist():
@@ -106,9 +112,59 @@ def extract_all_flash(tree, device):
     return destination
 
 
+def _der(data, at):
+    """Read one DER TLV; returns (tag, value, next_offset)."""
+    if at + 2 > len(data):
+        raise ValueError("truncated DER")
+    tag, size = data[at], data[at + 1]
+    at += 2
+    if size & 0x80:
+        count = size & 0x7F
+        if not 0 < count <= 4 or at + count > len(data):
+            raise ValueError("bad DER length")
+        size = int.from_bytes(data[at:at + count], "big")
+        at += count
+    if at + size > len(data):
+        raise ValueError("DER exceeds input")
+    return tag, data[at:at + size], at + size
+
+
+def im4p_payload(original, what):
+    """The payload field of an IM4P (the trust module itself)."""
+    tag, sequence, end = _der(original, 0)
+    fields, cursor = [], 0
+    while cursor < len(sequence):
+        kind, value, cursor = _der(sequence, cursor)
+        fields.append((kind, value))
+    if tag != 0x30 or end != len(original) or [kind for kind, _ in fields] != [0x16, 0x16, 0x16, 0x04] \
+            or fields[0][1] != b"IM4P":
+        raise SystemExit("not an IM4P trust cache: " + what)
+    return fields[3][1]
+
+
+def build_trust_bundle(tree, device, output):
+    """Build the static + System trust bundle the payload's AMFI path needs."""
+    ipsw, board = open_ipsw(tree, device)
+    static = im4p_payload(ipsw.read("StaticTrustCache"), "StaticTrustCache")
+    system = im4p_payload(ipsw.read("Cryptex1,SystemTrustCache"), "Cryptex1,SystemTrustCache")
+    for name, module in (("static", static), ("system", system)):
+        version = struct.unpack_from("<I", module, 0)[0]
+        count = struct.unpack_from("<I", module, 20)[0]
+        if version != 2 or len(module) != 24 + count * 24:
+            raise SystemExit(f"not a complete version-2 trust module: {name}")
+    bundle = struct.pack("<3I", 2, 12, 12 + len(static)) + static + system
+    digest = hashlib.sha256(bundle).hexdigest()
+    allowed = board.get("payload", {}).get("trust_cache_sha256", [])
+    if allowed and digest not in allowed:
+        raise SystemExit(f"trust bundle sha256 {digest} is not one of {allowed}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(bundle)
+    print(f"trust bundle: {output} ({len(bundle)} bytes, sha256 {digest})")
+    return output
+
+
 def probe_mount_fstab_schema(mount_root):
     """Print the device-tree fstab schema mount expects (diagnostic only)."""
-    import shutil
     binary = mount_root / "sbin/mount"
     print("== mount fstab schema probe ==")
     print("binary:", binary, "exists:", binary.exists())
@@ -200,6 +256,7 @@ def main():
                  "--boot-manifest-hash", preboot_hash], tree)
         finally:
             shutil.rmtree(firmware, ignore_errors=True)
+        build_trust_bundle(tree, device, output.parent / "trustcache.bundle")
     finally:
         if attached and not args.keep_mounted:
             run(["hdiutil", "detach", str(mountpoint)], tree, check=False)

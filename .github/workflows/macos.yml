@@ -291,7 +291,8 @@ jobs:
             echo "derivation run: payload build skipped (no Data seed)" | tee "$GITHUB_WORKSPACE/payload.log"
             exit 0
           fi
-          ./unixnu build payload --data-ramdisk build/owner-data-fixture/owner-data-32.cdr 2>&1 | tee "$GITHUB_WORKSPACE/payload.log"
+          ./unixnu build payload --data-ramdisk build/owner-data-fixture/owner-data-32.cdr \
+            --trust-cache build/owner-data-fixture/trustcache.bundle 2>&1 | tee "$GITHUB_WORKSPACE/payload.log"
 
       - name: Report artifacts
         if: always()
