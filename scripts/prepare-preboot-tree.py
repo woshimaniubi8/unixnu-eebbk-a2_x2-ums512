@@ -108,6 +108,18 @@ def patch_volume_role(image, volume_name, role):
     return patched
 
 
+def read_volume_group(image, volume_name):
+    """Return the APFS volume-group UUID recorded in the first superblock copy."""
+    data = image.read_bytes()
+    for at in range(0, len(data) - 0x400, 4096):
+        if data[at + 0x20:at + 0x24] != b"APSB":
+            continue
+        name = data[at + 0x2C0:at + 0x3C0].split(b"\0", 1)[0].decode("utf-8", "replace")
+        if name == volume_name:
+            return str(uuid.UUID(bytes=bytes(data[at + 0x3F0:at + 0x400])))
+    raise SystemExit(f"no APFS superblock named {volume_name!r} in {image}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -166,12 +178,14 @@ def main():
 
     patch_volume_uuid(args.seed, "OwnerData", args.data_uuid)
     patch_volume_role(args.seed, "OwnerData", 64)
+    group_id = read_volume_group(args.seed, "OwnerData")
 
     report = {
         "seed": str(args.seed),
         "seed_bytes": args.seed.stat().st_size,
         "data_volume_uuid": args.data_uuid,
         "data_volume_role": 64,
+        "data_volume_group_id": group_id,
         "boot_manifest_hash": args.boot_manifest_hash,
         "firmware_files": files,
         "firmware_bytes": total,
