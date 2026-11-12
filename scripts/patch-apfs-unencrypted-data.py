@@ -20,8 +20,6 @@ import struct
 import sys
 from pathlib import Path
 
-from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
-
 NOP = 0xD503201F
 
 
@@ -51,8 +49,6 @@ def main():
     output = Path(sys.argv[2]) if len(sys.argv) > 2 else None
     data = bytearray(kernel.read_bytes())
     sects = sections(data)
-    md = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
-    md.detail = False
 
     # Raw instruction pattern:
     #   ldrh w9, [x8, #0x3c4]  09 89 47 79
