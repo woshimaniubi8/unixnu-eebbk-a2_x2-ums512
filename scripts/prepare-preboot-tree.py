@@ -79,6 +79,35 @@ def patch_volume_uuid(image, volume_name, new_uuid):
     return patched
 
 
+def patch_volume_role(image, volume_name, role):
+    """Set apfs_role on every volume superblock copy and verify the read-back."""
+    data = bytearray(image.read_bytes())
+    patched = 0
+    for at in range(0, len(data) - 0x400, 4096):
+        if data[at + 0x20:at + 0x24] != b"APSB":
+            continue
+        name = data[at + 0x2C0:at + 0x3C0].split(b"\0", 1)[0].decode("utf-8", "replace")
+        if name != volume_name:
+            continue
+        struct.pack_into("<H", data, at + 0x3C4, role)
+        struct.pack_into("<Q", data, at, apfs_checksum(data[at:at + 4096]))
+        patched += 1
+    if not patched:
+        raise SystemExit(f"no APFS superblock named {volume_name!r} in {image}")
+    roles = []
+    for at in range(0, len(data) - 0x400, 4096):
+        if data[at + 0x20:at + 0x24] != b"APSB":
+            continue
+        name = data[at + 0x2C0:at + 0x3C0].split(b"\0", 1)[0].decode("utf-8", "replace")
+        if name == volume_name:
+            roles.append(struct.unpack_from("<H", data, at + 0x3C4)[0])
+    if not roles or any(value != role for value in roles):
+        raise SystemExit(f"{volume_name} role read-back failed: {roles}, expected {role}")
+    image.write_bytes(data)
+    print(f"patched {patched} {volume_name} superblock(s) to role {role}")
+    return patched
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -132,19 +161,17 @@ def main():
         print(f"copied {files} firmware file(s), {total} bytes to {target}")
         if files == 0:
             raise SystemExit("the firmware directory is empty")
-        # Role Data (64) keeps APFS role lookups (and launchd's data-volume
-        # probe) consistent with the UUID the kernel mounts.
-        run(["diskutil", "unmount", owner["dev-entry"]], check=False)
-        run(["diskutil", "apfs", "setrole", owner["dev-entry"], "Data"], check=False)
     finally:
         detach(whole)
 
     patch_volume_uuid(args.seed, "OwnerData", args.data_uuid)
+    patch_volume_role(args.seed, "OwnerData", 64)
 
     report = {
         "seed": str(args.seed),
         "seed_bytes": args.seed.stat().st_size,
         "data_volume_uuid": args.data_uuid,
+        "data_volume_role": 64,
         "boot_manifest_hash": args.boot_manifest_hash,
         "firmware_files": files,
         "firmware_bytes": total,
