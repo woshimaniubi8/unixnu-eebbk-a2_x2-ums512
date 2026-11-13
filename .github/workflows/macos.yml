@@ -152,6 +152,19 @@ jobs:
               path.write_text(text)
           print("tmpfs added to prelink roots")
           PY_TMPFS
+          # The watchdog ADT node carries timeout-sec; upstream's hardware
+          # serializer only copies its U32 whitelist, so add the key.
+          python3 - <<'PY_WDT'
+          from pathlib import Path
+          path = Path("UniXNU/scripts/unixnu/devicetree.py")
+          text = path.read_text()
+          if "'timeout-sec'" not in text:
+              needle = "'timebase-frequency'}"
+              if needle not in text:
+                  raise SystemExit("devicetree U32 anchor not found")
+              path.write_text(text.replace(needle, "'timebase-frequency', 'timeout-sec'}", 1))
+          print("watchdog timeout-sec added to the ADT U32 whitelist")
+          PY_WDT
           du -sh UniXNU
 
       - uses: actions/setup-python@v5

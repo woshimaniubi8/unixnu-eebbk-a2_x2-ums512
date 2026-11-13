@@ -125,6 +125,21 @@
 			interrupts = <0 10 4>;
 			status = "okay";
 		};
+
+		/* Unisoc UMS512 watchdog.  This is a real platform node, not an
+		 * Apple wdt,s5l8960x alias: NativeSprdWatchdog publishes the
+		 * IOWatchdog service from the sprd,wdt-r2p0-fiq compatible.  The
+		 * clock provider phandles from the original BSP tree are not
+		 * present in this reduced ADT, so the driver uses the known
+		 * enable/rtc_enable clock IDs directly. */
+		watchdog: watchdog@322f0000 {
+			compatible = "sprd,wdt-r2p0-fiq";
+			unixnu,adt-name = "watchdog";
+			reg = <0 0x322f0000 0 0x10000>;
+			timeout-sec = <12>;
+			clock-names = "enable", "rtc_enable";
+			status = "okay";
+		};
 	};
 
 	/*
