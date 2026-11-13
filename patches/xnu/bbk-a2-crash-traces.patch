@@ -13,19 +13,57 @@ index 6f93e15..156ee70 100644
  
  		proc_lock(p);
 diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
-index ff5296d..26f98af 100644
 --- a/osfmk/arm64/sleh.c
 +++ b/osfmk/arm64/sleh.c
-@@ -1236,6 +1236,12 @@ handle_breakpoint(arm_saved_state_t *state, uint32_t esr __unused)
+@@ -47,6 +47,8 @@
+ #include <mach/exception.h>
+ #include <mach/arm/traps.h>
+ #include <mach/vm_types.h>
++#include <libkern/libkern.h>
++#include <sys/proc.h>
+ #include <mach/machine/thread_status.h>
+ 
+ #include <machine/atomic.h>
+@@ -1236,6 +1238,27 @@
  	}
  #endif /* __has_feature(ptrauth_calls) */
  
-+	if (task_pid(current_task()) == 1) {
-+		printf("bbk exc: pid=1 esr=0x%08x pc=0x%016llx lr=0x%016llx sp=0x%016llx\n",
-+		    esr, (unsigned long long)get_saved_state_pc(state),
++	int bbk_pid = task_pid(current_task());
++	char bbk_name[64] = {0};
++
++	proc_selfname(bbk_name, (int)sizeof(bbk_name));
++
++	if (bbk_pid == 1 || strcmp(bbk_name, "watchdogd") == 0) {
++		printf("bbk exc: pid=%d name=%s esr=0x%08x pc=0x%016llx lr=0x%016llx sp=0x%016llx fp=0x%016llx\n",
++		    bbk_pid, bbk_name, esr,
++		    (unsigned long long)get_saved_state_pc(state),
 +		    (unsigned long long)get_saved_state_lr(state),
-+		    (unsigned long long)get_saved_state_sp(state));
++		    (unsigned long long)get_saved_state_sp(state),
++		    (unsigned long long)get_saved_state_fp(state));
++
++		printf("bbk exc-regs: pid=%d x0=0x%016llx x1=0x%016llx x19=0x%016llx x20=0x%016llx x21=0x%016llx\n",
++		    bbk_pid,
++		    (unsigned long long)get_saved_state_reg(state, 0),
++		    (unsigned long long)get_saved_state_reg(state, 1),
++		    (unsigned long long)get_saved_state_reg(state, 19),
++		    (unsigned long long)get_saved_state_reg(state, 20),
++		    (unsigned long long)get_saved_state_reg(state, 21));
 +	}
  	codes[1] = get_saved_state_pc(state);
  	exception_triage(exception, codes, numcodes);
  	__builtin_unreachable();
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -882,6 +882,11 @@
+ 		get_bsdthread_info(thread)->uu_flag &= ~UT_LP64;
+ 	}
+ 	task_set_mach_header_address(task, result->mach_header);
++	printf("bbk exec-image: pid=%d mh=0x%016llx entry=0x%016llx dyld_mh=0x%016llx\n",
++	    proc_getpid(p),
++	    (unsigned long long)result->mach_header,
++	    (unsigned long long)result->entry_point,
++	    (unsigned long long)result->dynlinker_mach_header);
+ 
+ 	ret = thread_state_initialize(thread);
+ 	if (ret != KERN_SUCCESS) {
