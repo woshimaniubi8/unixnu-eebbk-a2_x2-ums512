@@ -19,8 +19,8 @@ diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
  #include <mach/exception.h>
  #include <mach/arm/traps.h>
  #include <mach/vm_types.h>
-+#include <libkern/libkern.h>
-+#include <sys/proc.h>
++extern void proc_selfname(char *buf, int size);
++extern int strcmp(const char *s1, const char *s2);
  #include <mach/machine/thread_status.h>
  
  #include <machine/atomic.h>
