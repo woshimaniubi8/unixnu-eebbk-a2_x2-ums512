@@ -1,0 +1,49 @@
+diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -510,6 +510,37 @@
+ 	native_apfs_probe_checkpoint();
+ }
+ 
++volatile int native_tmpfs_load_status = -1;
++volatile uint32_t native_tmpfs_registered = 0;
++volatile int native_tmpfs_typenum = 0;
++volatile uintptr_t native_tmpfs_vfsops = 0;
++
++__attribute__((noinline)) void
++native_tmpfs_probe_checkpoint(void)
++{
++	__asm__ volatile("" ::: "memory");
++}
++
++static void
++native_tmpfs_load_probe(void)
++{
++	native_tmpfs_load_status = OSKextLoadKextWithIdentifier("com.apple.filesystems.tmpfs");
++	mount_list_lock();
++	for (struct vfstable *entry = vfsconf; entry; entry = entry->vfc_next) {
++		if (!strncmp(entry->vfc_name, "tmpfs", MFSNAMELEN)) {
++			native_tmpfs_registered = 1;
++			native_tmpfs_typenum = entry->vfc_typenum;
++			native_tmpfs_vfsops = (uintptr_t)entry->vfc_vfsops;
++			break;
++		}
++	}
++	mount_list_unlock();
++	printf("bbk tmpfs: load status=%d registered=%u typenum=%d vfsops=%p\n",
++	       native_tmpfs_load_status, native_tmpfs_registered,
++	       native_tmpfs_typenum, (void *)native_tmpfs_vfsops);
++	native_tmpfs_probe_checkpoint();
++}
++
+ volatile int native_iogpu_load_status = -1;
+ 
+ __attribute__((noinline)) void
+@@ -784,6 +815,7 @@
+ 	vfsinit();
+ #if DEVELOPMENT || DEBUG
+ 	native_apfs_load_probe();
++	native_tmpfs_load_probe();
+ 	native_mobile_graphics_load_probe();
+ 	native_iogpu_load_probe();
+ #if defined(XNU_ADRENO_FIRMWARE_PROBE) && XNU_ADRENO_FIRMWARE_PROBE

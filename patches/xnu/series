@@ -93,3 +93,8 @@ bbk-a2-data-mount-trace.patch
 # range before mount_tmpfs could report a missing tmpfs.  Give mockfs the next
 # small type and start dynamic allocations after it.
 bbk-a2-vfs-small-typenums.patch
+# BBK A2 bring-up: the tmpfs kext is in the prelink image but has no IOKit
+# personality, so it is not started automatically.  Load it through the normal
+# OSKext API after vfsinit(), then read back vfsconf and print load/registration
+# so mount_tmpfs' getvfsbyname("tmpfs") can succeed.
+bbk-a2-tmpfs-load-probe.patch
