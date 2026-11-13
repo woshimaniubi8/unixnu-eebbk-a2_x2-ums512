@@ -135,7 +135,10 @@
 		watchdog: watchdog@322f0000 {
 			compatible = "sprd,wdt-r2p0-fiq";
 			unixnu,adt-name = "watchdog";
-			reg = <0 0x322f0000 0 0x10000>;
+			reg = <0 0x322f0000 0 0x10000>,
+			      <0 0x327d0000 0 0x10000>;
+			reg-names = "watchdog", "aon-apb";
+			interrupts = <0 0x4f 4>;
 			timeout-sec = <12>;
 			clock-names = "enable", "rtc_enable";
 			status = "okay";

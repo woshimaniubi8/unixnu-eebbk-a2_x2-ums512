@@ -188,6 +188,8 @@ jobs:
           set -eux
           printf '\n' >> UniXNU/components.toml
           cat device/components/SdhciBlock.toml >> UniXNU/components.toml
+          printf '\n' >> UniXNU/components.toml
+          cat device/components/SprdWatchdog.toml >> UniXNU/components.toml
           python3 - <<'PY'
           from pathlib import Path
           import tomllib

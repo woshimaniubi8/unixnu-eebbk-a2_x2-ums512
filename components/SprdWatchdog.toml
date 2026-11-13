@@ -1,0 +1,21 @@
+[[component]]
+# Device-owned component: the sources live in this repository at
+# drivers/SprdWatchdog/ and the macOS workflow appends this entry to the
+# UniXNU components.toml checkout.  The driver subclasses the original
+# prelinked IOWatchdog so watchdogd's IOServiceMatching("IOWatchdog") resolves
+# to a real IOWatchdog instance backed by the Unisoc UMS512 watchdog.
+id = "SprdWatchdog"
+kind = "driver"
+function = "Unisoc UMS512 watchdog backend and IOWatchdog service"
+scope = "watchdog"
+hardware = ["Unisoc UMS512 WDT 0x322f0000", "Unisoc AON syscon 0x327d0000"]
+os_abi = ["ipados-17.7.11-21H461"]
+board_dependencies = []
+verified_devices = []
+dependencies = []
+source_files = ["SprdWatchdog.cpp"]
+runtime_identifiers = ["NativeSprdWatchdog", "SprdWatchdog.cpp"]
+build_stage = "kernel"
+build = ["build-arm-driver.py", "SprdWatchdog"]
+outputs = ["build/sprdwatchdog/libSprdWatchdog.a"]
+legacy_name = "NativeSprdWatchdog"

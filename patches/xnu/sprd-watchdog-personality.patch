@@ -1,0 +1,15 @@
+diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
+--- a/iokit/KernelConfigTables.cpp
++++ b/iokit/KernelConfigTables.cpp
+@@ -112,4 +112,11 @@
+     "     'IOProbeScore'    = 1000:32;"
+     "   }"
+ #endif
++#if defined(XNU_NATIVE_SPRD_WATCHDOG) && XNU_NATIVE_SPRD_WATCHDOG
++    "   ,{"
++    "     'IOClass'         = NativeSprdWatchdog;"
++    "     'IOProviderClass' = IOPlatformDevice;"
++    "     'IOProbeScore'    = 1000:32;"
++    "   }"
++#endif
+     ")";

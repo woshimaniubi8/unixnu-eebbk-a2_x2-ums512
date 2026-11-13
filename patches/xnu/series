@@ -15,6 +15,11 @@ xnu-10063.141.1-sparse-index.patch
 # -DXNU_NATIVE_SDHCI_BLOCK=1 through CONFIG_XNU_EXTRA_CFLAGS.
 sdhci-block-personality.patch
 
+# NativeSprdWatchdog publishes the IOWatchdog service from the Unisoc
+# sprd,wdt-r2p0-fiq platform node.  The personality matches IOPlatformDevice
+# and probe() checks the full compatible list.
+sprd-watchdog-personality.patch
+
 # BBK A2 bring-up: skip the root hash authentication panic when the boot
 # argument bbk-skip-rootauth=1 is set (board.toml [payload] kernel_args).  The
 # patch keeps the original panic when the argument is absent, so the sealed-root
