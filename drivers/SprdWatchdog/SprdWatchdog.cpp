@@ -21,6 +21,7 @@
 #include <libkern/c++/OSData.h>
 #include <libkern/c++/OSDictionary.h>
 #include <libkern/c++/OSMetaClass.h>
+#include <libkern/OSKextLib.h>
 #include <libkern/libkern.h>
 
 // Verified against the M57 kernel; the final M58 kernel may shift the
@@ -60,6 +61,7 @@ public:
 	void backendStart();
 	void backendStop();
 	void backendService();
+	void releaseBackend();
 
 private:
 	IOMemoryMap *wdtMap = nullptr;
@@ -69,6 +71,8 @@ private:
 	IOService *watchdogService = nullptr;
 	uint32_t serviceCount = 0;
 	bool clocksOn = false;
+	bool enabledGate = false;
+	bool enabledRtc = false;
 };
 
 OSDefineMetaClassAndStructors(NativeSprdWatchdog, IOService)
@@ -158,18 +162,56 @@ NativeSprdWatchdog::start(IOService *provider)
 	wdt = reinterpret_cast<volatile uint32_t *>(wdtMap->getVirtualAddress());
 	aon = reinterpret_cast<volatile uint32_t *>(aonMap->getVirtualAddress());
 
-	aon[0x1008 / 4] = (1u << 30);
-	aon[0x1018 / 4] = (1u << 8);
+	uint32_t gateBefore = aon[0x8 / 4];
+	uint32_t rtcBefore = aon[0x18 / 4];
+	if ((gateBefore & (1u << 30)) == 0) {
+		aon[0x1008 / 4] = (1u << 30);
+		enabledGate = true;
+	}
+	if ((rtcBefore & (1u << 8)) == 0) {
+		aon[0x1018 / 4] = (1u << 8);
+		enabledRtc = true;
+	}
 	clocksOn = true;
+	uint64_t loaded = (uint64_t)wdt[0] | ((uint64_t)wdt[1] << 32);
 	IOLog("watchdog: provider=%s compatible=sprd,wdt-r2p0-fiq "
-	    "wdt=%p aon=%p ctrl=0x%08x load=0x%08x gate=0x%08x rtc=0x%08x\n",
+	    "wdt=%p aon=%p ctrl=0x%08x load=0x%016llx int_raw=0x%08x "
+	    "gate=0x%08x rtc=0x%08x\n",
 	    provider->getName(), (void *)wdt, (void *)aon,
-	    wdt[0], wdt[1], aon[0x8 / 4], aon[0x18 / 4]);
+	    wdt[2], loaded, wdt[3], aon[0x8 / 4], aon[0x18 / 4]);
+
+	OSReturn loadStatus = OSKextLoadKextWithIdentifier(
+	    "com.apple.driver.AppleARMWatchdogTimer");
+	IOLog("watchdog: original kext load status=0x%x\n",
+	    static_cast<unsigned>(loadStatus));
+	if (loadStatus != kOSReturnSuccess) {
+		releaseBackend();
+		return false;
+	}
+	OSMetaClass *baseMeta = nullptr;
+	const OSSymbol *baseName = OSSymbol::withCString("IOWatchdog");
+	if (baseName != nullptr) {
+		baseMeta = const_cast<OSMetaClass *>(
+		    OSMetaClass::copyMetaClassWithName(baseName));
+		baseName->release();
+	}
+	IOLog("watchdog: IOWatchdog metaclass=%p classSize=%u\n",
+	    baseMeta, baseMeta != nullptr ? baseMeta->getClassSize() : 0);
+	if (baseMeta != nullptr) {
+		baseMeta->release();
+	}
 
 	IOService *wd = static_cast<IOService *>(
 	    OSMetaClass::allocClassWithName("AppleARMWatchdogTimer"));
 	if (wd == nullptr) {
 		IOLog("watchdog: AppleARMWatchdogTimer allocation failed\n");
+		releaseBackend();
+		return false;
+	}
+	if (!wd->init(nullptr)) {
+		IOLog("watchdog: IOService::init(nullptr) failed\n");
+		wd->release();
+		releaseBackend();
 		return false;
 	}
 	memcpy(gPatchedVtable, *reinterpret_cast<void **>(wd), kWatchdogVtableBytes);
@@ -181,6 +223,7 @@ NativeSprdWatchdog::start(IOService *provider)
 	if (!wd->attach(provider)) {
 		IOLog("watchdog: attach failed\n");
 		wd->release();
+		releaseBackend();
 		return false;
 	}
 	gWatchdog = this;
@@ -191,6 +234,7 @@ NativeSprdWatchdog::start(IOService *provider)
 		gWatchdog = nullptr;
 		wd->detach(provider);
 		wd->release();
+		releaseBackend();
 		return false;
 	}
 	InitFn init = reinterpret_cast<InitFn>(initAddress);
@@ -200,11 +244,36 @@ NativeSprdWatchdog::start(IOService *provider)
 		gWatchdog = nullptr;
 		wd->detach(provider);
 		wd->release();
+		releaseBackend();
 		return false;
 	}
 	watchdogService = wd;
 	IOLog("watchdog: service published\n");
 	return true;
+}
+
+void
+NativeSprdWatchdog::releaseBackend()
+{
+	if (clocksOn && aon != nullptr) {
+		if (enabledGate) {
+			aon[0x2008 / 4] = (1u << 30);
+		}
+		if (enabledRtc) {
+			aon[0x2018 / 4] = (1u << 8);
+		}
+		clocksOn = false;
+		enabledGate = false;
+		enabledRtc = false;
+	}
+	if (wdtMap != nullptr) {
+		wdtMap->release();
+		wdtMap = nullptr;
+	}
+	if (aonMap != nullptr) {
+		aonMap->release();
+		aonMap = nullptr;
+	}
 }
 
 void
@@ -216,40 +285,35 @@ NativeSprdWatchdog::stop(IOService *provider)
 		watchdogService = nullptr;
 	}
 	gWatchdog = nullptr;
-	if (clocksOn && aon != nullptr) {
-		aon[0x1000 / 4] = (1u << 30);
-		aon[0x1010 / 4] = (1u << 8);
-		clocksOn = false;
-	}
-	if (wdtMap != nullptr) {
-		wdtMap->release();
-		wdtMap = nullptr;
-	}
-	if (aonMap != nullptr) {
-		aonMap->release();
-		aonMap = nullptr;
-	}
+	releaseBackend();
 	IOService::stop(provider);
 }
 
 void
 NativeSprdWatchdog::backendStart()
 {
-	IOLog("watchdog: hwStart\n");
+	if (wdt != nullptr) {
+		uint64_t loaded = (uint64_t)wdt[0] | ((uint64_t)wdt[1] << 32);
+		IOLog("watchdog: hwStart ctrl=0x%08x load=0x%016llx int_raw=0x%08x\n",
+		    wdt[2], loaded, wdt[3]);
+	}
 }
 
 void
 NativeSprdWatchdog::backendStop()
 {
-	IOLog("watchdog: hwStop\n");
+	if (wdt != nullptr) {
+		IOLog("watchdog: hwStop ctrl=0x%08x int_raw=0x%08x\n",
+		    wdt[2], wdt[3]);
+	}
 }
 
 void
 NativeSprdWatchdog::backendService()
 {
 	serviceCount++;
-	if ((serviceCount & 0x1f) == 0) {
-		IOLog("watchdog: hwService count=%u ctrl=0x%08x\n",
-		    serviceCount, wdt != nullptr ? wdt[0] : 0);
+	if (wdt != nullptr && (serviceCount & 0x1f) == 0) {
+		IOLog("watchdog: hwService count=%u ctrl=0x%08x int_raw=0x%08x\n",
+		    serviceCount, wdt[2], wdt[3]);
 	}
 }
