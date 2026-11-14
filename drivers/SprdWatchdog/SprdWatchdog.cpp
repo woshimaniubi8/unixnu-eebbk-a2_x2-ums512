@@ -123,7 +123,7 @@ hasCompatible(IOService *provider, const char *want)
 	while (offset < length) {
 		const char *entry = base + offset;
 		unsigned int remaining = length - offset;
-		unsigned int size = strnlen(entry, remaining);
+		unsigned int size = (unsigned int)strnlen(entry, remaining);
 		if (size == remaining) {
 			break;
 		}
@@ -189,18 +189,15 @@ NativeSprdWatchdog::start(IOService *provider)
 		releaseBackend();
 		return false;
 	}
-	OSMetaClass *baseMeta = nullptr;
+	const OSMetaClass *baseMeta = nullptr;
 	const OSSymbol *baseName = OSSymbol::withCString("IOWatchdog");
 	if (baseName != nullptr) {
-		baseMeta = const_cast<OSMetaClass *>(
-		    OSMetaClass::copyMetaClassWithName(baseName));
+		baseMeta = OSMetaClass::getMetaClassWithName(baseName);
 		baseName->release();
 	}
 	IOLog("watchdog: IOWatchdog metaclass=%p classSize=%u\n",
-	    baseMeta, baseMeta != nullptr ? baseMeta->getClassSize() : 0);
-	if (baseMeta != nullptr) {
-		baseMeta->release();
-	}
+	    (const void *)baseMeta,
+	    baseMeta != nullptr ? baseMeta->getClassSize() : 0);
 
 	IOService *wd = static_cast<IOService *>(
 	    OSMetaClass::allocClassWithName("AppleARMWatchdogTimer"));
