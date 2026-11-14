@@ -174,12 +174,13 @@ NativeSprdWatchdog::start(IOService *provider)
 		enabledRtc = true;
 	}
 	clocksOn = true;
-	uint64_t loaded = (uint64_t)wdt[0] | ((uint64_t)wdt[1] << 32);
+	uint32_t loaded = (wdt[0] & 0xffffu) | ((wdt[1] & 0xffffu) << 16);
+	uint32_t intRaw = wdt[0x10 / 4];
 	IOLog("watchdog: provider=%s compatible=sprd,wdt-r2p0-fiq "
-	    "wdt=%p aon=%p ctrl=0x%08x load=0x%016llx int_raw=0x%08x "
-	    "gate=0x%08x rtc=0x%08x\n",
+	    "wdt=%p aon=%p ctrl=0x%08x load=0x%08x int_raw=0x%08x "
+	    "int_clr=0x%08x gate=0x%08x rtc=0x%08x\n",
 	    provider->getName(), (void *)wdt, (void *)aon,
-	    wdt[2], loaded, wdt[3], aon[0x8 / 4], aon[0x18 / 4]);
+	    wdt[2], loaded, intRaw, wdt[3], aon[0x8 / 4], aon[0x18 / 4]);
 
 	OSReturn loadStatus = OSKextLoadKextWithIdentifier(
 	    "com.apple.driver.AppleARMWatchdogTimer");
@@ -291,9 +292,9 @@ void
 NativeSprdWatchdog::backendStart()
 {
 	if (wdt != nullptr) {
-		uint64_t loaded = (uint64_t)wdt[0] | ((uint64_t)wdt[1] << 32);
-		IOLog("watchdog: hwStart ctrl=0x%08x load=0x%016llx int_raw=0x%08x\n",
-		    wdt[2], loaded, wdt[3]);
+		uint32_t loaded = (wdt[0] & 0xffffu) | ((wdt[1] & 0xffffu) << 16);
+		IOLog("watchdog: hwStart ctrl=0x%08x load=0x%08x int_raw=0x%08x int_clr=0x%08x\n",
+		    wdt[2], loaded, wdt[4], wdt[3]);
 	}
 }
 
@@ -301,8 +302,8 @@ void
 NativeSprdWatchdog::backendStop()
 {
 	if (wdt != nullptr) {
-		IOLog("watchdog: hwStop ctrl=0x%08x int_raw=0x%08x\n",
-		    wdt[2], wdt[3]);
+		IOLog("watchdog: hwStop ctrl=0x%08x int_raw=0x%08x int_clr=0x%08x\n",
+		    wdt[2], wdt[4], wdt[3]);
 	}
 }
 
@@ -311,7 +312,7 @@ NativeSprdWatchdog::backendService()
 {
 	serviceCount++;
 	if (wdt != nullptr && (serviceCount & 0x1f) == 0) {
-		IOLog("watchdog: hwService count=%u ctrl=0x%08x int_raw=0x%08x\n",
-		    serviceCount, wdt[2], wdt[3]);
+		IOLog("watchdog: hwService count=%u ctrl=0x%08x int_raw=0x%08x int_clr=0x%08x\n",
+		    serviceCount, wdt[2], wdt[4], wdt[3]);
 	}
 }
