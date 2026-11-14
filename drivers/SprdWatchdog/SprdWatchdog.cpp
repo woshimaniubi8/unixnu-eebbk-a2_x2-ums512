@@ -21,6 +21,7 @@
 #include <libkern/c++/OSData.h>
 #include <libkern/c++/OSDictionary.h>
 #include <libkern/c++/OSMetaClass.h>
+#include <libkern/c++/OSSymbol.h>
 #include <libkern/OSKextLib.h>
 #include <libkern/libkern.h>
 
