@@ -17,7 +17,6 @@
 
 #include <IOKit/IOService.h>
 #include <IOKit/IOUserClient.h>
-#include <IOKit/IOMemoryMap.h>
 #include <IOKit/IODeviceMemory.h>
 #include <IOKit/IOPlatformExpert.h>
 #include <libkern/c++/OSData.h>
