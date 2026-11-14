@@ -28,8 +28,10 @@ def check(path, tools=None):
     vtable = struct.unpack('<219Q', read(0xfffffff005d05e10, 219*8))
     assert vtable[21] == 0xfffffff004aeb0d8
     assert vtable[86] == 0xfffffff004aeb150
+    assert vtable[178] == 0xfffffff004aed15c # getProduct, the per-service daemon identity
     assert vtable[198] == 0xfffffff004aee85c
     assert vtable[201] == 0xfffffff004aeeba0
+    assert read(0xfffffff005d05e10+219*8,24) == bytes(24)
     assert words(vtable[168], 2) == (0x52800020,0xd65f03c0) # handleStart returns true
     return {'kernel_sha256':hashlib.sha256(d).hexdigest(), 'iohid_version':'2031.120.4',
             'slots':219, 'class_bytes':200, 'copy_event_slot':201,
