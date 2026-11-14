@@ -63,6 +63,7 @@ OSObject *makeEvent(IOService *self, uint32_t type, OSObject *, uint32_t)
 }
 uint32_t usagePage(IOService *) { return 0x20; }
 uint32_t usage(IOService *) { return 0x31; }
+OSObject *product(IOService *self) { return self->getProperty("Product"); }
 bool compatible(IOService *p)
 {
     auto *d = p ? OSDynamicCast(OSData, p->getProperty("compatible")) : nullptr;
@@ -150,6 +151,7 @@ bool NativeSprdThermal::prepareHardware()
         if (r[0]&(1u<<13)) { IOLog("bbk thm: SET_RDY timeout group=%u\n",g); return false; }
         r[0] |= (1u<<1)|(1u<<12);
         r[1] |= (1u<<26);
+        r[0x14/4] = 0x1ffffff; // Vendor SET_RDY: acknowledge latched status before THM_EN.
         r[0] |= 1;
         spin=0;
         while ((r[0x54/4]&1) && spin++<60) IOSleep(10);
@@ -166,9 +168,11 @@ bool NativeSprdThermal::publishSensors()
     }
     // Guard exact ordinary-arm64 entry points before using the target ABI.
     const uint32_t signature[] = {0xa9bc5ff8,0xa90157f6,0xa9024ff4,0xa9037bfd};
-    if (memcmp((const void *)kTemperatureEvent,signature,sizeof(signature))) {
-        IOLog("bbk thm: original temperature factory ABI mismatch\n"); return false;
-    }
+    const volatile uint32_t *factoryWords = reinterpret_cast<const volatile uint32_t *>(kTemperatureEvent);
+    for (unsigned i=0;i<sizeof(signature)/sizeof(signature[0]);i++)
+        if (factoryWords[i]!=signature[i]) {
+            IOLog("bbk thm: original temperature factory ABI mismatch\n"); return false;
+        }
     const OSSymbol *name=OSSymbol::withCString("IOHIDEventService");
     const OSMetaClass *meta=name ? OSMetaClass::getMetaClassWithName(name) : nullptr;
     if(name) name->release();
@@ -188,10 +192,12 @@ bool NativeSprdThermal::publishSensors()
         auto *s=static_cast<IOService *>(OSMetaClass::allocClassWithName("IOHIDEventDriver"));
         if(!s) { IOLog("bbk thm: HID allocation failed id=%u\n",i); return false; }
         void **original=*reinterpret_cast<void ***>(s);
-        memcpy(vtables[i],(const void *)kHidVtable,sizeof(vtables[i]));
+        const volatile uintptr_t *baseSlots = reinterpret_cast<const volatile uintptr_t *>(kHidVtable);
+        for(unsigned slot=0;slot<kHidSlots;slot++) vtables[i][slot]=reinterpret_cast<void *>(baseSlots[slot]);
         // Preserve allocation class identity and its sized delete routines.
         vtables[i][0]=original[0]; vtables[i][1]=original[1]; vtables[i][7]=original[7];
         vtables[i][199]=(void *)&usagePage; vtables[i][200]=(void *)&usage;
+        vtables[i][178]=(void *)&product;
         vtables[i][kCopyEventSlot]=(void *)&makeEvent;
         *reinterpret_cast<void ***>(s)=vtables[i]; services[i]=s;
         using Init=bool (*)(IOService *,OSDictionary *);
