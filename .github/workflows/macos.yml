@@ -388,7 +388,7 @@ jobs:
       - name: Upload payload image (Apple-derived)
         # boolean inputs compare as booleans, not strings; hashFiles is not
         # needed (if-no-files-found reports a missing payload instead).
-        if: ${{ inputs.upload_images }}
+        if: ${{ always() && inputs.upload_images }}
         uses: actions/upload-artifact@v4
         with:
           name: payload
@@ -396,5 +396,8 @@ jobs:
             UniXNU/out/*/*/*/payload/payload.img
             UniXNU/out/*/*/*/payload/payload.json
             UniXNU/out/*/*/*/kernel/kernel.macho
+            UniXNU/build/owner-data-fixture/owner-data-32.cdr
+            UniXNU/build/owner-data-fixture/trustcache.bundle
+            UniXNU/build/owner-data-fixture/J120AP-Info.plist
           if-no-files-found: error
           retention-days: 3

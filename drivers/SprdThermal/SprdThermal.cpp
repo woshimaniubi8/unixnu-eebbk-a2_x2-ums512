@@ -149,7 +149,9 @@ bool NativeSprdThermal::prepareHardware()
         unsigned spin=0;
         while ((r[0]&(1u<<13)) && spin++<70) IODelay(10);
         if (r[0]&(1u<<13)) { IOLog("bbk thm: SET_RDY timeout group=%u\n",g); return false; }
-        r[0] |= (1u<<1)|(1u<<12);
+        r[0] |= (1u<<1);
+        __asm__ volatile("dsb sy" ::: "memory");
+        r[0] |= (1u<<12);
         r[1] |= (1u<<26);
         r[0x14/4] = 0x1ffffff; // Vendor SET_RDY: acknowledge latched status before THM_EN.
         r[0] |= 1;
@@ -220,7 +222,13 @@ bool NativeSprdThermal::start(IOService *p)
     instance=this;
     sampleLock=IOLockAlloc(); loop=IOWorkLoop::workLoop();
     if(!sampleLock || !loop) { stop(p); return false; }
-    for(unsigned i=0;i<3;i++) { maps[i]=p->mapDeviceMemoryWithIndex(i); if(!maps[i]) { stop(p); return false; } }
+    for(unsigned i=0;i<2;i++) { maps[i]=p->mapDeviceMemoryWithIndex(i); if(!maps[i]) { stop(p); return false; } }
+    // SRAM is not on arm-io's nonzero peripheral window. Map its stock physical
+    // page separately rather than changing the bus ranges or relocating it.
+    IODeviceMemory *cache=IODeviceMemory::withRange(0x15000,0x2000);
+    maps[2]=cache ? cache->map() : nullptr;
+    OSSafeReleaseNULL(cache);
+    if(!maps[2]) { IOLog("bbk thm: efuse SRAM map failed\n"); stop(p); return false; }
     auto base=maps[0]->getVirtualAddress();
     for(unsigned g=0;g<3;g++) registers[g]=(volatile uint32_t *)(base+g*0x10000);
     aon=(volatile uint32_t *)maps[1]->getVirtualAddress();

@@ -135,11 +135,11 @@
 		thermal: thermal@32200000 {
 			compatible = "eebbk,ums512-thermal";
 			unixnu,adt-name = "thermal";
-			/* Stock controllers 0/1/2, AON gates, and read-only efuse SRAM. */
+			/* Stock controllers 0/1/2 and AON gates. Low efuse SRAM is
+			 * mapped separately by the board driver, outside arm-io. */
 			reg = <0 0x32200000 0 0x30000>,
-			      <0 0x327d0000 0 0x3000>,
-			      <0 0x00015000 0 0x2000>;
-			reg-names = "thermal", "aon-apb", "efuse-cache";
+			      <0 0x327d0000 0 0x3000>;
+			reg-names = "thermal", "aon-apb";
 			status = "okay";
 		};
 
