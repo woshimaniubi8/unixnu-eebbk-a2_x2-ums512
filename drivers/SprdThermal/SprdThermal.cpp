@@ -165,8 +165,11 @@ bool NativeSprdThermal::prepareHardware()
 
 bool NativeSprdThermal::publishSensors()
 {
-    if (OSKextLoadKextWithIdentifier("com.apple.iokit.IOHIDEventDriver") != kOSReturnSuccess) {
-        IOLog("bbk thm: IOHIDEventDriver load failed\n"); return false;
+    // IOHIDEventDriver is codeless in 21H461. OSKext::load returns success for
+    // it before resolving executable dependencies; that does not register the
+    // base/concrete metaclasses. Their actual initializer belongs to IOHIDFamily.
+    if (OSKextLoadKextWithIdentifier("com.apple.iokit.IOHIDFamily") != kOSReturnSuccess) {
+        IOLog("bbk thm: IOHIDFamily load failed\n"); return false;
     }
     // Guard exact ordinary-arm64 entry points before using the target ABI.
     const uint32_t signature[] = {0xa9bc5ff8,0xa90157f6,0xa9024ff4,0xa9037bfd};

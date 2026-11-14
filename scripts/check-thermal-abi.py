@@ -20,7 +20,13 @@ def check(path, tools=None):
     entries = unserialize_xml(read(info['va'], info['filesize']))['_PrelinkInfoDictionary']
     hid = next(e for e in entries if e['CFBundleIdentifier'] == 'com.apple.iokit.IOHIDFamily')
     assert 'IOHIDFamily-2031.120.4' in hid['NSHumanReadableCopyright']
-    assert any(e['CFBundleIdentifier'] == 'com.apple.iokit.IOHIDEventDriver' for e in entries)
+    assert hid.get('CFBundleExecutable') == 'IOHIDFamily'
+    assert hid.get('_PrelinkExecutableLoadAddr') and hid.get('_PrelinkKmodInfo')
+    child = next(e for e in entries if e['CFBundleIdentifier'] == 'com.apple.iokit.IOHIDEventDriver')
+    assert not child.get('CFBundleExecutable') and not child.get('_PrelinkExecutableLoadAddr')
+    # Verify sizeof in the original metaclass constructors, not a guessed extent.
+    assert words(0xfffffff004aeafd4, 1)[0] == 0x52801903 # mov w3,#0xc8: IOHIDEventService
+    assert words(0xfffffff004af0990, 1)[0] == 0x52802103 # mov w3,#0x108: IOHIDEventDriver
     assert words(0xfffffff004afbdc8, 4) == (0xa9bc5ff8,0xa90157f6,0xa9024ff4,0xa9037bfd)
     # This factory makes a type-15 / 20-byte event and stores the actual IOFixed.
     assert words(0xfffffff004afbe34, 1)[0] == 0x528001e9

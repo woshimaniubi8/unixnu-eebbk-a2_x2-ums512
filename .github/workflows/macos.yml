@@ -304,6 +304,7 @@ jobs:
           python3 "$GITHUB_WORKSPACE/device/scripts/test-native-cpu-personality.py" "$KERNEL"
           python3 "$GITHUB_WORKSPACE/device/scripts/patch-native-cpu-personality.py" "$KERNEL"
           python3 "$GITHUB_WORKSPACE/device/scripts/check-thermal-abi.py" "$KERNEL"
+          python3 "$GITHUB_WORKSPACE/device/scripts/patch-hid-family-load.py" "$KERNEL" --prelink-tools kits/XnuPrelink
 
       - name: Prepare the Data seed
         # The offline OS image has no writable Data volume: the OS window carries

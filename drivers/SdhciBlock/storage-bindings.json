@@ -1,6 +1,6 @@
 {
   "kernelcache_sha256": "f18b4df865405f2a287b84977d7aca745e056d656d9fc9df1662970ce2969de7",
-  "prelinked_kernel_sha256": "2a25553af90fd6a1af2a720ca5f7d4b1c31adf92c5dd93bb68778a86f96b0082",
+  "prelinked_kernel_sha256": "502a7517ca3c416fed72de1978f25d06f7e4dcdd55007743647a84c4d208dbec",
   "prelink_slide": "-0x1000000",
   "provenance": "re-derived from a kernel that already contains this driver, so the kernel-bound dispatch slots are correct for this driver's link layout (the first table came from a prelink without the driver); pinned by the kernelcache sha256",
   "vtable": "0xfffffff005cb44c0",
@@ -376,5 +376,6 @@
     "0xfffffff00496f068",
     "0xfffffff00496f080",
     "0xfffffff00496f08c"
-  ]
+  ],
+  "postlink_fix": "M68: NativeSprdThermal loads executable IOHIDFamily; all dispatch entries and code addresses unchanged"
 }
