@@ -190,6 +190,8 @@ jobs:
           cat device/components/SdhciBlock.toml >> UniXNU/components.toml
           printf '\n' >> UniXNU/components.toml
           cat device/components/SprdWatchdog.toml >> UniXNU/components.toml
+          printf '\n' >> UniXNU/components.toml
+          cat device/components/SprdThermal.toml >> UniXNU/components.toml
           python3 - <<'PY'
           from pathlib import Path
           import tomllib
@@ -297,6 +299,11 @@ jobs:
           # makes APFS enforce the Data-volume encryption policy; NOP the exact
           # role/flag check in the prelinked APFS kext for this bring-up image.
           python3 "$GITHUB_WORKSPACE/device/scripts/patch-apfs-unencrypted-data.py" "$KERNEL"
+          # Native ArmCpu owns this non-Apple platform. The original CPU
+          # personality would wait for an Apple-only boot-CPU resource.
+          python3 "$GITHUB_WORKSPACE/device/scripts/test-native-cpu-personality.py" "$KERNEL"
+          python3 "$GITHUB_WORKSPACE/device/scripts/patch-native-cpu-personality.py" "$KERNEL"
+          python3 "$GITHUB_WORKSPACE/device/scripts/check-thermal-abi.py" "$KERNEL"
 
       - name: Prepare the Data seed
         # The offline OS image has no writable Data volume: the OS window carries
@@ -310,6 +317,7 @@ jobs:
         working-directory: UniXNU
         run: |
           set -euxo pipefail
+          python3 "$GITHUB_WORKSPACE/device/scripts/test-trust-bundle.py"
           python3 "$GITHUB_WORKSPACE/device/scripts/prepare-data-seed.py" --tree "$PWD"
 
       - name: Build payload

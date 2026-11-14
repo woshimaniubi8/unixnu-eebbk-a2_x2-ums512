@@ -1,0 +1,33 @@
+diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
+--- a/iokit/KernelConfigTables.cpp
++++ b/iokit/KernelConfigTables.cpp
+@@ -112,6 +112,13 @@
+     "     'IOClass'         = NativeSprdWatchdog;"
+     "     'IOProviderClass' = IOPlatformDevice;"
+     "     'IOProbeScore'    = 1000:32;"
+     "   }"
+ #endif
++#if defined(XNU_NATIVE_SPRD_THERMAL) && XNU_NATIVE_SPRD_THERMAL
++    "   ,{"
++    "     'IOClass'         = NativeSprdThermal;"
++    "     'IOProviderClass' = IOPlatformDevice;"
++    "     'IOProbeScore'    = 2000:32;"
++    "   }"
++#endif
+     ")";
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7788,5 +7788,12 @@
+ 	if (native_watchdogd_bind_status) {
+ 		printf("bbk watchdogd: overlay bind failed %d\n", native_watchdogd_bind_status);
+ 	}
++	/* The non-Apple sensor topology and its model must ship together. */
++	error = native_cryptex_os_bind(p, scratch,
++	    "/private/var/ngpu/thermal-monitor", "/System/Library/ThermalMonitor", MNT_UNION);
++	printf("bbk thermal-profile: A2 overlay status=%d\n", error);
++	if (error) {
++		panic("A2 thermal profile overlay failed: %d", error);
++	}
+ 	native_cryptex_os_stage = 4;
+ 	error = vnode_lookup("/System/Cryptexes/OS/System/Library/ExtensionKit/Extensions/WebContentExtension.appex/Info.plist", 0, &probe,

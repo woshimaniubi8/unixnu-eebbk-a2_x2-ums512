@@ -132,6 +132,17 @@
 		 * clock provider phandles from the original BSP tree are not
 		 * present in this reduced ADT, so the driver uses the known
 		 * enable/rtc_enable clock IDs directly. */
+		thermal: thermal@32200000 {
+			compatible = "eebbk,ums512-thermal";
+			unixnu,adt-name = "thermal";
+			/* Stock controllers 0/1/2, AON gates, and read-only efuse SRAM. */
+			reg = <0 0x32200000 0 0x30000>,
+			      <0 0x327d0000 0 0x3000>,
+			      <0 0x00015000 0 0x2000>;
+			reg-names = "thermal", "aon-apb", "efuse-cache";
+			status = "okay";
+		};
+
 		watchdog: watchdog@322f0000 {
 			compatible = "sprd,wdt-r2p0-fiq";
 			unixnu,adt-name = "watchdog";

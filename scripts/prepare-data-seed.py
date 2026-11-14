@@ -48,6 +48,12 @@ from pathlib import Path
 SEED_BYTES = 32 * 1024 * 1024
 LAUNCHD_SHA256 = "8cec9a3c44a443b08e977ccc5d577850316ad428c575dc01f09b018dbd5b6a25"
 PAYLOAD_OVERHEAD = 8 * 1024 * 1024
+# The patched watchdogd runs from the owner Data overlay, not the sealed OS.
+# In the target 21H461 AMFI, category 5 requires validation-category == 1 and
+# a launchd parent (or the specified trusted mbfloagent), without a System-
+# volume requirement. Category 0 leaves the default category-6 check active
+# and rejects this Data-backed system service (122.log, c[8]p[1]m[1]e[6]).
+WATCHDOG_LAUNCH_CONSTRAINT_CATEGORY = 5
 
 
 def run(command, cwd, check=True, **kwargs):
@@ -154,6 +160,57 @@ def _cdhash(path):
     return bytes.fromhex(match.group(1))
 
 
+def _validate_trust_bundle(data):
+    """Apply DarwinBoot's ValidTrustCaches structural and ordering checks."""
+    if len(data) < 8:
+        raise ValueError("truncated trust bundle")
+    count = struct.unpack_from("<I", data)[0]
+    if not 0 < count <= 128 or count > (len(data) - 4) // 4:
+        raise ValueError("invalid trust module count")
+    offsets = struct.unpack_from(f"<{count}I", data, 4)
+    for index, start in enumerate(offsets):
+        end = offsets[index + 1] if index + 1 < count else len(data)
+        if (start < 4 + count * 4 or start & 3 or end > len(data)
+                or end - start < 24):
+            raise ValueError(f"invalid trust module {index} bounds")
+        version, entries = (struct.unpack_from("<I", data, at)[0]
+                            for at in (start, start + 20))
+        if version != 2 or end - start != 24 + entries * 24:
+            raise ValueError(f"invalid trust module {index} header or length")
+        previous = None
+        for at in range(start + 24, end, 24):
+            cdhash = data[at:at + 20]
+            if not 1 <= data[at + 20] <= 4:
+                raise ValueError(f"invalid hash type in trust module {index}")
+            if previous is not None and previous >= cdhash:
+                raise ValueError(f"unordered or duplicate hash in trust module {index}")
+            previous = cdhash
+
+
+def _pack_trust_modules(modules):
+    # The existing make-owner-trust-bundle.py uses this same counted index:
+    # every added module also adds four bytes to the offset table itself.
+    if not 0 < len(modules) <= 128:
+        raise ValueError("invalid trust module count")
+    offsets, cursor = [], 4 * (1 + len(modules))
+    for module in modules:
+        offsets.append(cursor)
+        cursor += len(module)
+    bundle = struct.pack(f"<{1 + len(modules)}I", len(modules), *offsets)
+    bundle += b"".join(modules)
+    _validate_trust_bundle(bundle)
+    return bundle
+
+
+def _watchdog_trust_module(cdhash):
+    if len(cdhash) != 20:
+        raise ValueError("watchdogd CDHash must be 20 bytes")
+    identifier = uuid.uuid5(uuid.NAMESPACE_URL,
+                           "org.blu-sharky.watchdogd:" + cdhash.hex()).bytes
+    return (struct.pack("<I16sI", 2, identifier, 1) + cdhash
+            + bytes([2, 0, WATCHDOG_LAUNCH_CONSTRAINT_CATEGORY, 0]))
+
+
 def build_trust_bundle(tree, device, output, signed_watchdogd=None):
     """Build the static + System trust bundle plus the owner watchdogd entry."""
     ipsw, board = open_ipsw(tree, device)
@@ -164,15 +221,11 @@ def build_trust_bundle(tree, device, output, signed_watchdogd=None):
         count = struct.unpack_from("<I", module, 20)[0]
         if version != 2 or len(module) != 24 + count * 24:
             raise SystemExit(f"not a complete version-2 trust module: {name}")
-    if signed_watchdogd is None:
-        bundle = struct.pack("<3I", 2, 12, 12 + len(static)) + static + system
-    else:
+    modules = [static, system]
+    if signed_watchdogd is not None:
         cdhash = _cdhash(signed_watchdogd)
-        identifier = uuid.uuid5(uuid.NAMESPACE_URL,
-                               "org.blu-sharky.watchdogd:" + cdhash.hex()).bytes
-        owner = struct.pack("<I16sI", 2, identifier, 1) + cdhash + bytes([2, 0, 0, 0])
-        bundle = (struct.pack("<4I", 2, 12, 12 + len(owner), 12 + len(owner) + len(static))
-                  + owner + static + system)
+        modules.insert(0, _watchdog_trust_module(cdhash))
+    bundle = _pack_trust_modules(modules)
     digest = hashlib.sha256(bundle).hexdigest()
     allowed = board.get("payload", {}).get("trust_cache_sha256", [])
     if allowed and digest not in allowed:
@@ -299,13 +352,18 @@ def main():
             raise SystemExit(f"unexpected sbin/launchd (sha256 {digest}); the seed "
                              "fixture requires the unchanged original OS volume")
         watchdogd = prepare_watchdogd(mountpoint, output.parent)
+        thermal_profile = output.parent / "J120AP-Info.plist"
+        run([sys.executable, str(Path(__file__).with_name("prepare-thermal-profile.py")),
+             str(mountpoint / "System/Library/ThermalMonitor/J120AP-Info.plist"),
+             str(thermal_profile)], tree)
         run([sys.executable, "scripts/prepare-owner-data-fixture.py"], tree)
         firmware = extract_all_flash(tree, device)
         try:
             run([sys.executable, str(Path(__file__).with_name("prepare-preboot-tree.py")),
                  "--seed", str(output), "--firmware-dir", str(firmware),
                  "--boot-manifest-hash", preboot_hash,
-                 "--watchdogd", str(watchdogd)], tree)
+                 "--watchdogd", str(watchdogd),
+                 "--thermal-profile", str(thermal_profile)], tree)
         finally:
             shutil.rmtree(firmware, ignore_errors=True)
         build_trust_bundle(tree, device, output.parent / "trustcache.bundle", watchdogd)

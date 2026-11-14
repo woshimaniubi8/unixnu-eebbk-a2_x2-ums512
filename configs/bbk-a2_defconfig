@@ -26,8 +26,8 @@ CONFIG_XNU_NATIVE_ADRENO=n
 # (patches/xnu/sdhci-block-personality.patch) is compiled in through the extra
 # CFLAGS define.  The default warning flags of build-xnu-4k-baseline.sh are
 # repeated here because XNU_EXTRA_CFLAGS replaces them when it is set.
-CONFIG_XNU_EXTRA_CFLAGS="-Wno-reserved-identifier -Wno-pre-c11-compat -Wno-missing-designated-field-initializers -Wno-suggest-override -Wno-unnecessary-virtual-specifier -Wno-suggest-destructor-override -Wno-ms-bitfield-padding -DXNU_NATIVE_SDHCI_BLOCK=1 -DXNU_NATIVE_SPRD_WATCHDOG=1"
-CONFIG_XNU_EXTRA_LD_ARCHIVES="-Wl,-force_load,{tree}/build/sdhciblock/libSdhciBlock.a -Wl,-force_load,{tree}/build/sprdwatchdog/libSprdWatchdog.a"
+CONFIG_XNU_EXTRA_CFLAGS="-Wno-reserved-identifier -Wno-pre-c11-compat -Wno-missing-designated-field-initializers -Wno-suggest-override -Wno-unnecessary-virtual-specifier -Wno-suggest-destructor-override -Wno-ms-bitfield-padding -DXNU_NATIVE_SDHCI_BLOCK=1 -DXNU_NATIVE_SPRD_WATCHDOG=1 -DXNU_NATIVE_SPRD_THERMAL=1"
+CONFIG_XNU_EXTRA_LD_ARCHIVES="-Wl,-force_load,{tree}/build/sdhciblock/libSdhciBlock.a -Wl,-force_load,{tree}/build/sprdwatchdog/libSprdWatchdog.a -Wl,-force_load,{tree}/build/sprdthermal/libSprdThermal.a"
 # Transport marker: the device workflow relaxes the build script's owner
 # cache-mount guard to accept this transport instead of the Virtio one.
 CONFIG_XNU_NATIVE_SDHCI_BLOCK=y

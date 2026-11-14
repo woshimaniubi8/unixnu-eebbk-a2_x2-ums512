@@ -133,6 +133,7 @@ def main():
     parser.add_argument("--data-uuid", default=DATA_UUID)
     parser.add_argument("--watchdogd", type=Path, default=None,
                         help="patched/re-signed watchdogd to place under /private/var/ngpu/usr-libexec")
+    parser.add_argument("--thermal-profile", type=Path, default=None)
     parser.add_argument("--output", type=Path, default=None,
                         help="report path (default: seed.with_name('preboot.json'))")
     args = parser.parse_args()
@@ -172,6 +173,19 @@ def main():
             destination.chmod(0o755)
             digest = hashlib.sha256(destination.read_bytes()).hexdigest()
             print(f"patched watchdogd: {destination} sha256 {digest}")
+
+        if args.thermal_profile is not None:
+            model = plistlib.loads(args.thermal_profile.read_bytes())
+            if len(model.get("Sensors", [])) != 15 or not all(
+                    s.get("requiresWatchDog") is True for s in model["Sensors"]):
+                raise SystemExit("A2 thermal profile must require all 15 real/derived sources")
+            overlay = mount / "ngpu" / "thermal-monitor"
+            overlay.mkdir(parents=True, exist_ok=True)
+            target_model = overlay / "J120AP-Info.plist"
+            shutil.copy2(args.thermal_profile, target_model)
+            if target_model.read_bytes() != args.thermal_profile.read_bytes():
+                raise SystemExit("thermal profile read-back failed")
+            print(f"A2 thermal profile: {target_model}")
 
         files = 0
         total = 0

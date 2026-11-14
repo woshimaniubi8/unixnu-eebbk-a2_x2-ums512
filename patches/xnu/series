@@ -107,3 +107,4 @@ bbk-a2-tmpfs-load-probe.patch
 # seed over /usr/libexec before launchd.  The union is non-fatal when the seed
 # predates the file, and keeps every other /usr/libexec binary from the root.
 bbk-a2-watchdogd-overlay.patch
+bbk-a2-sprd-thermal.patch
