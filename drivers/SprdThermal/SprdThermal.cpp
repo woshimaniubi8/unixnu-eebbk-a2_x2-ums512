@@ -196,7 +196,8 @@ bool NativeSprdThermal::publishSensors()
         *reinterpret_cast<void ***>(s)=vtables[i]; services[i]=s;
         using Init=bool (*)(IOService *,OSDictionary *);
         if(!reinterpret_cast<Init>(kHidInit)(s,nullptr)) return false;
-        s->setName("UnisocThermalSensor"); s->setProperty("Location",locations[i]);
+        // The target daemon matches Product strings (0x10000fcf0), not Location.
+        s->setName("UnisocThermalSensor"); s->setProperty("Product",locations[i]);
         s->setProperty("SensorName",keys[i]); s->setProperty("Built-In",true);
         s->setProperty("ReportInterval",1000000u,32);
         if(!s->attach(this)) return false;
