@@ -163,6 +163,36 @@ def build_trust_bundle(tree, device, output):
     return output
 
 
+def prepare_watchdogd(mountpoint, workdir):
+    """Patch the verified watchdogd gate and re-sign with its original entitlements."""
+    source = mountpoint / "usr/libexec/watchdogd"
+    if not source.is_file():
+        raise SystemExit(f"the OS volume has no usr/libexec/watchdogd: {source}")
+    workdir.mkdir(parents=True, exist_ok=True)
+    patched = workdir / "watchdogd.patched"
+    run([sys.executable, str(Path(__file__).with_name("patch-watchdogd.py")),
+         str(source), str(patched)], workdir)
+
+    original = run(["codesign", "-d", "--entitlements", ":-", str(source)],
+                   workdir, capture_output=True, text=True)
+    blob = (original.stdout or "") + (original.stderr or "")
+    start, end = blob.find("<?xml"), blob.find("</plist>")
+    if start < 0 or end < 0:
+        raise SystemExit("could not read the original watchdogd entitlements")
+    entitlements = workdir / "watchdogd.entitlements"
+    entitlements.write_text(blob[start:end + len("</plist>")] + "\n")
+    run(["codesign", "-f", "-s", "-", "--entitlements", str(entitlements), str(patched)],
+        workdir)
+
+    signed = run(["codesign", "-d", "--entitlements", ":-", str(patched)],
+                 workdir, capture_output=True, text=True)
+    signed_blob = (signed.stdout or "") + (signed.stderr or "")
+    if "com.apple.private.iowatchdog.user-access" not in signed_blob:
+        raise SystemExit("patched watchdogd lost com.apple.private.iowatchdog.user-access")
+    print(f"watchdogd: patched and re-signed with original entitlements ({patched})")
+    return patched
+
+
 def probe_mount_fstab_schema(mount_root):
     """Print the device-tree fstab schema mount expects (diagnostic only)."""
     binary = mount_root / "sbin/mount"
@@ -248,12 +278,14 @@ def main():
         if digest != LAUNCHD_SHA256:
             raise SystemExit(f"unexpected sbin/launchd (sha256 {digest}); the seed "
                              "fixture requires the unchanged original OS volume")
+        watchdogd = prepare_watchdogd(mountpoint, output.parent)
         run([sys.executable, "scripts/prepare-owner-data-fixture.py"], tree)
         firmware = extract_all_flash(tree, device)
         try:
             run([sys.executable, str(Path(__file__).with_name("prepare-preboot-tree.py")),
                  "--seed", str(output), "--firmware-dir", str(firmware),
-                 "--boot-manifest-hash", preboot_hash], tree)
+                 "--boot-manifest-hash", preboot_hash,
+                 "--watchdogd", str(watchdogd)], tree)
         finally:
             shutil.rmtree(firmware, ignore_errors=True)
         build_trust_bundle(tree, device, output.parent / "trustcache.bundle")

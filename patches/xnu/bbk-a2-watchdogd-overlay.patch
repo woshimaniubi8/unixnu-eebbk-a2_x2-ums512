@@ -1,0 +1,27 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7735,6 +7735,7 @@
+  * boot log: 1 mount points made, 2 preboot shown, 3 System bound, 4 usr bound, 5 an extension of WebKit visible through the path. */
+ volatile int native_cryptex_os_stage = 0;
+ volatile int native_cryptex_os_status = -1;
++volatile int native_watchdogd_bind_status = -1;
+ static int
+ native_cryptex_os_bind(proc_t p, user_addr_t scratch, const char *source, const char *point, int flags)
+ {
+@@ -7778,6 +7779,15 @@
+ 	if ((error = native_cryptex_os_bind(p, scratch, "/usr", "/private/preboot/Cryptexes/OS/usr", 0))) {
+ 		native_cryptex_os_status = error;
+ 		return;
++	}
++	/* Overlay the patched watchdogd from the Data seed over /usr/libexec.
++	 * The union source contains only watchdogd; the lower /usr/libexec keeps
++	 * every other binary.  Failure is non-fatal so the cryptex view and the
++	 * WebContent probe continue even if the seed predates this file. */
++	native_watchdogd_bind_status = native_cryptex_os_bind(p, scratch,
++	    "/private/var/ngpu/usr-libexec", "/usr/libexec", MNT_UNION);
++	if (native_watchdogd_bind_status) {
++		printf("bbk watchdogd: overlay bind failed %d\n", native_watchdogd_bind_status);
+ 	}
+ 	native_cryptex_os_stage = 4;
+ 	error = vnode_lookup("/System/Cryptexes/OS/System/Library/ExtensionKit/Extensions/WebContentExtension.appex/Info.plist", 0, &probe,

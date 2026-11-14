@@ -19,6 +19,7 @@ superblock copy is patched and checksummed.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import plistlib
@@ -130,6 +131,8 @@ def main():
     parser.add_argument("--boot-manifest-hash", required=True,
                         help="boot-manifest-hash published in /chosen (the Preboot directory name)")
     parser.add_argument("--data-uuid", default=DATA_UUID)
+    parser.add_argument("--watchdogd", type=Path, default=None,
+                        help="patched/re-signed watchdogd to place under /private/var/ngpu/usr-libexec")
     parser.add_argument("--output", type=Path, default=None,
                         help="report path (default: seed.with_name('preboot.json'))")
     args = parser.parse_args()
@@ -159,6 +162,17 @@ def main():
         for name in ("Cryptexes/OS/System", "Cryptexes/OS/usr"):
             (tree / name).mkdir(parents=True, exist_ok=True)
 
+        if args.watchdogd is not None:
+            if not args.watchdogd.is_file():
+                raise SystemExit(f"patched watchdogd not found: {args.watchdogd}")
+            overlay = mount / "ngpu" / "usr-libexec"
+            overlay.mkdir(parents=True, exist_ok=True)
+            destination = overlay / "watchdogd"
+            shutil.copy2(args.watchdogd, destination)
+            destination.chmod(0o755)
+            digest = hashlib.sha256(destination.read_bytes()).hexdigest()
+            print(f"patched watchdogd: {destination} sha256 {digest}")
+
         files = 0
         total = 0
         for root, _dirs, names in os.walk(args.firmware_dir):
@@ -179,6 +193,8 @@ def main():
     patch_volume_uuid(args.seed, "OwnerData", args.data_uuid)
     patch_volume_role(args.seed, "OwnerData", 64)
     group_id = read_volume_group(args.seed, "OwnerData")
+    watchdogd_sha = (hashlib.sha256(args.watchdogd.read_bytes()).hexdigest()
+                     if args.watchdogd is not None else None)
 
     report = {
         "seed": str(args.seed),
@@ -191,6 +207,8 @@ def main():
         "firmware_bytes": total,
         "preboot_source": "/private/var/ngpu/preboot",
         "preboot_path": f"/{args.boot_manifest_hash}/usr/standalone/firmware",
+        "watchdogd_sha256": watchdogd_sha,
+        "watchdogd_source": "/private/var/ngpu/usr-libexec/watchdogd" if watchdogd_sha else None,
     }
     output = args.output or args.seed.with_name("preboot.json")
     output.write_text(json.dumps(report, indent=2) + "\n")
