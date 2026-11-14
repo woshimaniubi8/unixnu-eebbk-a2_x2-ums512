@@ -35,12 +35,14 @@ Usage: prepare-data-seed.py [--tree DIR] [--output FILE] [--force] [--keep-mount
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import struct
 import subprocess
 import sys
 import tempfile
 import tomllib
+import uuid
 from pathlib import Path
 
 SEED_BYTES = 32 * 1024 * 1024
@@ -142,8 +144,18 @@ def im4p_payload(original, what):
     return fields[3][1]
 
 
-def build_trust_bundle(tree, device, output):
-    """Build the static + System trust bundle the payload's AMFI path needs."""
+def _cdhash(path):
+    details = run(["codesign", "-d", "--verbose=4", str(path)],
+                  path.parent, capture_output=True, text=True)
+    text = (details.stdout or "") + (details.stderr or "")
+    match = re.search(r"^CDHash=([0-9a-fA-F]{40})$", text, re.M)
+    if not match:
+        raise SystemExit(f"cannot read the signed CDHash of {path}")
+    return bytes.fromhex(match.group(1))
+
+
+def build_trust_bundle(tree, device, output, signed_watchdogd=None):
+    """Build the static + System trust bundle plus the owner watchdogd entry."""
     ipsw, board = open_ipsw(tree, device)
     static = im4p_payload(ipsw.read("StaticTrustCache"), "StaticTrustCache")
     system = im4p_payload(ipsw.read("Cryptex1,SystemTrustCache"), "Cryptex1,SystemTrustCache")
@@ -152,7 +164,15 @@ def build_trust_bundle(tree, device, output):
         count = struct.unpack_from("<I", module, 20)[0]
         if version != 2 or len(module) != 24 + count * 24:
             raise SystemExit(f"not a complete version-2 trust module: {name}")
-    bundle = struct.pack("<3I", 2, 12, 12 + len(static)) + static + system
+    if signed_watchdogd is None:
+        bundle = struct.pack("<3I", 2, 12, 12 + len(static)) + static + system
+    else:
+        cdhash = _cdhash(signed_watchdogd)
+        identifier = uuid.uuid5(uuid.NAMESPACE_URL,
+                               "org.blu-sharky.watchdogd:" + cdhash.hex()).bytes
+        owner = struct.pack("<I16sI", 2, identifier, 1) + cdhash + bytes([2, 0, 0, 0])
+        bundle = (struct.pack("<4I", 2, 12, 12 + len(owner), 12 + len(owner) + len(static))
+                  + owner + static + system)
     digest = hashlib.sha256(bundle).hexdigest()
     allowed = board.get("payload", {}).get("trust_cache_sha256", [])
     if allowed and digest not in allowed:
@@ -288,7 +308,7 @@ def main():
                  "--watchdogd", str(watchdogd)], tree)
         finally:
             shutil.rmtree(firmware, ignore_errors=True)
-        build_trust_bundle(tree, device, output.parent / "trustcache.bundle")
+        build_trust_bundle(tree, device, output.parent / "trustcache.bundle", watchdogd)
     finally:
         if attached and not args.keep_mounted:
             run(["hdiutil", "detach", str(mountpoint)], tree, check=False)
