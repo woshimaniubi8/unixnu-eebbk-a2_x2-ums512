@@ -17,19 +17,21 @@
          if(&native_gpu_trace_enabled && native_gpu_trace_enabled()) {
              OSObject *surface=nullptr;
              if(request)memcpy(&surface,reinterpret_cast<const unsigned char *>(request)+kRequestSurfaces,sizeof(surface));
-@@ -225,8 +229,11 @@
+@@ -225,8 +229,12 @@
                  native_legacy_surface_height(surface),native_legacy_surface_stride(surface),native_legacy_surface_format(surface),
                  native_legacy_surface_allocation(surface),memory?memory->getLength():0);
          }
+-        uint32_t submitted=0,retired=0;uint32_t outstanding=0;
 +#endif
-         uint32_t submitted=0,retired=0;uint32_t outstanding=0;
++        uint32_t outstanding=0;
 +#if !defined(NATIVE_LEGACY_GOP_ONLY) || !NATIVE_LEGACY_GOP_ONLY
++        uint32_t submitted=0,retired=0;
          if(&native_adreno_fences && native_adreno_fences(&submitted,&retired)){const int32_t d=int32_t(submitted-retired);outstanding=d>0?(d>255?255:uint32_t(d)):0;}
 +#endif
          if(!native_legacy_ring_cap)return;
          const uint32_t n=native_legacy_ring_count;volatile uint64_t *at=native_legacy_ring[n&(native_legacy_ring_cap-1)];
          at[0]=nowUs();
-@@ -302,6 +309,9 @@
+@@ -302,6 +310,9 @@
      bool directOn=false,directBoot=true;
      static constexpr uint32_t kVig[2]={0x4000,0x6000},kCtlFlush=0x15018,kBootIova=0xb8000000U,kBootStride=0x2fa0;
      void startDirect() {
@@ -39,7 +41,7 @@
          unsigned mode=0;PE_parse_boot_argn("dpu-scanout",&mode,sizeof(mode));
          if(mode<2 || !&native_ufs_dpu_map || !&native_ufs_dpu_state || !(native_ufs_dpu_state>>31) || !primary)return;
          IODeviceMemory *memory=IODeviceMemory::withRange(0xae01000,0x8f000);
-@@ -340,6 +350,9 @@
+@@ -340,6 +351,9 @@
      }
      // The slot that holds this surface, mapping it into a free one (never the one on screen or the one waiting to latch) the first time.
      int directSlot(OSObject *surface,IOMemoryDescriptor *memory) {
@@ -49,7 +51,7 @@
          ++directClock;
          int pick=-1;
          for(unsigned k=0;k<kDirectSlots;++k)if(directSlots[k].surface==surface && directSlots[k].memory==memory){directSlots[k].used=directClock;return int(k);}
-@@ -368,11 +381,16 @@
+@@ -368,11 +382,16 @@
          slot={surface,memory,iova,directClock,directPages[0]};
          native_legacy_direct[1]=native_legacy_direct[1]+1;
          return pick;
@@ -66,7 +68,7 @@
          traceGpuComplete=false;
          if(fenceFor!=request) {
              fenceFor=request;fenceTarget=0;fenceSince=0;fenceCaptured=false;fenceSlow=false;
-@@ -410,6 +428,7 @@
+@@ -410,6 +429,7 @@
          gpuTraceEvent(GpuTraceDisplayFence,0,traceId(request),known?3:4,fenceTarget,submitted,retired,ns,detail[0],detail[1],detail[2]);
          fenceTimer->setTimeoutUS(200);
          return false;
