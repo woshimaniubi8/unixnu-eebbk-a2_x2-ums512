@@ -1,0 +1,132 @@
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -40,6 +40,8 @@
+ 
+ #include <kern/debug.h>
+ #include <kern/backtrace.h>
++#include <kern/kalloc.h>
++#include <kern/kcdata.h>
+ #include <kern/clock.h>
+ #include <kern/locks.h>
+ #include <kern/thread_call.h>
+@@ -2024,11 +2026,120 @@
+ 	}
+ }
+ 
++/* Decode only through XNU's checked kcdata iterators, after the coherent
++ * capture has resumed the other CPUs. Never unwind a foreign map here. */
++static void
++bbk_ui_dump_stackshot(void *buffer, unsigned bytes, unsigned round)
++{
++	int pid = -1;
++	uint64_t task_container = 0, thread_container = 0, tid = 0;
++	unsigned tasks = 0, threads = 0, waits = 0;
++	kcdata_iter_t iter = kcdata_iter(buffer, bytes);
++	KCDATA_ITER_FOREACH(iter) {
++		uint32_t type = kcdata_iter_type(iter);
++		if (type == KCDATA_TYPE_CONTAINER_BEGIN && kcdata_iter_container_valid(iter)) {
++			uint32_t kind = kcdata_iter_container_type(iter);
++			if (kind == STACKSHOT_KCCONTAINER_TASK) {
++				task_container = kcdata_iter_container_id(iter); pid = -1; tid = 0;
++			} else if (kind == STACKSHOT_KCCONTAINER_THREAD) {
++				thread_container = kcdata_iter_container_id(iter); tid = 0;
++			}
++		} else if (type == KCDATA_TYPE_CONTAINER_END) {
++			uint64_t id = kcdata_iter_container_id(iter);
++			if (id == thread_container) { tid = 0; thread_container = 0; }
++			if (id == task_container) { pid = -1; task_container = 0; }
++		} else if (type == STACKSHOT_KCTYPE_TASK_SNAPSHOT &&
++		    kcdata_iter_size(iter) >= sizeof(struct task_snapshot_v2)) {
++			struct task_snapshot_v2 t;
++			memcpy(&t, kcdata_iter_payload(iter), sizeof(t)); pid = t.ts_pid; tasks++;
++			printf("M96 ss-task: round=%u pid=%d name=%.*s flags=0x%llx\n",
++			    round, pid, (int)sizeof(t.ts_p_comm), t.ts_p_comm, (unsigned long long)t.ts_ss_flags);
++		} else if (type == STACKSHOT_KCTYPE_THREAD_SNAPSHOT &&
++		    kcdata_iter_size(iter) >= sizeof(struct thread_snapshot_v4)) {
++			struct thread_snapshot_v4 t;
++			memcpy(&t, kcdata_iter_payload(iter), sizeof(t)); tid = t.ths_thread_id; threads++;
++			printf("M96 ss-thread: round=%u pid=%d tid=%llu state=0x%x flags=0x%llx wait=0x%llx continuation=0x%llx last_run=%llu runnable=%llu\n",
++			    round, pid, (unsigned long long)tid, t.ths_state, (unsigned long long)t.ths_ss_flags,
++			    (unsigned long long)t.ths_wait_event, (unsigned long long)t.ths_continuation,
++			    (unsigned long long)t.ths_last_run_time, (unsigned long long)t.ths_last_made_runnable_time);
++		} else if (type == STACKSHOT_KCTYPE_THREAD_NAME && tid) {
++			unsigned length = kcdata_iter_size(iter);
++			if (length > 96) length = 96;
++			printf("M96 ss-name: round=%u pid=%d tid=%llu name=%.*s\n",
++			    round, pid, (unsigned long long)tid, (int)length, (char *)kcdata_iter_payload(iter));
++		} else if (type == KCDATA_TYPE_ARRAY && kcdata_iter_array_valid(iter)) {
++			uint32_t kind = kcdata_iter_array_elem_type(iter);
++			uint32_t count = kcdata_iter_array_elem_count(iter);
++			uint32_t stride = kcdata_iter_array_elem_size(iter);
++			const unsigned char *data = kcdata_iter_payload(iter);
++			if (kind == STACKSHOT_KCTYPE_THREAD_WAITINFO && stride >= sizeof(thread_waitinfo_t)) {
++				for (uint32_t n = 0; n < count; n++) {
++					thread_waitinfo_t w; uint32_t flags = 0; int label = 0;
++					memcpy(&w, data + (size_t)n * stride, sizeof(w));
++					if (stride >= sizeof(thread_waitinfo_v2_t)) {
++						thread_waitinfo_v2_t v;
++						memcpy(&v, data + (size_t)n * stride, sizeof(v)); flags = v.wait_flags; label = v.portlabel_id;
++					}
++					waits++;
++					printf("M96 ss-wait: round=%u pid=%d waiter=%llu owner=%llu type=%u context=0x%llx flags=0x%x label=%d\n",
++					    round, pid, (unsigned long long)w.waiter, (unsigned long long)w.owner,
++					    w.wait_type, (unsigned long long)w.context, flags, label);
++				}
++			} else if (kind == STACKSHOT_KCTYPE_THREAD_TURNSTILEINFO && stride >= sizeof(thread_turnstileinfo_t)) {
++				for (uint32_t n = 0; n < count; n++) {
++					thread_turnstileinfo_t w;
++					memcpy(&w, data + (size_t)n * stride, sizeof(w));
++					printf("M96 ss-turnstile: round=%u pid=%d waiter=%llu inheritor=%llu flags=0x%llx hops=%u priority=%u\n",
++					    round, pid, (unsigned long long)w.waiter, (unsigned long long)w.turnstile_context,
++					    (unsigned long long)w.turnstile_flags, w.number_of_hops, w.turnstile_priority);
++				}
++			} else if (tid && (kind == STACKSHOT_KCTYPE_USER_STACKLR64 ||
++			    kind == STACKSHOT_KCTYPE_KERN_STACKLR64) && stride == sizeof(uint64_t)) {
++				char line[384];
++				unsigned limit = kind == STACKSHOT_KCTYPE_USER_STACKLR64 ? 16 : 8;
++				unsigned shown = count < limit ? count : limit;
++				int used = snprintf(line, sizeof(line), "M96 ss-pcs: round=%u pid=%d tid=%llu kind=%s count=%u shown=%u pcs=",
++				    round, pid, (unsigned long long)tid, kind == STACKSHOT_KCTYPE_USER_STACKLR64 ? "user" : "kernel", count, shown);
++				for (unsigned n = 0; n < shown && used >= 0 && (size_t)used + 18 < sizeof(line); n++) {
++					uint64_t pc; memcpy(&pc, data + (size_t)n * stride, sizeof(pc));
++					used += snprintf(line + used, sizeof(line) - (size_t)used, " %016llx", (unsigned long long)pc);
++				}
++				printf("%s\n", line);
++			}
++		}
++	}
++	printf("M96 ss-end: round=%u tasks=%u threads=%u waits=%u complete=%u\n",
++	    round, tasks, threads, waits, !KCDATA_ITER_FOREACH_FAILED(iter));
++}
++
++static void
++bbk_ui_capture_stackshot(unsigned round)
++{
++	const unsigned capacity = 4u * 1024u * 1024u;
++	void *buffer = kalloc_data(capacity, Z_WAITOK | Z_ZERO);
++	if (!buffer) {
++		printf("M96 ss-capture: round=%u allocation failed capacity=%u\n", round, capacity);
++		return;
++	}
++	unsigned bytes = 0;
++	uint64_t flags = STACKSHOT_KCDATA_FORMAT | STACKSHOT_THREAD_WAITINFO | STACKSHOT_NO_IO_STATS | STACKSHOT_TRYLOCK;
++	uint64_t began = mach_absolute_time(), elapsed;
++	printf("M96 ss-begin: round=%u flags=0x%llx capacity=%u\n", round, (unsigned long long)flags, capacity);
++	kern_return_t kr = stack_snapshot_from_kernel(-1, buffer, capacity, flags, 0, 0, &bytes);
++	absolutetime_to_nanoseconds(mach_absolute_time() - began, &elapsed);
++	printf("M96 ss-capture: round=%u kr=0x%x bytes=%u ns=%llu\n",
++	    round, kr, bytes, (unsigned long long)elapsed);
++	if (kr == KERN_SUCCESS && bytes > 0 && bytes <= capacity) bbk_ui_dump_stackshot(buffer, bytes, round);
++	kfree_data(buffer, capacity);
++}
++
+ static void
+ bbk_ui_snapshot(thread_call_param_t p0, thread_call_param_t p1)
+ {
+ 	(void)p0; (void)p1;
+ 	unsigned int round = ++bbk_ui_round;
++	/* Three coherent, non-faulting observations; original watchdog policy stays active. */
++	if (round == 4 || round == 8 || round == 11) bbk_ui_capture_stackshot(round);
+ 	for (unsigned int role = 0; role < BBK_UI_ROLES; role++) {
+ 		unsigned int total = 0, dropped, shown = 0;
+ 		int pid = os_atomic_load(&bbk_ui_pids[role], acquire);

@@ -140,3 +140,6 @@ bbk-a2-mprotect-pair.patch
 
 # Observe the original snapshot and container-management service peers.
 bbk-a2-ui-service-peers.patch
+
+# Use native coherent Stackshot plus native checked kcdata iterators for wait owners.
+bbk-a2-native-stackshot.patch
