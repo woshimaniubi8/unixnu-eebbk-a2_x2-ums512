@@ -1,0 +1,11 @@
+{
+  "GopFramebuffer": {
+    "revision": "b0d812d578efa2acb005b66f73168891719af09a",
+    "repository": "https://github.com/UniXNU/GopFramebuffer.git"
+  },
+  "lifecycle_and_abi_builder": {
+    "revision": "ec384c17dd584d5b52d2788b27e55d9fe4ff157d",
+    "repository": "https://github.com/UniXNU/UniXNU-sheng.git"
+  },
+  "port": "Generic original Legacy lifecycle, no Qualcomm probes; real CPU GOP copy only; original client unchanged; exact static ABI audited against M81; runtime verification still required."
+}

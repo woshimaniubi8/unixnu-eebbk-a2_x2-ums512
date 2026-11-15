@@ -1,0 +1,1657 @@
+{
+  "reference_sha256": "520539f2a60eca7a83190eef4db9105d79983f4015cf556f3812cd53e998edc7",
+  "family_text_va": 18446744005081743360,
+  "family_text_bytes": 225140,
+  "family_text_sha256": "2e044ee68c1650397e1435234ca6459206262e4c7ed709cb7131c6f664f9bd9b",
+  "static_dispatch_audit": true,
+  "runtime_class_size_observed": false,
+  "legacy_vptr": "0xfffffff005f38570",
+  "base_vptr": "0xfffffff005f35da0",
+  "service_vptr": "0xfffffff005f36680",
+  "abstract_slots": [
+    211,
+    213,
+    245,
+    246,
+    306,
+    307,
+    337,
+    338,
+    345
+  ],
+  "methods": [
+    {
+      "slot": 0,
+      "address": "0xfffffff005786644"
+    },
+    {
+      "slot": 1,
+      "address": "0xfffffff005786658"
+    },
+    {
+      "slot": 2,
+      "address": "0xfffffff0078498ec"
+    },
+    {
+      "slot": 3,
+      "address": "0xfffffff0078496d0"
+    },
+    {
+      "slot": 4,
+      "address": "0xfffffff0078498c4"
+    },
+    {
+      "slot": 5,
+      "address": "0xfffffff0078498b4"
+    },
+    {
+      "slot": 6,
+      "address": "0xfffffff007849900"
+    },
+    {
+      "slot": 7,
+      "address": "0xfffffff005786664"
+    },
+    {
+      "slot": 8,
+      "address": "0xfffffff007847954"
+    },
+    {
+      "slot": 9,
+      "address": "0xfffffff007849748"
+    },
+    {
+      "slot": 10,
+      "address": "0xfffffff0078497b0"
+    },
+    {
+      "slot": 11,
+      "address": "0xfffffff0078497c0"
+    },
+    {
+      "slot": 12,
+      "address": "0xfffffff00788fe90"
+    },
+    {
+      "slot": 13,
+      "address": "0xfffffff007849b5c"
+    },
+    {
+      "slot": 14,
+      "address": "0xfffffff005787030"
+    },
+    {
+      "slot": 15,
+      "address": "0xfffffff0078a9364"
+    },
+    {
+      "slot": 16,
+      "address": "0xfffffff0078a9250"
+    },
+    {
+      "slot": 17,
+      "address": "0xfffffff0078a913c"
+    },
+    {
+      "slot": 18,
+      "address": "0xfffffff0078ab6fc"
+    },
+    {
+      "slot": 19,
+      "address": "0xfffffff0078ab8d4"
+    },
+    {
+      "slot": 20,
+      "address": "0xfffffff0078a99ec"
+    },
+    {
+      "slot": 21,
+      "address": "0xfffffff005786e20"
+    },
+    {
+      "slot": 22,
+      "address": "0xfffffff0078a8a58"
+    },
+    {
+      "slot": 23,
+      "address": "0xfffffff0078a991c"
+    },
+    {
+      "slot": 24,
+      "address": "0xfffffff0078a9bdc"
+    },
+    {
+      "slot": 25,
+      "address": "0xfffffff0078a9c40"
+    },
+    {
+      "slot": 26,
+      "address": "0xfffffff0078a9ca4"
+    },
+    {
+      "slot": 27,
+      "address": "0xfffffff0078a9d28"
+    },
+    {
+      "slot": 28,
+      "address": "0xfffffff0078a9da8"
+    },
+    {
+      "slot": 29,
+      "address": "0xfffffff0078a9e30"
+    },
+    {
+      "slot": 30,
+      "address": "0xfffffff0078a98d4"
+    },
+    {
+      "slot": 31,
+      "address": "0xfffffff0078a9b4c"
+    },
+    {
+      "slot": 32,
+      "address": "0xfffffff0078a9b94"
+    },
+    {
+      "slot": 33,
+      "address": "0xfffffff0078a9880"
+    },
+    {
+      "slot": 34,
+      "address": "0xfffffff0078a9aa4"
+    },
+    {
+      "slot": 35,
+      "address": "0xfffffff0078a9af8"
+    },
+    {
+      "slot": 36,
+      "address": "0xfffffff0078a8d2c"
+    },
+    {
+      "slot": 37,
+      "address": "0xfffffff0078a8f14"
+    },
+    {
+      "slot": 38,
+      "address": "0xfffffff0078a9028"
+    },
+    {
+      "slot": 39,
+      "address": "0xfffffff0078a8bf4"
+    },
+    {
+      "slot": 40,
+      "address": "0xfffffff0078a8c5c"
+    },
+    {
+      "slot": 41,
+      "address": "0xfffffff0078a8cc4"
+    },
+    {
+      "slot": 42,
+      "address": "0xfffffff0078a8b8c"
+    },
+    {
+      "slot": 43,
+      "address": "0xfffffff0078ba1c8"
+    },
+    {
+      "slot": 44,
+      "address": "0xfffffff005792404"
+    },
+    {
+      "slot": 45,
+      "address": "0xfffffff0078ab650"
+    },
+    {
+      "slot": 46,
+      "address": "0xfffffff0078aba68"
+    },
+    {
+      "slot": 47,
+      "address": "0xfffffff0078ab77c"
+    },
+    {
+      "slot": 48,
+      "address": "0xfffffff0078ab7b8"
+    },
+    {
+      "slot": 49,
+      "address": "0xfffffff0078ab990"
+    },
+    {
+      "slot": 50,
+      "address": "0xfffffff0078ab954"
+    },
+    {
+      "slot": 51,
+      "address": "0xfffffff0078abb40"
+    },
+    {
+      "slot": 52,
+      "address": "0xfffffff0078abcb0"
+    },
+    {
+      "slot": 53,
+      "address": "0xfffffff0078abe20"
+    },
+    {
+      "slot": 54,
+      "address": "0xfffffff0078ac7dc"
+    },
+    {
+      "slot": 55,
+      "address": "0xfffffff0078abf34"
+    },
+    {
+      "slot": 56,
+      "address": "0xfffffff0078ac33c"
+    },
+    {
+      "slot": 57,
+      "address": "0xfffffff0078ac1e4"
+    },
+    {
+      "slot": 58,
+      "address": "0xfffffff0078ac48c"
+    },
+    {
+      "slot": 59,
+      "address": "0xfffffff0078ac5dc"
+    },
+    {
+      "slot": 60,
+      "address": "0xfffffff0078ac67c"
+    },
+    {
+      "slot": 61,
+      "address": "0xfffffff0078a9fc4"
+    },
+    {
+      "slot": 62,
+      "address": "0xfffffff0078aa07c"
+    },
+    {
+      "slot": 63,
+      "address": "0xfffffff0078aa5a4"
+    },
+    {
+      "slot": 64,
+      "address": "0xfffffff0078aa518"
+    },
+    {
+      "slot": 65,
+      "address": "0xfffffff0078aa20c"
+    },
+    {
+      "slot": 66,
+      "address": "0xfffffff0078aa330"
+    },
+    {
+      "slot": 67,
+      "address": "0xfffffff0078aa1bc"
+    },
+    {
+      "slot": 68,
+      "address": "0xfffffff0078aa12c"
+    },
+    {
+      "slot": 69,
+      "address": "0xfffffff0078aa408"
+    },
+    {
+      "slot": 70,
+      "address": "0xfffffff0078aa4ac"
+    },
+    {
+      "slot": 71,
+      "address": "0xfffffff0078aa760"
+    },
+    {
+      "slot": 72,
+      "address": "0xfffffff0078aae50"
+    },
+    {
+      "slot": 73,
+      "address": "0xfffffff0078ab634"
+    },
+    {
+      "slot": 74,
+      "address": "0xfffffff0078af770"
+    },
+    {
+      "slot": 75,
+      "address": "0xfffffff0078b355c"
+    },
+    {
+      "slot": 76,
+      "address": "0xfffffff0078b50d0"
+    },
+    {
+      "slot": 77,
+      "address": "0xfffffff0078b50f4"
+    },
+    {
+      "slot": 78,
+      "address": "0xfffffff0078c6a5c"
+    },
+    {
+      "slot": 79,
+      "address": "0xfffffff00578b0a8"
+    },
+    {
+      "slot": 80,
+      "address": "0xfffffff0078b6378"
+    },
+    {
+      "slot": 81,
+      "address": "0xfffffff0078be058"
+    },
+    {
+      "slot": 82,
+      "address": "0xfffffff0078be218"
+    },
+    {
+      "slot": 83,
+      "address": "0xfffffff0078bb99c"
+    },
+    {
+      "slot": 84,
+      "address": "0xfffffff0078b0940"
+    },
+    {
+      "slot": 85,
+      "address": "0xfffffff005787060"
+    },
+    {
+      "slot": 86,
+      "address": "0xfffffff0057872e8"
+    },
+    {
+      "slot": 87,
+      "address": "0xfffffff00578886c"
+    },
+    {
+      "slot": 88,
+      "address": "0xfffffff0078b5ec4"
+    },
+    {
+      "slot": 89,
+      "address": "0xfffffff0078b6024"
+    },
+    {
+      "slot": 90,
+      "address": "0xfffffff0078b6148"
+    },
+    {
+      "slot": 91,
+      "address": "0xfffffff0078b61a4"
+    },
+    {
+      "slot": 92,
+      "address": "0xfffffff0078b6214"
+    },
+    {
+      "slot": 93,
+      "address": "0xfffffff0078b622c"
+    },
+    {
+      "slot": 94,
+      "address": "0xfffffff0078b5ebc"
+    },
+    {
+      "slot": 95,
+      "address": "0xfffffff0078b5c38"
+    },
+    {
+      "slot": 96,
+      "address": "0xfffffff0078b269c"
+    },
+    {
+      "slot": 97,
+      "address": "0xfffffff0078b296c"
+    },
+    {
+      "slot": 98,
+      "address": "0xfffffff0078b5e58"
+    },
+    {
+      "slot": 99,
+      "address": "0xfffffff0078b9b5c"
+    },
+    {
+      "slot": 100,
+      "address": "0xfffffff0078b9aa0"
+    },
+    {
+      "slot": 101,
+      "address": "0xfffffff0078b19d4"
+    },
+    {
+      "slot": 102,
+      "address": "0xfffffff0078b19e0"
+    },
+    {
+      "slot": 103,
+      "address": "0xfffffff0078bcfa4"
+    },
+    {
+      "slot": 104,
+      "address": "0xfffffff0078b8fa4"
+    },
+    {
+      "slot": 105,
+      "address": "0xfffffff0078bcd4c"
+    },
+    {
+      "slot": 106,
+      "address": "0xfffffff0078bcde0"
+    },
+    {
+      "slot": 107,
+      "address": "0xfffffff0078bce74"
+    },
+    {
+      "slot": 108,
+      "address": "0xfffffff0078afdd8"
+    },
+    {
+      "slot": 109,
+      "address": "0xfffffff0078b0074"
+    },
+    {
+      "slot": 110,
+      "address": "0xfffffff0078b19f0"
+    },
+    {
+      "slot": 111,
+      "address": "0xfffffff00578cb78"
+    },
+    {
+      "slot": 112,
+      "address": "0xfffffff0078b1a94"
+    },
+    {
+      "slot": 113,
+      "address": "0xfffffff0078b1cd8"
+    },
+    {
+      "slot": 114,
+      "address": "0xfffffff0078b1aa8"
+    },
+    {
+      "slot": 115,
+      "address": "0xfffffff0078b1abc"
+    },
+    {
+      "slot": 116,
+      "address": "0xfffffff0078b1d94"
+    },
+    {
+      "slot": 117,
+      "address": "0xfffffff0078b1e50"
+    },
+    {
+      "slot": 118,
+      "address": "0xfffffff0078b20a8"
+    },
+    {
+      "slot": 119,
+      "address": "0xfffffff0078b19e8"
+    },
+    {
+      "slot": 120,
+      "address": "0xfffffff0078bd41c"
+    },
+    {
+      "slot": 121,
+      "address": "0xfffffff0078bd464"
+    },
+    {
+      "slot": 122,
+      "address": "0xfffffff0078bd4c0"
+    },
+    {
+      "slot": 123,
+      "address": "0xfffffff0078bd504"
+    },
+    {
+      "slot": 124,
+      "address": "0xfffffff0078bd534"
+    },
+    {
+      "slot": 125,
+      "address": "0xfffffff0078bd7a8"
+    },
+    {
+      "slot": 126,
+      "address": "0xfffffff0078bd91c"
+    },
+    {
+      "slot": 127,
+      "address": "0xfffffff0078bde24"
+    },
+    {
+      "slot": 128,
+      "address": "0xfffffff0078bded8"
+    },
+    {
+      "slot": 129,
+      "address": "0xfffffff0078bdf58"
+    },
+    {
+      "slot": 130,
+      "address": "0xfffffff0078bdfd8"
+    },
+    {
+      "slot": 131,
+      "address": "0xfffffff0078bd2f0"
+    },
+    {
+      "slot": 132,
+      "address": "0xfffffff0078bd410"
+    },
+    {
+      "slot": 133,
+      "address": "0xfffffff0078b2b34"
+    },
+    {
+      "slot": 134,
+      "address": "0xfffffff0078b2e8c"
+    },
+    {
+      "slot": 135,
+      "address": "0xfffffff0078b2f28"
+    },
+    {
+      "slot": 136,
+      "address": "0xfffffff0078b2ac8"
+    },
+    {
+      "slot": 137,
+      "address": "0xfffffff0078b2adc"
+    },
+    {
+      "slot": 138,
+      "address": "0xfffffff0078b2cd4"
+    },
+    {
+      "slot": 139,
+      "address": "0xfffffff0078b2f1c"
+    },
+    {
+      "slot": 140,
+      "address": "0xfffffff0078bcff8"
+    },
+    {
+      "slot": 141,
+      "address": "0xfffffff005789080"
+    },
+    {
+      "slot": 142,
+      "address": "0xfffffff0078bd324"
+    },
+    {
+      "slot": 143,
+      "address": "0xfffffff0078bd334"
+    },
+    {
+      "slot": 144,
+      "address": "0xfffffff0078be7e4"
+    },
+    {
+      "slot": 145,
+      "address": "0xfffffff0078c0c40"
+    },
+    {
+      "slot": 146,
+      "address": "0xfffffff0078c0c04"
+    },
+    {
+      "slot": 147,
+      "address": "0xfffffff0078c296c"
+    },
+    {
+      "slot": 148,
+      "address": "0xfffffff0078c54f4"
+    },
+    {
+      "slot": 149,
+      "address": "0xfffffff0078c6488"
+    },
+    {
+      "slot": 150,
+      "address": "0xfffffff0078c6d6c"
+    },
+    {
+      "slot": 151,
+      "address": "0xfffffff0078c6d74"
+    },
+    {
+      "slot": 152,
+      "address": "0xfffffff0078c1770"
+    },
+    {
+      "slot": 153,
+      "address": "0xfffffff0078c2498"
+    },
+    {
+      "slot": 154,
+      "address": "0xfffffff0078c68a8"
+    },
+    {
+      "slot": 155,
+      "address": "0xfffffff0057972b0"
+    },
+    {
+      "slot": 156,
+      "address": "0xfffffff0078ce720"
+    },
+    {
+      "slot": 157,
+      "address": "0xfffffff0078ce768"
+    },
+    {
+      "slot": 158,
+      "address": "0xfffffff0078ce7bc"
+    },
+    {
+      "slot": 159,
+      "address": "0xfffffff0078ce804"
+    },
+    {
+      "slot": 160,
+      "address": "0xfffffff0078ce80c"
+    },
+    {
+      "slot": 161,
+      "address": "0xfffffff0078cbaf0"
+    },
+    {
+      "slot": 162,
+      "address": "0xfffffff0078cbafc"
+    },
+    {
+      "slot": 163,
+      "address": "0xfffffff0078cd350"
+    },
+    {
+      "slot": 164,
+      "address": "0xfffffff0078cd4ac"
+    },
+    {
+      "slot": 165,
+      "address": "0xfffffff0078cddb0"
+    },
+    {
+      "slot": 166,
+      "address": "0xfffffff0078cde18"
+    },
+    {
+      "slot": 167,
+      "address": "0xfffffff0078ce814"
+    },
+    {
+      "slot": 168,
+      "address": "0xfffffff00579fb24"
+    },
+    {
+      "slot": 169,
+      "address": "0xfffffff0057891d8"
+    },
+    {
+      "slot": 170,
+      "address": "0xfffffff00578c998"
+    },
+    {
+      "slot": 171,
+      "address": "0xfffffff00578cb00"
+    },
+    {
+      "slot": 172,
+      "address": "0xfffffff00578cb10"
+    },
+    {
+      "slot": 173,
+      "address": "0xfffffff00578cb90"
+    },
+    {
+      "slot": 174,
+      "address": "0xfffffff00578cbf8"
+    },
+    {
+      "slot": 175,
+      "address": "0xfffffff005792774"
+    },
+    {
+      "slot": 176,
+      "address": "0xfffffff00578d998"
+    },
+    {
+      "slot": 177,
+      "address": "0xfffffff00578e290"
+    },
+    {
+      "slot": 178,
+      "address": "0xfffffff00578f224"
+    },
+    {
+      "slot": 179,
+      "address": "0xfffffff005791ffc"
+    },
+    {
+      "slot": 180,
+      "address": "0xfffffff005798404"
+    },
+    {
+      "slot": 181,
+      "address": "0xfffffff005798538"
+    },
+    {
+      "slot": 182,
+      "address": "0xfffffff00579fb3c"
+    },
+    {
+      "slot": 183,
+      "address": "0xfffffff005797470"
+    },
+    {
+      "slot": 184,
+      "address": "0xfffffff00578cb20"
+    },
+    {
+      "slot": 185,
+      "address": "0xfffffff00579748c"
+    },
+    {
+      "slot": 186,
+      "address": "0xfffffff0057980e0"
+    },
+    {
+      "slot": 187,
+      "address": "0xfffffff00578cbb4"
+    },
+    {
+      "slot": 188,
+      "address": "0xfffffff005798184"
+    },
+    {
+      "slot": 189,
+      "address": "0xfffffff0057982bc"
+    },
+    {
+      "slot": 190,
+      "address": "0xfffffff0057974ac"
+    },
+    {
+      "slot": 191,
+      "address": "0xfffffff0057978b0"
+    },
+    {
+      "slot": 192,
+      "address": "0xfffffff005797d74"
+    },
+    {
+      "slot": 193,
+      "address": "0xfffffff005798014"
+    },
+    {
+      "slot": 194,
+      "address": "0xfffffff0057977c8"
+    },
+    {
+      "slot": 195,
+      "address": "0xfffffff005795bec"
+    },
+    {
+      "slot": 196,
+      "address": "0xfffffff005795c08"
+    },
+    {
+      "slot": 197,
+      "address": "0xfffffff005795c24"
+    },
+    {
+      "slot": 198,
+      "address": "0xfffffff005795e00"
+    },
+    {
+      "slot": 199,
+      "address": "0xfffffff005795c60"
+    },
+    {
+      "slot": 200,
+      "address": "0xfffffff005795c44"
+    },
+    {
+      "slot": 201,
+      "address": "0xfffffff005795cb8"
+    },
+    {
+      "slot": 202,
+      "address": "0xfffffff005795c7c"
+    },
+    {
+      "slot": 203,
+      "address": "0xfffffff005795c9c"
+    },
+    {
+      "slot": 204,
+      "address": "0xfffffff005795d10"
+    },
+    {
+      "slot": 205,
+      "address": "0xfffffff005795d5c"
+    },
+    {
+      "slot": 206,
+      "address": "0xfffffff005795d78"
+    },
+    {
+      "slot": 207,
+      "address": "0xfffffff005795de4"
+    },
+    {
+      "slot": 208,
+      "address": "0xfffffff005795e14"
+    },
+    {
+      "slot": 209,
+      "address": "0xfffffff0057960f0"
+    },
+    {
+      "slot": 210,
+      "address": "0xfffffff005794058"
+    },
+    {
+      "slot": 211,
+      "address": "0xfffffff007a26738"
+    },
+    {
+      "slot": 212,
+      "address": "0xfffffff00579fb50"
+    },
+    {
+      "slot": 213,
+      "address": "0xfffffff007a26738"
+    },
+    {
+      "slot": 214,
+      "address": "0xfffffff005796b7c"
+    },
+    {
+      "slot": 215,
+      "address": "0xfffffff005796d0c"
+    },
+    {
+      "slot": 216,
+      "address": "0xfffffff005796f0c"
+    },
+    {
+      "slot": 217,
+      "address": "0xfffffff0057893bc"
+    },
+    {
+      "slot": 218,
+      "address": "0xfffffff00578961c"
+    },
+    {
+      "slot": 219,
+      "address": "0xfffffff00578dde4"
+    },
+    {
+      "slot": 220,
+      "address": "0xfffffff00579ed9c"
+    },
+    {
+      "slot": 221,
+      "address": "0xfffffff00579edb4"
+    },
+    {
+      "slot": 222,
+      "address": "0xfffffff00579edd0"
+    },
+    {
+      "slot": 223,
+      "address": "0xfffffff00579fb64"
+    },
+    {
+      "slot": 224,
+      "address": "0xfffffff00579fb98"
+    },
+    {
+      "slot": 225,
+      "address": "0xfffffff00579fbcc"
+    },
+    {
+      "slot": 226,
+      "address": "0xfffffff00579fc00"
+    },
+    {
+      "slot": 227,
+      "address": "0xfffffff00579edec"
+    },
+    {
+      "slot": 228,
+      "address": "0xfffffff00579efb0"
+    },
+    {
+      "slot": 229,
+      "address": "0xfffffff0057973b8"
+    },
+    {
+      "slot": 230,
+      "address": "0xfffffff00579ae68"
+    },
+    {
+      "slot": 231,
+      "address": "0xfffffff00579a2a8"
+    },
+    {
+      "slot": 232,
+      "address": "0xfffffff00579a2fc"
+    },
+    {
+      "slot": 233,
+      "address": "0xfffffff005795cd8"
+    },
+    {
+      "slot": 234,
+      "address": "0xfffffff005795cf4"
+    },
+    {
+      "slot": 235,
+      "address": "0xfffffff00579a318"
+    },
+    {
+      "slot": 236,
+      "address": "0xfffffff00579a338"
+    },
+    {
+      "slot": 237,
+      "address": "0xfffffff00579a354"
+    },
+    {
+      "slot": 238,
+      "address": "0xfffffff00579a370"
+    },
+    {
+      "slot": 239,
+      "address": "0xfffffff00579a2c4"
+    },
+    {
+      "slot": 240,
+      "address": "0xfffffff00579a2e0"
+    },
+    {
+      "slot": 241,
+      "address": "0xfffffff00579fc28"
+    },
+    {
+      "slot": 242,
+      "address": "0xfffffff00578b390"
+    },
+    {
+      "slot": 243,
+      "address": "0xfffffff00578b450"
+    },
+    {
+      "slot": 244,
+      "address": "0xfffffff00579fc48"
+    },
+    {
+      "slot": 245,
+      "address": "0xfffffff007a26738"
+    },
+    {
+      "slot": 246,
+      "address": "0xfffffff007a26738"
+    },
+    {
+      "slot": 247,
+      "address": "0xfffffff00579fc5c"
+    },
+    {
+      "slot": 248,
+      "address": "0xfffffff00579fc74"
+    },
+    {
+      "slot": 249,
+      "address": "0xfffffff00579fc8c"
+    },
+    {
+      "slot": 250,
+      "address": "0xfffffff00579fcfc"
+    },
+    {
+      "slot": 251,
+      "address": "0xfffffff00579fd10"
+    },
+    {
+      "slot": 252,
+      "address": "0xfffffff00579fd24"
+    },
+    {
+      "slot": 253,
+      "address": "0xfffffff00579fd38"
+    },
+    {
+      "slot": 254,
+      "address": "0xfffffff00579fd54"
+    },
+    {
+      "slot": 255,
+      "address": "0xfffffff00579fd68"
+    },
+    {
+      "slot": 256,
+      "address": "0xfffffff00579fd80"
+    },
+    {
+      "slot": 257,
+      "address": "0xfffffff00579fd9c"
+    },
+    {
+      "slot": 258,
+      "address": "0xfffffff00579fdb8"
+    },
+    {
+      "slot": 259,
+      "address": "0xfffffff00579fdd0"
+    },
+    {
+      "slot": 260,
+      "address": "0xfffffff00579fde8"
+    },
+    {
+      "slot": 261,
+      "address": "0xfffffff00579fdfc"
+    },
+    {
+      "slot": 262,
+      "address": "0xfffffff00579fe14"
+    },
+    {
+      "slot": 263,
+      "address": "0xfffffff00579fe2c"
+    },
+    {
+      "slot": 264,
+      "address": "0xfffffff005796a40"
+    },
+    {
+      "slot": 265,
+      "address": "0xfffffff0057969f8"
+    },
+    {
+      "slot": 266,
+      "address": "0xfffffff00579fe44"
+    },
+    {
+      "slot": 267,
+      "address": "0xfffffff00579fe60"
+    },
+    {
+      "slot": 268,
+      "address": "0xfffffff00579fe78"
+    },
+    {
+      "slot": 269,
+      "address": "0xfffffff00579fe90"
+    },
+    {
+      "slot": 270,
+      "address": "0xfffffff00579fea8"
+    },
+    {
+      "slot": 271,
+      "address": "0xfffffff00579fecc"
+    },
+    {
+      "slot": 272,
+      "address": "0xfffffff00579fedc"
+    },
+    {
+      "slot": 273,
+      "address": "0xfffffff00579fef8"
+    },
+    {
+      "slot": 274,
+      "address": "0xfffffff00579ff08"
+    },
+    {
+      "slot": 275,
+      "address": "0xfffffff00579ff24"
+    },
+    {
+      "slot": 276,
+      "address": "0xfffffff00579ff40"
+    },
+    {
+      "slot": 277,
+      "address": "0xfffffff00579ff5c"
+    },
+    {
+      "slot": 278,
+      "address": "0xfffffff00579ff78"
+    },
+    {
+      "slot": 279,
+      "address": "0xfffffff00579ff94"
+    },
+    {
+      "slot": 280,
+      "address": "0xfffffff00579ffac"
+    },
+    {
+      "slot": 281,
+      "address": "0xfffffff00579ffc4"
+    },
+    {
+      "slot": 282,
+      "address": "0xfffffff00579ffdc"
+    },
+    {
+      "slot": 283,
+      "address": "0xfffffff00579fffc"
+    },
+    {
+      "slot": 284,
+      "address": "0xfffffff0057a001c"
+    },
+    {
+      "slot": 285,
+      "address": "0xfffffff0057a004c"
+    },
+    {
+      "slot": 286,
+      "address": "0xfffffff0057a007c"
+    },
+    {
+      "slot": 287,
+      "address": "0xfffffff00579fa18"
+    },
+    {
+      "slot": 288,
+      "address": "0xfffffff00579278c"
+    },
+    {
+      "slot": 289,
+      "address": "0xfffffff0057927a4"
+    },
+    {
+      "slot": 290,
+      "address": "0xfffffff005794030"
+    },
+    {
+      "slot": 291,
+      "address": "0xfffffff0057927c8"
+    },
+    {
+      "slot": 292,
+      "address": "0xfffffff0057927e0"
+    },
+    {
+      "slot": 293,
+      "address": "0xfffffff0057927b4"
+    },
+    {
+      "slot": 294,
+      "address": "0xfffffff0057a0090"
+    },
+    {
+      "slot": 295,
+      "address": "0xfffffff005795b88"
+    },
+    {
+      "slot": 296,
+      "address": "0xfffffff005795bb4"
+    },
+    {
+      "slot": 297,
+      "address": "0xfffffff005795bd0"
+    },
+    {
+      "slot": 298,
+      "address": "0xfffffff0057a00bc"
+    },
+    {
+      "slot": 299,
+      "address": "0xfffffff005793694"
+    },
+    {
+      "slot": 300,
+      "address": "0xfffffff00578d87c"
+    },
+    {
+      "slot": 301,
+      "address": "0xfffffff00579ea5c"
+    },
+    {
+      "slot": 302,
+      "address": "0xfffffff0057a00d0"
+    },
+    {
+      "slot": 303,
+      "address": "0xfffffff0057985e8"
+    },
+    {
+      "slot": 304,
+      "address": "0xfffffff0057a00e4"
+    },
+    {
+      "slot": 305,
+      "address": "0xfffffff005794040"
+    },
+    {
+      "slot": 306,
+      "address": "0xfffffff007a26738"
+    },
+    {
+      "slot": 307,
+      "address": "0xfffffff007a26738"
+    },
+    {
+      "slot": 308,
+      "address": "0xfffffff0057a00f4"
+    },
+    {
+      "slot": 309,
+      "address": "0xfffffff00579c5ac"
+    },
+    {
+      "slot": 310,
+      "address": "0xfffffff00579c9d8"
+    },
+    {
+      "slot": 311,
+      "address": "0xfffffff00579c6c0"
+    },
+    {
+      "slot": 312,
+      "address": "0xfffffff00579cf6c"
+    },
+    {
+      "slot": 313,
+      "address": "0xfffffff00579d228"
+    },
+    {
+      "slot": 314,
+      "address": "0xfffffff00579d584"
+    },
+    {
+      "slot": 315,
+      "address": "0xfffffff00579d85c"
+    },
+    {
+      "slot": 316,
+      "address": "0xfffffff00579ea44"
+    },
+    {
+      "slot": 317,
+      "address": "0xfffffff00579af20"
+    },
+    {
+      "slot": 318,
+      "address": "0xfffffff00579af40"
+    },
+    {
+      "slot": 319,
+      "address": "0xfffffff0057a0108"
+    },
+    {
+      "slot": 320,
+      "address": "0xfffffff0057a0124"
+    },
+    {
+      "slot": 321,
+      "address": "0xfffffff0057a0138"
+    },
+    {
+      "slot": 322,
+      "address": "0xfffffff005798af4"
+    },
+    {
+      "slot": 323,
+      "address": "0xfffffff0057a014c"
+    },
+    {
+      "slot": 324,
+      "address": "0xfffffff0057a0164"
+    },
+    {
+      "slot": 325,
+      "address": "0xfffffff00579a13c"
+    },
+    {
+      "slot": 326,
+      "address": "0xfffffff0057a017c"
+    },
+    {
+      "slot": 327,
+      "address": "0xfffffff0057a0190"
+    },
+    {
+      "slot": 328,
+      "address": "0xfffffff0057a01b0"
+    },
+    {
+      "slot": 329,
+      "address": "0xfffffff0057a01c8"
+    },
+    {
+      "slot": 330,
+      "address": "0xfffffff0057a01e4"
+    },
+    {
+      "slot": 331,
+      "address": "0xfffffff0057a0200"
+    },
+    {
+      "slot": 332,
+      "address": "0xfffffff0057a0220"
+    },
+    {
+      "slot": 333,
+      "address": "0xfffffff00578cca8"
+    },
+    {
+      "slot": 334,
+      "address": "0xfffffff00578b2e8"
+    },
+    {
+      "slot": 335,
+      "address": "0xfffffff00578d91c"
+    },
+    {
+      "slot": 336,
+      "address": "0xfffffff0057a023c"
+    },
+    {
+      "slot": 337,
+      "address": "0xfffffff007a26738"
+    },
+    {
+      "slot": 338,
+      "address": "0xfffffff007a26738"
+    },
+    {
+      "slot": 339,
+      "address": "0xfffffff00579e150"
+    },
+    {
+      "slot": 340,
+      "address": "0xfffffff005789698"
+    },
+    {
+      "slot": 341,
+      "address": "0xfffffff0057a0254"
+    },
+    {
+      "slot": 342,
+      "address": "0xfffffff0057a026c"
+    },
+    {
+      "slot": 343,
+      "address": "0xfffffff005796524"
+    },
+    {
+      "slot": 344,
+      "address": "0xfffffff005797224"
+    },
+    {
+      "slot": 345,
+      "address": "0xfffffff007a26738"
+    },
+    {
+      "slot": 346,
+      "address": "0xfffffff00578a428"
+    },
+    {
+      "slot": 347,
+      "address": "0xfffffff0057941f8"
+    },
+    {
+      "slot": 348,
+      "address": "0xfffffff0057942c0"
+    },
+    {
+      "slot": 349,
+      "address": "0xfffffff005794318"
+    },
+    {
+      "slot": 350,
+      "address": "0xfffffff0057a0288"
+    },
+    {
+      "slot": 351,
+      "address": "0xfffffff0057a029c"
+    },
+    {
+      "slot": 352,
+      "address": "0xfffffff0057a02ac"
+    },
+    {
+      "slot": 353,
+      "address": "0xfffffff0057a02bc"
+    },
+    {
+      "slot": 354,
+      "address": "0xfffffff0057970cc"
+    },
+    {
+      "slot": 355,
+      "address": "0xfffffff0057a02d4"
+    },
+    {
+      "slot": 356,
+      "address": "0xfffffff0057971f8"
+    },
+    {
+      "slot": 357,
+      "address": "0xfffffff00579720c"
+    }
+  ],
+  "native_symbols": {
+    "__ZN15IORegistryEntry11detachAboveEPK15IORegistryPlane": 18446744005116610012,
+    "__ZN15IORegistryEntry11setLocationEPK8OSSymbolPK15IORegistryPlane": 18446744005116601352,
+    "__ZN15IORegistryEntry11setLocationEPKcPK15IORegistryPlane": 18446744005116601516,
+    "__ZN15IORegistryEntry11setPropertyEPK8OSStringP8OSObject": 18446744005116599260,
+    "__ZN15IORegistryEntry11setPropertyEPK8OSSymbolP8OSObject": 18446744005116598556,
+    "__ZN15IORegistryEntry11setPropertyEPKcP8OSObject": 18446744005116599360,
+    "__ZN15IORegistryEntry11setPropertyEPKcPvj": 18446744005116599856,
+    "__ZN15IORegistryEntry11setPropertyEPKcS1_": 18446744005116599460,
+    "__ZN15IORegistryEntry11setPropertyEPKcb": 18446744005116599592,
+    "__ZN15IORegistryEntry11setPropertyEPKcyj": 18446744005116599720,
+    "__ZN15IORegistryEntry13attachToChildEPS_PK15IORegistryPlane": 18446744005116608996,
+    "__ZN15IORegistryEntry13childFromPathEPKcPK15IORegistryPlanePcPi": 18446744005116606004,
+    "__ZN15IORegistryEntry13setPropertiesEP8OSObject": 18446744005116595176,
+    "__ZN15IORegistryEntry14attachToParentEPS_PK15IORegistryPlane": 18446744005116608308,
+    "__ZN15IORegistryEntry14removePropertyEPK8OSString": 18446744005116599116,
+    "__ZN15IORegistryEntry14removePropertyEPK8OSSymbol": 18446744005116598484,
+    "__ZN15IORegistryEntry14removePropertyEPKc": 18446744005116599188,
+    "__ZN15IORegistryEntry15detachFromChildEPS_PK15IORegistryPlane": 18446744005116609676,
+    "__ZN15IORegistryEntry16detachFromParentEPS_PK15IORegistryPlane": 18446744005116609340,
+    "__ZN15IORegistryEntry16setPropertyTableEP12OSDictionary": 18446744005116594776,
+    "__ZN15IORegistryEntry17runPropertyActionEPFiP8OSObjectPvS2_S2_S2_ES1_S2_S2_S2_S2_": 18446744005116598764,
+    "__ZN15IORegistryEntry7setNameEPK8OSSymbolPK15IORegistryPlane": 18446744005116600844,
+    "__ZN15IORegistryEntry7setNameEPKcPK15IORegistryPlane": 18446744005116601136,
+    "__ZN15IORegistryEntry9detachAllEPK15IORegistryPlane": 18446744005116610172,
+    "__ZN8OSObject4initEv": 18446744005116205916,
+    "__ZN9IOService10adjustBusyEi": 18446744005116664480,
+    "__ZN9IOService10handleOpenEPS_jPv": 18446744005116649892,
+    "__ZN9IOService10joinPMtreeEPS_": 18446744005116693508,
+    "__ZN9IOService11handleCloseEPS_j": 18446744005116650004,
+    "__ZN9IOService12didTerminateEPS_jPb": 18446744005116645620,
+    "__ZN9IOService12getBusyStateEv": 18446744005116664668,
+    "__ZN9IOService12getResourcesEv": 18446744005116631528,
+    "__ZN9IOService12requestProbeEj": 18446744005116678896,
+    "__ZN9IOService12tellChangeUpEm": 18446744005116744876,
+    "__ZN9IOService12updateReportEP19IOReportChannelListjPvS2_": 18446744005116682776,
+    "__ZN9IOService13addPowerChildEPS_": 18446744005116696432,
+    "__ZN9IOService13askChangeDownEm": 18446744005116738288,
+    "__ZN9IOService13matchLocationEPS_": 18446744005116678052,
+    "__ZN9IOService13messageClientEjP8OSObjectPvm": 18446744005116635956,
+    "__ZN9IOService13newUserClientEP4taskPvjP12OSDictionaryPP12IOUserClient": 18446744005116678136,
+    "__ZN9IOService13newUserClientEP4taskPvjPP12IOUserClient": 18446744005116678824,
+    "__ZN9IOService13setPowerStateEmPS_": 18446744005116749520,
+    "__ZN9IOService13willTerminateEPS_j": 18446744005116645584,
+    "__ZN9IOService14activityTickleEmm": 18446744005116716168,
+    "__ZN9IOService14applyToClientsEPFvPS_PvES1_": 18446744005116635868,
+    "__ZN9IOService14causeInterruptEi": 18446744005116682200,
+    "__ZN9IOService14messageClientsEjPvm": 18446744005116636812,
+    "__ZN9IOService14tellChangeDownEm": 18446744005116738300,
+    "__ZN9IOService15comparePropertyEP12OSDictionaryPK8OSString": 18446744005116677600,
+    "__ZN9IOService15comparePropertyEP12OSDictionaryPKc": 18446744005116677452,
+    "__ZN9IOService15configureReportEP19IOReportChannelListjPvS2_": 18446744005116682328,
+    "__ZN9IOService15enableInterruptEi": 18446744005116681944,
+    "__ZN9IOService15errnoFromReturnEi": 18446744005116678964,
+    "__ZN9IOService15getDeviceMemoryEv": 18446744005116679428,
+    "__ZN9IOService15nextIdleTimeoutEyyj": 18446744005116717660,
+    "__ZN9IOService15powerChangeDoneEm": 18446744005116749844,
+    "__ZN9IOService15registerServiceEj": 18446744005116627264,
+    "__ZN9IOService15setDeviceMemoryEP7OSArray": 18446744005116679476,
+    "__ZN9IOService15terminateClientEPS_j": 18446744005116649048,
+    "__ZN9IOService16allowPowerChangeEm": 18446744005116747184,
+    "__ZN9IOService16applyToProvidersEPFvPS_PvES1_": 18446744005116635848,
+    "__ZN9IOService16disableInterruptEi": 18446744005116682072,
+    "__ZN9IOService16getInterruptTypeEiPi": 18446744005116681764,
+    "__ZN9IOService16registerInterestEPK8OSSymbolPFiPvS3_jPS_S3_mES3_S3_": 18446744005116636968,
+    "__ZN9IOService16removePowerChildEP17IOPowerConnection": 18446744005116699800,
+    "__ZN9IOService16requestTerminateEPS_j": 18446744005116638556,
+    "__ZN9IOService16stringFromReturnEi": 18446744005116678948,
+    "__ZN9IOService16tellNoChangeDownEm": 18446744005116744528,
+    "__ZN9IOService17addNeededResourceEPKc": 18446744005116661668,
+    "__ZN9IOService17applyToInterestedEPK8OSSymbolPFvP8OSObjectPvES5_": 18446744005116636372,
+    "__ZN9IOService17cancelPowerChangeEm": 18446744005116747288,
+    "__ZN9IOService17comparePropertiesEP12OSDictionaryP12OSCollection": 18446744005116677748,
+    "__ZN9IOService17getAggressivenessEmPm": 18446744005116718452,
+    "__ZN9IOService17registerInterruptEiP8OSObjectPFvS1_PvPS_iES2_": 18446744005116680104,
+    "__ZN9IOService17setAggressivenessEmm": 18446744005116718444,
+    "__ZN9IOService18lockForArbitrationEb": 18446744005116634780,
+    "__ZN9IOService18matchPropertyTableEP12OSDictionary": 18446744005116631520,
+    "__ZN9IOService18matchPropertyTableEP12OSDictionaryPi": 18446744005116631508,
+    "__ZN9IOService18setIdleTimerPeriodEm": 18446744005116717224,
+    "__ZN9IOService18systemWillShutdownEj": 18446744005116749848,
+    "__ZN9IOService19registerPowerDriverEPS_P14IOPMPowerStatem": 18446744005116701036,
+    "__ZN9IOService19unregisterInterruptEi": 18446744005116680476,
+    "__ZN9IOService20callPlatformFunctionEPK8OSSymbolbPvS3_S3_S3_": 18446744005116632656,
+    "__ZN9IOService20callPlatformFunctionEPKcbPvS2_S2_S2_": 18446744005116633256,
+    "__ZN9IOService20getDeviceMemoryCountEv": 18446744005116679196,
+    "__ZN9IOService20unlockForArbitrationEv": 18446744005116635500,
+    "__ZN9IOService21powerStateDidChangeToEmmPS_": 18446744005116749836,
+    "__ZN9IOService22copyClientWithCategoryEPK8OSSymbol": 18446744005116650360,
+    "__ZN9IOService22powerStateWillChangeToEmmPS_": 18446744005116749828,
+    "__ZN9IOService23acknowledgeNotificationEPvj": 18446744005116636956,
+    "__ZN9IOService23requestPowerDomainStateEmP17IOPowerConnectionm": 18446744005116712180,
+    "__ZN9IOService24getDeviceMemoryWithIndexEj": 18446744005116679268,
+    "__ZN9IOService24mapDeviceMemoryWithIndexEjj": 18446744005116679360,
+    "__ZN9IOService24powerStateForDomainStateEm": 18446744005116749756,
+    "__ZN9IOService27maxCapabilityForDomainStateEm": 18446744005116749600,
+    "__ZN9IOService31initialPowerStateForDomainStateEm": 18446744005116749672,
+    "__ZN9IOService4freeEv": 18446744005116622796,
+    "__ZN9IOService4initEP12OSDictionary": 18446744005116622612,
+    "__ZN9IOService4initEP15IORegistryEntryPK15IORegistryPlane": 18446744005116622704,
+    "__ZN9IOService4openEPS_jPv": 18446744005116649156,
+    "__ZN9IOService4stopEPS_": 18446744005116622568,
+    "__ZN9IOService5closeEPS_j": 18446744005116649508,
+    "__ZN9IOService5probeEPS_Pi": 18446744005116622556,
+    "__ZN9IOService5startEPS_": 18446744005116622560,
+    "__ZN9IOService6PMinitEv": 18446744005116684260,
+    "__ZN9IOService6PMstopEv": 18446744005116693568,
+    "__ZN9IOService6attachEPS_": 18446744005116624344,
+    "__ZN9IOService6detachEPS_": 18446744005116625012,
+    "__ZN9IOService7messageEjPS_Pv": 18446744005116679184,
+    "__ZN9IOService8DispatchE5IORPC": 18446744005116493456,
+    "__ZN9IOService8finalizeEj": 18446744005116648504,
+    "__ZN9IOService9terminateEj": 18446744005116649148,
+    "__ZNK15IORegistryEntry11compareNameEP8OSStringPS1_": 18446744005116601624,
+    "__ZNK15IORegistryEntry11getLocationEPK15IORegistryPlane": 18446744005116600764,
+    "__ZNK15IORegistryEntry11getPropertyEPK8OSString": 18446744005116598948,
+    "__ZNK15IORegistryEntry11getPropertyEPK8OSStringPK15IORegistryPlanej": 18446744005116595988,
+    "__ZNK15IORegistryEntry11getPropertyEPK8OSSymbol": 18446744005116598400,
+    "__ZNK15IORegistryEntry11getPropertyEPK8OSSymbolPK15IORegistryPlanej": 18446744005116595500,
+    "__ZNK15IORegistryEntry11getPropertyEPKc": 18446744005116599032,
+    "__ZNK15IORegistryEntry11getPropertyEPKcPK15IORegistryPlanej": 18446744005116596264,
+    "__ZNK15IORegistryEntry12compareNamesEP8OSObjectPP8OSString": 18446744005116601764,
+    "__ZNK15IORegistryEntry12copyLocationEPK15IORegistryPlane": 18446744005116600620,
+    "__ZNK15IORegistryEntry12copyPropertyEPK8OSString": 18446744005116595292,
+    "__ZNK15IORegistryEntry12copyPropertyEPK8OSStringPK15IORegistryPlanej": 18446744005116596816,
+    "__ZNK15IORegistryEntry12copyPropertyEPK8OSSymbol": 18446744005116595188,
+    "__ZNK15IORegistryEntry12copyPropertyEPK8OSSymbolPK15IORegistryPlanej": 18446744005116596540,
+    "__ZNK15IORegistryEntry12copyPropertyEPKc": 18446744005116595396,
+    "__ZNK15IORegistryEntry12copyPropertyEPKcPK15IORegistryPlanej": 18446744005116597092,
+    "__ZNK15IORegistryEntry13getChildEntryEPK15IORegistryPlane": 18446744005116606804,
+    "__ZNK15IORegistryEntry14applyToParentsEPFvPS_PvES1_PK15IORegistryPlane": 18446744005116607080,
+    "__ZNK15IORegistryEntry14copyChildEntryEPK15IORegistryPlane": 18446744005116606676,
+    "__ZNK15IORegistryEntry14getParentEntryEPK15IORegistryPlane": 18446744005116606332,
+    "__ZNK15IORegistryEntry15applyToChildrenEPFvPS_PvES1_PK15IORegistryPlane": 18446744005116606864,
+    "__ZNK15IORegistryEntry15copyParentEntryEPK15IORegistryPlane": 18446744005116606204,
+    "__ZNK15IORegistryEntry16getChildIteratorEPK15IORegistryPlane": 18446744005116606392,
+    "__ZNK15IORegistryEntry16getPathComponentEPcPiPK15IORegistryPlane": 18446744005116603984,
+    "__ZNK15IORegistryEntry17getParentIteratorEPK15IORegistryPlane": 18446744005116606032,
+    "__ZNK15IORegistryEntry24dictionaryWithPropertiesEv": 18446744005116595084,
+    "__ZNK15IORegistryEntry7getNameEPK15IORegistryPlane": 18446744005116600260,
+    "__ZNK15IORegistryEntry7getPathEPcPiPK15IORegistryPlane": 18446744005116602208,
+    "__ZNK15IORegistryEntry7inPlaneEPK15IORegistryPlane": 18446744005116608032,
+    "__ZNK15IORegistryEntry7isChildEPS_PK15IORegistryPlaneb": 18446744005116607296,
+    "__ZNK15IORegistryEntry8copyNameEPK15IORegistryPlane": 18446744005116600444,
+    "__ZNK15IORegistryEntry8getDepthEPK15IORegistryPlane": 18446744005116610524,
+    "__ZNK15IORegistryEntry8isParentEPS_PK15IORegistryPlaneb": 18446744005116607664,
+    "__ZNK15OSMetaClassBase9isEqualToEPKS_": 18446744005116197204,
+    "__ZNK8OSObject12taggedRetainEPKv": 18446744005116204872,
+    "__ZNK8OSObject13taggedReleaseEPKv": 18446744005116204976,
+    "__ZNK8OSObject13taggedReleaseEPKvi": 18446744005116204992,
+    "__ZNK8OSObject14getRetainCountEv": 18446744005116204752,
+    "__ZNK8OSObject6retainEv": 18446744005116205252,
+    "__ZNK8OSObject7releaseEi": 18446744005116205292,
+    "__ZNK8OSObject7releaseEv": 18446744005116205236,
+    "__ZNK8OSObject9serializeEP11OSSerialize": 18446744005116205312,
+    "__ZNK9IOService11getProviderEv": 18446744005116631536,
+    "__ZNK9IOService11getWorkLoopEv": 18446744005116631652,
+    "__ZNK9IOService12handleIsOpenEPKS_": 18446744005116650028,
+    "__ZNK9IOService17getClientIteratorEv": 18446744005116631740,
+    "__ZNK9IOService19getProviderIteratorEv": 18446744005116631700,
+    "__ZNK9IOService19serializePropertiesEP11OSSerialize": 18446744005116666312,
+    "__ZNK9IOService21getOpenClientIteratorEv": 18446744005116632468,
+    "__ZNK9IOService23getOpenProviderIteratorEv": 18446744005116632280,
+    "__ZNK9IOService6isOpenEPKS_": 18446744005116649800,
+    "__ZNK9IOService8getStateEv": 18446744005116672412,
+    "__ZNK9IOService9getClientEv": 18446744005116631720
+  },
+  "checks": {
+    "0xfffffff0057865cc": "ffc300d1fd7b02a9fd830091883d00d00881159108410091e80700f9a0831ff8",
+    "0xfffffff005786618": "ff8300d1fd7b01a9fd430091e00700f9e00740f9e00300f9cbd3ff97e00340f9",
+    "0xfffffff005796720": "ff0302d1fd7b07a9fdc30191a0831ff8a1031ff8a2831ef8a3031ef8a8835ff8",
+    "0xfffffff00579ebb8": "ff0302d1fd7b07a9fdc30191a0031ff8a8035ff8e80f00f9e8f301b2e81300f9",
+    "0xfffffff005787ef8": "080040f9088144f900013fd6e000003701000014e03740f9a173ffb021141091",
+    "0xfffffff005795b88": "ff8300d1fd7b01a9fd430091e00700f9e00740f9280080520101001272d3ff97"
+  },
+  "original_instructions_modified": false,
+  "read_windows": {
+    "0xfffffff005796720": "ff0302d1fd7b07a9fdc30191a0831ff8",
+    "0xfffffff005796830": "08ed4af9",
+    "0xfffffff00579685c": "e2230091c3008052240080521684ff97",
+    "0xfffffff005795fbc": "0ab182d2",
+    "0xfffffff00579ea68": "888888d28888a0f2",
+    "0xfffffff00579ec54": "08b544f9",
+    "0xfffffff00579ebb8": "ff0302d1fd7b07a9fdc30191a0031ff8",
+    "0xfffffff00579ed54": "086540f90173ff90218c0c9100013fd6",
+    "0xfffffff005787ef8": "080040f9088144f900013fd6e0000037",
+    "0xfffffff005795b98": "e00740f9280080520101001272d3ff97",
+    "0xfffffff00578aa7c": "080040f9084545f9030080d2e20303aa0400805200013fd6",
+    "0xfffffff005777e9c": "080040f908e142f900013fd6c0000036",
+    "0xfffffff0057865fc": "c5d3ff97",
+    "0xfffffff005786630": "cbd3ff97",
+    "0xfffffff00579fcbc": "08b156b9",
+    "0xfffffff00579fce4": "08b556b9",
+    "0xfffffff004b9ead0": "001840f9c0035fd6",
+    "0xfffffff004b9ebbc": "002c40f9c0035fd6",
+    "0xfffffff004b9ebc4": "003040f9c0035fd6",
+    "0xfffffff004b9ebd4": "003440f9c0035fd6",
+    "0xfffffff004b9ebfc": "004840f9c0035fd6",
+    "0xfffffff004b9ebac": "008040b9c0035fd6",
+    "0xfffffff004b9ebf4": "009840b9c0035fd6"
+  }
+}

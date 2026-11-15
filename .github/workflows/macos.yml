@@ -175,6 +175,9 @@ jobs:
               path.write_text(text.replace(needle, "'timebase-frequency', 'timeout-sec'", 1))
           print("watchdog timeout-sec added to the ADT U32 whitelist")
           PY_WDT
+          # BBK display integration is pinned; never silently substitute another ABI.
+          test "$(git -C UniXNU/drivers/GopFramebuffer rev-parse HEAD)" = b0d812d578efa2acb005b66f73168891719af09a
+          git -C UniXNU/drivers/GopFramebuffer apply "$GITHUB_WORKSPACE/device/patches/unixnu/gop-bbk-cpu-only.patch"
           du -sh UniXNU
 
       - uses: actions/setup-python@v5
@@ -317,6 +320,13 @@ jobs:
           test -f "$KERNEL"
           python3 "$GITHUB_WORKSPACE/device/scripts/check-sdhci-bindings.py" "$KERNEL" \
             "$GITHUB_WORKSPACE/device/drivers/SdhciBlock/storage-bindings.json"
+
+      - name: Check original mobile display ABI and GOP archive
+        working-directory: UniXNU
+        run: |
+          set -euxo pipefail
+          KERNEL=$(ls out/*/*/*/kernel/kernel.macho | head -n 1)
+          python3 "$GITHUB_WORKSPACE/device/scripts/check-a2-gop-display.py" "$KERNEL" --prelink-tools kits/XnuPrelink
 
       - name: Apply BBK A2 bring-up kernel patches
         working-directory: UniXNU

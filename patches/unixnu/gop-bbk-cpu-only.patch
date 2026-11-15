@@ -1,0 +1,12 @@
+--- a/NativeLegacyDisplay.cpp
++++ b/NativeLegacyDisplay.cpp
+@@ -302,6 +302,9 @@
+     bool directOn=false,directBoot=true;
+     static constexpr uint32_t kVig[2]={0x4000,0x6000},kCtlFlush=0x15018,kBootIova=0xb8000000U,kBootStride=0x2fa0;
+     void startDirect() {
++#if defined(NATIVE_LEGACY_GOP_ONLY) && NATIVE_LEGACY_GOP_ONLY
++        return; // UMS512 uses inherited GOP; this implementation below is Qualcomm-specific.
++#endif
+         unsigned mode=0;PE_parse_boot_argn("dpu-scanout",&mode,sizeof(mode));
+         if(mode<2 || !&native_ufs_dpu_map || !&native_ufs_dpu_state || !(native_ufs_dpu_state>>31) || !primary)return;
+         IODeviceMemory *memory=IODeviceMemory::withRange(0xae01000,0x8f000);
