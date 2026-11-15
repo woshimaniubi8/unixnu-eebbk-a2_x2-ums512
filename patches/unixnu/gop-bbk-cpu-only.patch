@@ -1,12 +1,55 @@
 --- a/NativeLegacyDisplay.cpp
 +++ b/NativeLegacyDisplay.cpp
-@@ -302,6 +302,9 @@
+@@ -1,5 +1,8 @@
+ #define NATIVE_GPU_TRACE_OPTIONAL
+ #include "NativeGpuTrace.h"
++#if defined(NATIVE_LEGACY_GOP_ONLY) && NATIVE_LEGACY_GOP_ONLY
++#define gpuTraceEvent(...) ((void)0)
++#endif
+ #include "NativeLegacyRequest.h"
+ // SPDX-License-Identifier: BSD-2-Clause-Patent
+ // Reuse the unchanged original generic framebuffer implementation. Unknown
+@@ -212,6 +215,7 @@
+     unsigned validatedCount() const {unsigned n=0;for(auto entry: validated)if(entry)++n;return n;}
+     void stat(unsigned index) {native_legacy_swapstat[index]=native_legacy_swapstat[index]+1;}
+     void note(unsigned event,int slot,const OriginalLegacySwapRequest *request) {
++#if !defined(NATIVE_LEGACY_GOP_ONLY) || !NATIVE_LEGACY_GOP_ONLY
+         if(&native_gpu_trace_enabled && native_gpu_trace_enabled()) {
+             OSObject *surface=nullptr;
+             if(request)memcpy(&surface,reinterpret_cast<const unsigned char *>(request)+kRequestSurfaces,sizeof(surface));
+@@ -225,6 +229,7 @@
+                 native_legacy_surface_height(surface),native_legacy_surface_stride(surface),native_legacy_surface_format(surface),
+                 native_legacy_surface_allocation(surface),memory?memory->getLength():0);
+         }
++#endif
+         uint32_t submitted=0,retired=0;uint32_t outstanding=0;
+         if(&native_adreno_fences && native_adreno_fences(&submitted,&retired)){const int32_t d=int32_t(submitted-retired);outstanding=d>0?(d>255?255:uint32_t(d)):0;}
+         if(!native_legacy_ring_cap)return;
+@@ -302,6 +307,9 @@
      bool directOn=false,directBoot=true;
      static constexpr uint32_t kVig[2]={0x4000,0x6000},kCtlFlush=0x15018,kBootIova=0xb8000000U,kBootStride=0x2fa0;
      void startDirect() {
 +#if defined(NATIVE_LEGACY_GOP_ONLY) && NATIVE_LEGACY_GOP_ONLY
-+        return; // UMS512 uses inherited GOP; this implementation below is Qualcomm-specific.
++        return; // No Qualcomm scanout engine exists on UMS512.
 +#endif
          unsigned mode=0;PE_parse_boot_argn("dpu-scanout",&mode,sizeof(mode));
          if(mode<2 || !&native_ufs_dpu_map || !&native_ufs_dpu_state || !(native_ufs_dpu_state>>31) || !primary)return;
          IODeviceMemory *memory=IODeviceMemory::withRange(0xae01000,0x8f000);
+@@ -340,6 +348,9 @@
+     }
+     // The slot that holds this surface, mapping it into a free one (never the one on screen or the one waiting to latch) the first time.
+     int directSlot(OSObject *surface,IOMemoryDescriptor *memory) {
++#if defined(NATIVE_LEGACY_GOP_ONLY) && NATIVE_LEGACY_GOP_ONLY
++        return -1; // Only the firmware GOP destination is supported.
++#else
+         ++directClock;
+         int pick=-1;
+         for(unsigned k=0;k<kDirectSlots;++k)if(directSlots[k].surface==surface && directSlots[k].memory==memory){directSlots[k].used=directClock;return int(k);}
+@@ -368,6 +379,7 @@
+         slot={surface,memory,iova,directClock,directPages[0]};
+         native_legacy_direct[1]=native_legacy_direct[1]+1;
+         return pick;
++#endif
+     }
+     // A provider's failed query is not completion. Poll without blocking the display work loop;
+     // a slow GPU leaves the previous frame on screen until completion or family cancellation.

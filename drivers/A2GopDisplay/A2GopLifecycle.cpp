@@ -139,12 +139,11 @@ void native_legacy_surface_rejected(uint64_t width,uint64_t height,uint32_t form
     native_legacy_rej_surface[4]=stride;native_legacy_rej_surface[5]=allocation;native_legacy_rej_surface[6]=bytes;
 }
 // The display's request layout (rectangles, masks, options, dimensions, surfaces); the iPadOS 17 one when the display has none.
-extern "C" const unsigned native_legacy_request_layout[6] __attribute__((weak_import));
+extern "C" const unsigned native_legacy_request_layout[6]={17,81,792,804,816,2624};
 static void recordRejectedSwap(unsigned reason,const void *request,const void *surface) {
     const unsigned char *bytes=reinterpret_cast<const unsigned char *>(request);
     if(!bytes)return;
-    static const unsigned ios17[6]={17,81,792,804,816,2624};
-    const unsigned *layout=&native_legacy_request_layout?native_legacy_request_layout:ios17;
+    const unsigned *layout=native_legacy_request_layout;
     native_legacy_rej_reason=reason;
     uint64_t surfaces[4]={};memcpy(surfaces,bytes+layout[5],sizeof(surfaces));
     for(unsigned i=0;i<4;++i)native_legacy_rej_surfaces[i]=surfaces[i];
