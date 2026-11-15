@@ -115,3 +115,5 @@ bbk-a2-cryptex-standalone-libs.patch
 # Publish the upstream AppleKeyStore event/state class only for the explicit
 # unencrypted ephemeral RAM Data profile; unsupported key operations stay errors.
 bbk-a2-keystore-state.patch
+# Trace only unrecoverable tccd/launchd user aborts; retain exception routing.
+bbk-a2-tccd-abort-traces.patch

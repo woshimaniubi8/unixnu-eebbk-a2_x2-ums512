@@ -1,0 +1,37 @@
+diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -1676,6 +1676,33 @@ handle_user_abort(arm_saved_state_t *state, uint32_t esr, vm_offset_t fault_addr,
+ 		exit_with_jit_exception(current_proc());
+ 	}
+ 
++	/* Only unrecoverable faults reach here. Ordinary demand faults have
++	 * already returned; never log every userspace translation fault. */
++	int bbk_abort_pid = task_pid(current_task());
++	char bbk_abort_name[64] = {0};
++	proc_selfname(bbk_abort_name, (int)sizeof(bbk_abort_name));
++	if (bbk_abort_pid == 1 || strcmp(bbk_abort_name, "tccd") == 0) {
++		printf("M77 abort: pid=%d name=%s esr=0x%08x far=0x%016llx pc=0x%016llx lr=0x%016llx sp=0x%016llx fp=0x%016llx code=0x%llx\n",
++		    bbk_abort_pid, bbk_abort_name, esr,
++		    (unsigned long long)fault_addr,
++		    (unsigned long long)get_saved_state_pc(state),
++		    (unsigned long long)get_saved_state_lr(state),
++		    (unsigned long long)get_saved_state_sp(state),
++		    (unsigned long long)get_saved_state_fp(state),
++		    (unsigned long long)codes[0]);
++		printf("M77 abort-regs: pid=%d x0=0x%016llx x1=0x%016llx x2=0x%016llx x3=0x%016llx x19=0x%016llx x20=0x%016llx x21=0x%016llx x22=0x%016llx x23=0x%016llx\n",
++		    bbk_abort_pid,
++		    (unsigned long long)get_saved_state_reg(state, 0),
++		    (unsigned long long)get_saved_state_reg(state, 1),
++		    (unsigned long long)get_saved_state_reg(state, 2),
++		    (unsigned long long)get_saved_state_reg(state, 3),
++		    (unsigned long long)get_saved_state_reg(state, 19),
++		    (unsigned long long)get_saved_state_reg(state, 20),
++		    (unsigned long long)get_saved_state_reg(state, 21),
++		    (unsigned long long)get_saved_state_reg(state, 22),
++		    (unsigned long long)get_saved_state_reg(state, 23));
++	}
++
+ 	exception_triage(exc, codes, numcodes);
+ 	__builtin_unreachable();
+ }
