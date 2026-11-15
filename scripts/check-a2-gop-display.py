@@ -29,10 +29,17 @@ def read(va, count):
 st = next(offset for cmd, offset, _ in image['commands'] if cmd == 2)
 symbols, count, strings, _ = struct.unpack_from('<4I', data, st+8)
 names = {}
+targets = set(reference['native_symbols']) | {
+    '___cxa_pure_virtual', '__ZTV19NativeLegacyDisplay',
+    '_native_legacy_display_probe', '_native_legacy_display_late_probe',
+    '__GLOBAL__sub_I_NativeLegacyDisplay.cpp',
+}
 for i in range(count):
     ix, kind, section, _, va = struct.unpack_from('<IBBHQ', data, symbols+16*i)
     if ix and not kind & 0xe0 and kind & 0xe == 0xe and section:
         name = data[strings+ix:data.index(b'\0', strings+ix)].decode()
+        if name not in targets and not name.startswith(('__ZN19NativeLegacyDisplay','__ZNK19NativeLegacyDisplay')):
+            continue
         require(name not in names or names[name] == va, 'Ambiguous defined symbol '+name)
         names[name] = va
 

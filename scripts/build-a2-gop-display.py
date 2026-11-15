@@ -102,7 +102,6 @@ for i in range(168,358):
     elif i in pure:header+=f' virtual __attribute__((noreturn)) void opaque{i}()=0;\n'
     else:header+=f' virtual __attribute__((deprecated("Unclassified ABI: never call from source"))) void opaque{i}();\n'
 header+='};\nstatic_assert(sizeof(IOMobileFramebufferLegacy)==0x18a0,"Actual original instance extent");\n'
-header+='#define NATIVE_LEGACY_LEAVES(X) X(211) X(245) X(246) X(306) X(307) X(338) X(345)\n'
 (OUT/'OriginalLegacyFramebufferABI.h').write_text(header)
 record=ROOT/'build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/iokit/DEVELOPMENT/IOPlatformExpert.cpo.json'
 record_original=record.read_bytes()
