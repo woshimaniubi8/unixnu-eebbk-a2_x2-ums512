@@ -134,3 +134,6 @@ bbk-a2-springboard-last-svc.patch
 
 # Deep current-thread stacks on both sides of the UI IPC handshake.
 bbk-a2-ui-ipc-depth.patch
+
+# Pair mprotect entry/return on the measured SpringBoard main thread.
+bbk-a2-mprotect-pair.patch

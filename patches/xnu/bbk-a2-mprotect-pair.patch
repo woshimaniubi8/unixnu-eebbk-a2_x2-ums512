@@ -1,0 +1,84 @@
+--- a/bsd/kern/kern_mman.c
++++ b/bsd/kern/kern_mman.c
+@@ -120,6 +120,8 @@
+ #include <kern/cpu_number.h>
+ #include <kern/host.h>
+ #include <kern/task.h>
++#include <kern/clock.h>
++#include <kern/thread.h>
+ #include <kern/page_decrypt.h>
+ 
+ #include <IOKit/IOReturn.h>
+@@ -1096,8 +1098,8 @@
+ 	return 0;
+ }
+ 
+-int
+-mprotect(__unused proc_t p, struct mprotect_args *uap, __unused int32_t *retval)
++static int
++native_bbk_mprotect_impl(__unused proc_t p, struct mprotect_args *uap, __unused int32_t *retval)
+ {
+ 	vm_prot_t prot;
+ 	mach_vm_offset_t        user_addr;
+@@ -1200,6 +1202,36 @@
+ 		return ENOMEM;
+ 	}
+ 	return EINVAL;
++}
++
++
++extern int native_bbk_ui_is_springboard_main(int pid, uint64_t tid);
++
++int
++mprotect(proc_t p, struct mprotect_args *uap, int32_t *retval)
++{
++	uint64_t tid = thread_tid(current_thread());
++	int pid = proc_getpid(p);
++	int trace = native_bbk_ui_is_springboard_main(pid, tid);
++	uint64_t entered = 0;
++	if (trace) {
++		entered = mach_absolute_time();
++		printf("M94 mprotect: enter pid=%d tid=%llu map=%p addr=0x%llx len=0x%llx prot=0x%x t=%llu\n",
++		    pid, (unsigned long long)tid, current_map(),
++		    (unsigned long long)uap->addr, (unsigned long long)uap->len,
++		    uap->prot, (unsigned long long)entered);
++	}
++	/* Preserve every original validation, MAC check, VM operation and errno. */
++	int error = native_bbk_mprotect_impl(p, uap, retval);
++	if (trace) {
++		uint64_t elapsed;
++		absolutetime_to_nanoseconds(mach_absolute_time() - entered, &elapsed);
++		printf("M94 mprotect: return pid=%d tid=%llu addr=0x%llx len=0x%llx prot=0x%x err=%d ns=%llu t=%llu\n",
++		    pid, (unsigned long long)tid, (unsigned long long)uap->addr,
++		    (unsigned long long)uap->len, uap->prot, error,
++		    (unsigned long long)elapsed, (unsigned long long)entered);
++	}
++	return error;
+ }
+ 
+ 
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -1996,6 +1996,7 @@
+ static unsigned int bbk_ui_dropped[BBK_UI_ROLES], bbk_ui_round;
+ static thread_call_t bbk_ui_call;
+ void native_bbk_ui_trace_exec(int pid, const char *name, uint64_t target_tid);
++int native_bbk_ui_is_springboard_main(int pid, uint64_t tid);
+ 
+ static void
+ bbk_ui_print(unsigned int round, unsigned int role, const struct bbk_ui_record *r)
+@@ -2084,6 +2085,14 @@
+ 			printf("M93 ui-snapshot: thread-call allocation failed; diagnostics inactive\n");
+ 		}
+ 	}
++}
++
++int
++native_bbk_ui_is_springboard_main(int pid, uint64_t tid)
++{
++	return os_atomic_load(&bbk_ui_enabled, acquire) && pid > 0 &&
++	       pid == os_atomic_load(&bbk_ui_pids[0], acquire) &&
++	       tid == os_atomic_load(&bbk_ui_main_tids[0], acquire);
+ }
+ 
+ static void
