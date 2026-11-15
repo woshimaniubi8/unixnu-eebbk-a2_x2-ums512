@@ -17,9 +17,7 @@
  	int error = 0;
  	for (size_t i = 0; i < sizeof(points) / sizeof(points[0]) && !error; ++i) {
  		error = native_gpu_addon_parents(p, scratch, points[i]);
-@@ -7790,10 +7789,13 @@
- 		printf("bbk watchdogd: overlay bind failed %d\n", native_watchdogd_bind_status);
- 	}
+@@ -7799,8 +7798,11 @@
  	native_cryptex_os_stage = 4;
 -	error = vnode_lookup("/System/Cryptexes/OS/System/Library/ExtensionKit/Extensions/WebContentExtension.appex/Info.plist", 0, &probe,
 -	    vfs_context_current());
