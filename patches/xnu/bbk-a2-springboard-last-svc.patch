@@ -1,0 +1,212 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -926,6 +926,8 @@
+ extern int use_panic_on_proc_spawn_fail;
+ #endif
+ 
++extern void native_bbk_ui_trace_exec(int pid, const char *name);
++
+ void
+ set_proc_name(struct image_params *imgp, proc_t p)
+ {
+@@ -2037,6 +2039,22 @@
+ 	p->p_acflag &= ~AFORK;
+ 
+ 	set_proc_name(imgp, p);
++
++	/* This is the successful exec path, after the executable name is set. */
++	native_bbk_ui_trace_exec(proc_getpid(p), proc_best_name(p));
++	if (proc_getpid(p) == 1 || strcmp(proc_best_name(p), "SpringBoard") == 0 ||
++	    strcmp(proc_best_name(p), "backboardd") == 0 ||
++	    strcmp(proc_best_name(p), "pkd") == 0 ||
++	    strcmp(proc_best_name(p), "lsd") == 0) {
++		unsigned char bbk_hash[CS_CDHASH_LEN] = {0};
++		int bbk_hash_error = ubc_cs_getcdhash(imgp->ip_vp, imgp->ip_arch_offset, bbk_hash);
++		printf("M91 exec-ok: pid=%d name=%s cdhash_err=%d cdhash=",
++		    proc_getpid(p), proc_best_name(p), bbk_hash_error);
++		if (!bbk_hash_error) {
++			for (unsigned int i = 0; i < CS_CDHASH_LEN; i++) printf("%02x", bbk_hash[i]);
++		}
++		printf("\n");
++	}
+ 
+ #if CONFIG_SECLUDED_MEMORY
+ 	if (secluded_for_apps &&
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -40,6 +40,10 @@
+ 
+ #include <kern/debug.h>
+ #include <kern/backtrace.h>
++#include <kern/clock.h>
++#include <kern/locks.h>
++#include <kern/thread_call.h>
++#include <os/atomic_private.h>
+ #include <vm/vm_map.h>
+ #include <kern/restartable.h>
+ #include <kern/socd_client.h>
+@@ -1966,6 +1970,155 @@
+ 
+ extern void syscall_trace(struct arm_saved_state * regs);
+ 
++/* Bounded diagnostic records: last SVC entry, not a claim of an active wait.
++ * User stacks are copied only by the calling thread in faultable SVC context.
++ * The periodic callback reads plain records; it never activates another map,
++ * suspends a thread, changes a reply, or alters the watchdog policy.
++ */
++#define BBK_UI_SLOTS 64
++#define BBK_UI_FRAMES 8
++struct bbk_ui_record {
++	int pid;
++	int trap;
++	uint64_t tid;
++	uint64_t entered;
++	uint64_t pc, lr, sp, fp;
++	uint64_t args[6];
++	uintptr_t frames[BBK_UI_FRAMES];
++	unsigned int frame_count;
++	int frame_error;
++};
++static LCK_GRP_DECLARE(bbk_ui_group, "bbk_ui_trace");
++static LCK_SPIN_DECLARE(bbk_ui_lock, &bbk_ui_group);
++static struct bbk_ui_record bbk_ui_records[BBK_UI_SLOTS];
++static _Atomic int bbk_ui_pid;
++static _Atomic int bbk_ui_started;
++static _Atomic int bbk_ui_enabled;
++static unsigned int bbk_ui_dropped;
++static unsigned int bbk_ui_round;
++static thread_call_t bbk_ui_call;
++
++void native_bbk_ui_trace_exec(int pid, const char *name);
++
++static void
++bbk_ui_snapshot(thread_call_param_t param0, thread_call_param_t param1)
++{
++	(void)param0;
++	(void)param1;
++	unsigned int round = ++bbk_ui_round;
++	int pid = os_atomic_load(&bbk_ui_pid, relaxed);
++	unsigned int total = 0, shown = 0, dropped;
++	lck_spin_lock(&bbk_ui_lock);
++	dropped = bbk_ui_dropped;
++	for (unsigned int i = 0; i < BBK_UI_SLOTS; i++) {
++		if (bbk_ui_records[i].tid) total++;
++	}
++	lck_spin_unlock(&bbk_ui_lock);
++	printf("M91 sb-snapshot: round=%u pid=%d recorded=%u dropped=%u source=last-svc-entry\n",
++	    round, pid, total, dropped);
++	for (unsigned int i = 0; i < BBK_UI_SLOTS && shown < 16; i++) {
++		struct bbk_ui_record record;
++		lck_spin_lock(&bbk_ui_lock);
++		record = bbk_ui_records[i];
++		lck_spin_unlock(&bbk_ui_lock);
++		if (!record.tid) continue;
++		shown++;
++		uint64_t age_ns;
++		absolutetime_to_nanoseconds(mach_absolute_time() - record.entered, &age_ns);
++		printf("M91 sb-svc: round=%u pid=%d tid=%llu age_ms=%llu trap=%d pc=0x%llx lr=0x%llx sp=0x%llx fp=0x%llx frames=%u bt_err=%d\n",
++		    round, record.pid, (unsigned long long)record.tid,
++		    (unsigned long long)(age_ns / 1000000), record.trap,
++		    (unsigned long long)record.pc, (unsigned long long)record.lr,
++		    (unsigned long long)record.sp, (unsigned long long)record.fp,
++		    record.frame_count, record.frame_error);
++		printf("M91 sb-args: tid=%llu x0=0x%llx x1=0x%llx x2=0x%llx x3=0x%llx x4=0x%llx x5=0x%llx\n",
++		    (unsigned long long)record.tid,
++		    (unsigned long long)record.args[0], (unsigned long long)record.args[1],
++		    (unsigned long long)record.args[2], (unsigned long long)record.args[3],
++		    (unsigned long long)record.args[4], (unsigned long long)record.args[5]);
++		for (unsigned int n = 0; n < record.frame_count; n++) {
++			printf("M91 sb-frame: round=%u tid=%llu idx=%u pc=0x%llx\n",
++			    round, (unsigned long long)record.tid, n,
++			    (unsigned long long)record.frames[n]);
++		}
++	}
++	if (round < 16) {
++		uint64_t deadline;
++		clock_interval_to_deadline(30, NSEC_PER_SEC, &deadline);
++		thread_call_enter_delayed(bbk_ui_call, deadline);
++	} else {
++		os_atomic_store(&bbk_ui_enabled, 0, release);
++		thread_call_free(bbk_ui_call);
++		printf("M91 sb-snapshot: bounded observation completed\n");
++	}
++}
++
++void
++native_bbk_ui_trace_exec(int pid, const char *name)
++{
++	if (strcmp(name, "SpringBoard") == 0) {
++		lck_spin_lock(&bbk_ui_lock);
++		for (unsigned int i = 0; i < BBK_UI_SLOTS; i++) {
++			bbk_ui_records[i] = (struct bbk_ui_record){0};
++		}
++		bbk_ui_dropped = 0;
++		os_atomic_store(&bbk_ui_pid, pid, release);
++		lck_spin_unlock(&bbk_ui_lock);
++		printf("M91 sb-exec: pid=%d main_tid=%llu\n", pid,
++		    (unsigned long long)thread_tid(current_thread()));
++	}
++	if (pid == 1 && os_atomic_cmpxchg(&bbk_ui_started, 0, 1, relaxed)) {
++		bbk_ui_call = thread_call_allocate(bbk_ui_snapshot, NULL);
++		if (bbk_ui_call) {
++			uint64_t deadline;
++			os_atomic_store(&bbk_ui_enabled, 1, release);
++			clock_interval_to_deadline(30, NSEC_PER_SEC, &deadline);
++			thread_call_enter_delayed(bbk_ui_call, deadline);
++		} else {
++			printf("M91 sb-snapshot: thread-call allocation failed; diagnostics inactive\n");
++		}
++	}
++}
++
++static void
++bbk_ui_svc_entry(arm_saved_state_t *state, int trap)
++{
++	if (!os_atomic_load(&bbk_ui_enabled, acquire)) return;
++	int pid = os_atomic_load(&bbk_ui_pid, acquire);
++	if (pid <= 0 || task_pid(current_task()) != pid ||
++	    trap == MACH_ARM_TRAP_ABSTIME || trap == MACH_ARM_TRAP_CONTTIME) return;
++	struct bbk_ui_record record = {0};
++	record.pid = pid;
++	record.trap = trap;
++	record.tid = thread_tid(current_thread());
++	record.entered = mach_absolute_time();
++	record.pc = get_saved_state_pc(state);
++	record.lr = get_saved_state_lr(state);
++	record.sp = get_saved_state_sp(state);
++	record.fp = get_saved_state_fp(state);
++	for (unsigned int n = 0; n < 6; n++) record.args[n] = get_saved_state_reg(state, n);
++	if (ml_get_interrupts_enabled()) {
++		struct backtrace_user_info info = BTUINFO_INIT;
++		record.frame_count = backtrace_user(record.frames, BBK_UI_FRAMES, NULL, &info);
++		record.frame_error = info.btui_error;
++	} else {
++		record.frame_error = EWOULDBLOCK;
++	}
++	lck_spin_lock(&bbk_ui_lock);
++	if (pid != os_atomic_load(&bbk_ui_pid, relaxed)) {
++		lck_spin_unlock(&bbk_ui_lock);
++		return;
++	}
++	unsigned int slot = 0;
++	for (; slot < BBK_UI_SLOTS; slot++) {
++		if (bbk_ui_records[slot].tid == record.tid || !bbk_ui_records[slot].tid) break;
++	}
++	if (slot < BBK_UI_SLOTS) bbk_ui_records[slot] = record;
++	else bbk_ui_dropped++;
++	lck_spin_unlock(&bbk_ui_lock);
++}
++
++
+ static void
+ handle_svc(arm_saved_state_t *state)
+ {
+@@ -2387,7 +2540,7 @@
+ syscall_trace(
+ 	struct arm_saved_state * regs __unused)
+ {
+-	/* kprintf("syscall: %d\n", saved_state64(regs)->x[16]);  */
++	bbk_ui_svc_entry(regs, get_saved_state_svc_number(regs));
+ }
+ 
+ static void

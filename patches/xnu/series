@@ -128,3 +128,6 @@ bbk-a2-native16k.patch
 
 # Publish the original standalone PlugInKitDaemon framework and trace UI failures.
 bbk-a2-cryptex-pluginkit.patch
+
+# Bounded, current-thread SpringBoard last-SVC snapshots; retain watchdog policy.
+bbk-a2-springboard-last-svc.patch
