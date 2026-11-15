@@ -1,7 +1,7 @@
 diff --git a/bsd/dev/arm/systemcalls.c b/bsd/dev/arm/systemcalls.c
 --- a/bsd/dev/arm/systemcalls.c
 +++ b/bsd/dev/arm/systemcalls.c
-@@ -221,6 +221,36 @@
+@@ -221,6 +221,37 @@
  	error = (*(callp->sy_call))(proc, &uthread->uu_arg[0], &(uthread->uu_rval[0]));
  	AUDIT_SYSCALL_EXIT(code, proc, uthread, error);
  
@@ -27,7 +27,8 @@ diff --git a/bsd/dev/arm/systemcalls.c b/bsd/dev/arm/systemcalls.c
 +				if (code == 218 || code == 463 || code == 464) patharg = 1;
 +				if (patharg >= 0) {
 +					char path[192] = {0};
-+					int copied = copyinstr((user_addr_t)uthread->uu_arg[patharg], path, sizeof(path), NULL);
++					vm_size_t path_len = 0;
++					int copied = copyinstr((user_addr_t)uthread->uu_arg[patharg], path, sizeof(path), &path_len);
 +					printf("M79 tccd-path: pid=%d code=%u err=%d fd=%d copied=%d path=%s\n",
 +					    proc_getpid(proc), code, error, (int)uthread->uu_rval[0], copied, copied ? "<unread>" : path);
 +				}
