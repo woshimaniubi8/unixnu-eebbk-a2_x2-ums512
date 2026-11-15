@@ -1,0 +1,40 @@
+diff --git a/bsd/dev/arm/systemcalls.c b/bsd/dev/arm/systemcalls.c
+--- a/bsd/dev/arm/systemcalls.c
++++ b/bsd/dev/arm/systemcalls.c
+@@ -221,6 +221,36 @@
+ 	error = (*(callp->sy_call))(proc, &uthread->uu_arg[0], &(uthread->uu_rval[0]));
+ 	AUDIT_SYSCALL_EXIT(code, proc, uthread, error);
+ 
++	/* Observe the failed database I/O contract without changing its result. */
++	if (proc->p_comm[0] == 't' && proc->p_comm[1] == 'c' &&
++	    proc->p_comm[2] == 'c' && proc->p_comm[3] == 'd' && proc->p_comm[4] == 0) {
++		bool io = code == 3 || code == 4 || code == 5 || code == 6 || code == 92 ||
++		    code == 95 || code == 153 || code == 154 || code == 398 || code == 399 ||
++		    code == 406 || code == 408 || code == 414 || code == 415 ||
++		    code == 463 || code == 464 || code == 216 || code == 218 || code == 484;
++		if (io || error) {
++			static unsigned total, failed;
++			unsigned n = __atomic_add_fetch(&total, 1, __ATOMIC_RELAXED);
++			unsigned f = error ? __atomic_add_fetch(&failed, 1, __ATOMIC_RELAXED) : 0;
++			if (n <= 512 || (error && f <= 512) || (n & (n - 1)) == 0) {
++				printf("M79 tccd-io: pid=%d tid=%llu code=%u a0=0x%llx a1=0x%llx a2=0x%llx a3=0x%llx err=%d r0=0x%x r1=0x%x n=%u\n",
++				    proc_getpid(proc), thread_tid(current_thread()), code,
++				    (unsigned long long)uthread->uu_arg[0], (unsigned long long)uthread->uu_arg[1],
++				    (unsigned long long)uthread->uu_arg[2], (unsigned long long)uthread->uu_arg[3],
++				    error, (unsigned)uthread->uu_rval[0], (unsigned)uthread->uu_rval[1], n);
++				int patharg = -1;
++				if (code == 5 || code == 398 || code == 216 || code == 484) patharg = 0;
++				if (code == 218 || code == 463 || code == 464) patharg = 1;
++				if (patharg >= 0) {
++					char path[192] = {0};
++					int copied = copyinstr((user_addr_t)uthread->uu_arg[patharg], path, sizeof(path), NULL);
++					printf("M79 tccd-path: pid=%d code=%u err=%d fd=%d copied=%d path=%s\n",
++					    proc_getpid(proc), code, error, (int)uthread->uu_rval[0], copied, copied ? "<unread>" : path);
++				}
++			}
++		}
++	}
++
+ 	if (proc_getpid(proc) == 1) {
+ 		uint64_t bbk_rv = *((uint64_t *)(&uthread->uu_rval[0]));
+ 		switch (code) {
