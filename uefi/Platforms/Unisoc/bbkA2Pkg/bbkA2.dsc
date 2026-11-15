@@ -44,6 +44,10 @@
   #
   gArmTokenSpaceGuid.PcdSystemMemoryBase|0x80000000
 
+  # Automatic UniXNU boot: no boot-manager hotkey countdown.
+  # BdsWait is UI input time, not a hardware readiness barrier.
+  gEfiMdePkgTokenSpaceGuid.PcdPlatformBootTimeOut|0
+
   #
   # UEFI stack: inside the "UEFI Stack" region of MemoryMapLib.
   #
