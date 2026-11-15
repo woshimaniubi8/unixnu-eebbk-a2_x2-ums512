@@ -146,3 +146,6 @@ bbk-a2-native-stackshot.patch
 
 # Start the original snapshot daemon early enough to complete its native warm-up.
 bbk-a2-splashboard-prewarm.patch
+
+# Native late-boot memory/pagein/CPU and coherent wait-chain observations.
+bbk-a2-late-snapshot-stats.patch

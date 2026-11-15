@@ -1,0 +1,82 @@
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -495,15 +495,15 @@
+ 
+ 
+ 	panic_plain("%s at pc 0x%016llx, lr 0x%016llx (saved state: %p%s)\n"
+-	    "\t  x0:  0x%016llx x1:  0x%016llx  x2:  0x%016llx  x3:  0x%016llx\n"
+-	    "\t  x4:  0x%016llx x5:  0x%016llx  x6:  0x%016llx  x7:  0x%016llx\n"
+-	    "\t  x8:  0x%016llx x9:  0x%016llx  x10: 0x%016llx  x11: 0x%016llx\n"
+-	    "\t  x12: 0x%016llx x13: 0x%016llx  x14: 0x%016llx  x15: 0x%016llx\n"
+-	    "\t  x16: 0x%016llx x17: 0x%016llx  x18: 0x%016llx  x19: 0x%016llx\n"
+-	    "\t  x20: 0x%016llx x21: 0x%016llx  x22: 0x%016llx  x23: 0x%016llx\n"
+-	    "\t  x24: 0x%016llx x25: 0x%016llx  x26: 0x%016llx  x27: 0x%016llx\n"
+-	    "\t  x28: 0x%016llx fp:  0x%016llx  lr:  0x%016llx  sp:  0x%016llx\n"
+-	    "\t  pc:  0x%016llx cpsr: 0x%08x         esr: 0x%08x          far: 0x%016llx\n",
++	    "	  x0:  0x%016llx x1:  0x%016llx  x2:  0x%016llx  x3:  0x%016llx\n"
++	    "	  x4:  0x%016llx x5:  0x%016llx  x6:  0x%016llx  x7:  0x%016llx\n"
++	    "	  x8:  0x%016llx x9:  0x%016llx  x10: 0x%016llx  x11: 0x%016llx\n"
++	    "	  x12: 0x%016llx x13: 0x%016llx  x14: 0x%016llx  x15: 0x%016llx\n"
++	    "	  x16: 0x%016llx x17: 0x%016llx  x18: 0x%016llx  x19: 0x%016llx\n"
++	    "	  x20: 0x%016llx x21: 0x%016llx  x22: 0x%016llx  x23: 0x%016llx\n"
++	    "	  x24: 0x%016llx x25: 0x%016llx  x26: 0x%016llx  x27: 0x%016llx\n"
++	    "	  x28: 0x%016llx fp:  0x%016llx  lr:  0x%016llx  sp:  0x%016llx\n"
++	    "	  pc:  0x%016llx cpsr: 0x%08x         esr: 0x%08x          far: 0x%016llx\n",
+ 	    msg, state->pc, state->lr, ss, (ss_valid ? "" : " INVALID"),
+ 	    state->x[0], state->x[1], state->x[2], state->x[3],
+ 	    state->x[4], state->x[5], state->x[6], state->x[7],
+@@ -2034,6 +2034,7 @@
+ 	int pid = -1;
+ 	uint64_t task_container = 0, thread_container = 0, tid = 0;
+ 	unsigned tasks = 0, threads = 0, waits = 0;
++	int trace_cpu = 0;
+ 	kcdata_iter_t iter = kcdata_iter(buffer, bytes);
+ 	KCDATA_ITER_FOREACH(iter) {
+ 		uint32_t type = kcdata_iter_type(iter);
+@@ -2048,16 +2049,37 @@
+ 			uint64_t id = kcdata_iter_container_id(iter);
+ 			if (id == thread_container) { tid = 0; thread_container = 0; }
+ 			if (id == task_container) { pid = -1; task_container = 0; }
++		} else if (type == STACKSHOT_KCTYPE_GLOBAL_MEM_STATS &&
++		    kcdata_iter_size(iter) >= sizeof(struct mem_and_io_snapshot)) {
++			struct mem_and_io_snapshot m;
++			memcpy(&m, kcdata_iter_payload(iter), sizeof(m));
++			printf("M99 ss-memory: round=%u free=%u active=%u inactive=%u wired=%u filebacked=%u compressor=%u\n",
++			    round, m.free_pages, m.active_pages, m.inactive_pages, m.wired_pages, m.filebacked_pages, m.compressor_size);
++			printf("M99 ss-paging: round=%u compressions=%u decompressions=%u wanted=%u reclaimed=%u pressure_valid=%u\n",
++			    round, m.compressions, m.decompressions, m.pages_wanted, m.pages_reclaimed, m.pages_wanted_reclaimed_valid);
+ 		} else if (type == STACKSHOT_KCTYPE_TASK_SNAPSHOT &&
+ 		    kcdata_iter_size(iter) >= sizeof(struct task_snapshot_v2)) {
+ 			struct task_snapshot_v2 t;
+ 			memcpy(&t, kcdata_iter_payload(iter), sizeof(t)); pid = t.ts_pid; tasks++;
++			trace_cpu = !strncmp(t.ts_p_comm, "SpringBoard", sizeof(t.ts_p_comm)) ||
++			    !strncmp(t.ts_p_comm, "splashboardd", sizeof(t.ts_p_comm)) ||
++			    !strncmp(t.ts_p_comm, "xpcproxy", sizeof(t.ts_p_comm)) ||
++			    !strncmp(t.ts_p_comm, "lsd", sizeof(t.ts_p_comm)) ||
++			    !strncmp(t.ts_p_comm, "backboardd", sizeof(t.ts_p_comm));
++			printf("M99 ss-taskmem: round=%u pid=%d bytes=%llu max=%llu faults=%u pageins=%u cow=%u\n",
++			    round, pid, (unsigned long long)t.ts_task_size, (unsigned long long)t.ts_max_resident_size,
++			    t.ts_faults, t.ts_pageins, t.ts_cow_faults);
++
+ 			printf("M96 ss-task: round=%u pid=%d name=%.*s flags=0x%llx\n",
+ 			    round, pid, (int)sizeof(t.ts_p_comm), t.ts_p_comm, (unsigned long long)t.ts_ss_flags);
+ 		} else if (type == STACKSHOT_KCTYPE_THREAD_SNAPSHOT &&
+ 		    kcdata_iter_size(iter) >= sizeof(struct thread_snapshot_v4)) {
+ 			struct thread_snapshot_v4 t;
+ 			memcpy(&t, kcdata_iter_payload(iter), sizeof(t)); tid = t.ths_thread_id; threads++;
++			if (trace_cpu) printf("M99 ss-cpu: round=%u pid=%d tid=%llu user_raw=%llu system_raw=%llu pri=%d base=%d\n",
++			    round, pid, (unsigned long long)tid, (unsigned long long)t.ths_user_time,
++			    (unsigned long long)t.ths_sys_time, t.ths_sched_priority, t.ths_base_priority);
++
+ 			printf("M96 ss-thread: round=%u pid=%d tid=%llu state=0x%x flags=0x%llx wait=0x%llx continuation=0x%llx last_run=%llu runnable=%llu\n",
+ 			    round, pid, (unsigned long long)tid, t.ths_state, (unsigned long long)t.ths_ss_flags,
+ 			    (unsigned long long)t.ths_wait_event, (unsigned long long)t.ths_continuation,
+@@ -2139,7 +2161,7 @@
+ 	(void)p0; (void)p1;
+ 	unsigned int round = ++bbk_ui_round;
+ 	/* Three coherent, non-faulting observations; original watchdog policy stays active. */
+-	if (round == 4 || round == 8 || round == 11) bbk_ui_capture_stackshot(round);
++	if (round == 11 || round == 13 || round == 15) bbk_ui_capture_stackshot(round);
+ 	for (unsigned int role = 0; role < BBK_UI_ROLES; role++) {
+ 		unsigned int total = 0, dropped, shown = 0;
+ 		int pid = os_atomic_load(&bbk_ui_pids[role], acquire);

@@ -133,7 +133,7 @@ root_match_volume_uuid = "04769D26-2CA0-4825-B443-E2E5F88300F2"
 # the original IPSW's Firmware/all_flash tree under the same directory.
 preboot_manifest_hash = "0AF4F61D24CBA408AE4E1B88C69881A4776BB65F52F75B3196D1C5CFDDD0AAC36FCEEB34CD6521E6E641EC3AB1EA0454"
 dram_size = "0x100000000"
-owned_memory_size = "0x40000000"
+owned_memory_size = "0x58000000"
 psci_method = "smc"
 cpu_regs = "0,0x100,0x200,0x300,0x400,0x500,0x600,0x700"
 
