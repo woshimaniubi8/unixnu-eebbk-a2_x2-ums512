@@ -156,7 +156,6 @@ constexpr uint32_t kBlockSize         = 0x04;   // 16-bit
 constexpr uint32_t kArgument          = 0x08;
 constexpr uint32_t kTransferMode      = 0x0C;   // 32-bit command + transfer mode
 constexpr uint32_t kResponse          = 0x10;
-constexpr uint32_t kBufferPort        = 0x20;
 constexpr uint32_t kPresentState      = 0x24;
 constexpr uint32_t kHostControl1      = 0x28;
 constexpr uint32_t kClockControl      = 0x2C;
@@ -175,7 +174,7 @@ constexpr uint32_t kVendorClock       = 0x204;
 
 constexpr uint32_t kPresentCmdInhibit = 1U << 0;
 constexpr uint32_t kPresentDatInhibit = 1U << 1;
-constexpr uint32_t kIntBufferReadReady = 1U << 5;
+constexpr uint32_t kIntDmaInterrupt    = 1U << 3;
 constexpr uint32_t kIntError           = 1U << 15;
 constexpr uint32_t kIntCommandComplete = 1U << 0;
 constexpr uint32_t kIntTransferComplete = 1U << 1;
@@ -554,19 +553,14 @@ bool NativeSdhciBlock::dataCommandLocked(uint32_t commandIndex, uint64_t argumen
               read32(kPresentState), cmdSectorIndex);
     }
 
-    uint32_t pioWords = 0;
-    uint32_t pioBuffer[128] = {};
     bool finished = false;
     uint32_t spin = 0;
     for (; spin < 200000; ++spin) {
         const uint32_t status = read32(kNormalIntStatus);
-        if ((status & kIntBufferReadReady) != 0) {
-            if (pioWords < 128) {
-                pioBuffer[pioWords] = read32(kBufferPort);
-            }
-            ++pioWords;
-            write32(kNormalIntStatus, kIntBufferReadReady);
-            continue;
+        // ADMA owns the FIFO. A PIO read here steals bytes from its transfer.
+        // DMA_END is W1C even in polling mode; it is not transfer completion.
+        if ((status & kIntDmaInterrupt) != 0) {
+            write32(kNormalIntStatus, kIntDmaInterrupt);
         }
         if (((status & kIntError) != 0) ||
             ((status & (kIntCommandComplete | kIntTransferComplete)) ==
@@ -602,8 +596,7 @@ bool NativeSdhciBlock::dataCommandLocked(uint32_t commandIndex, uint64_t argumen
               static_cast<unsigned>(lastAdmaError), lastPresentState, response);
     }
     // The transfer is only successful when the controller reported completion;
-    // the PIO words are a data source, never a substitute for that check (a
-    // single early word used to short-circuit the error/complete validation).
+    // DMA interrupts are acknowledged but never substitute for that check.
     if (!finished || (lastStatus & kIntError) != 0 ||
         (lastStatus & (kIntCommandComplete | kIntTransferComplete)) !=
             (kIntCommandComplete | kIntTransferComplete)) {
@@ -611,10 +604,6 @@ bool NativeSdhciBlock::dataCommandLocked(uint32_t commandIndex, uint64_t argumen
               commandIndex, argument, lastStatus, static_cast<unsigned>(lastError),
               static_cast<unsigned>(lastAdmaError), lastPresentState, response);
         return false;
-    }
-    if (pioWords != 0) {
-        const uint32_t words = (pioWords > 128) ? 128 : pioWords;
-        memcpy(data, pioBuffer, words * sizeof(uint32_t));
     }
     return true;
 }
@@ -864,7 +853,7 @@ bool NativeSdhciBlock::start(IOService *provider)
     if (!provider) {
         return false;
     }
-    IOLog("NativeSdhciBlock: start node=%s\n", provider->getName());
+    IOLog("SDHCI M74 DMA: node=%s\n", provider->getName());
     // The device tree gives each instance the SHNGROOT window it publishes:
     // "OS" for the root disk and "SystemOS" for the preboot/dyld-cache disk.
     // The ADT generator keeps only name/compatible/reg/interrupts, so the node

@@ -108,3 +108,10 @@ bbk-a2-tmpfs-load-probe.patch
 # predates the file, and keeps every other /usr/libexec binary from the root.
 bbk-a2-watchdogd-overlay.patch
 bbk-a2-sprd-thermal.patch
+# Opt-in process-exit descriptions without the System Event 96-byte truncation.
+bbk-a2-exit-description.patch
+# Expose the stock SystemOS standalone libraries alongside the OS root's usr/lib.
+bbk-a2-cryptex-standalone-libs.patch
+# Publish the upstream AppleKeyStore event/state class only for the explicit
+# unencrypted ephemeral RAM Data profile; unsupported key operations stay errors.
+bbk-a2-keystore-state.patch

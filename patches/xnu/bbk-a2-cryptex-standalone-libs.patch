@@ -1,0 +1,36 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7732,7 +7732,7 @@
+  * /System and /usr are bound read-only over /private/preboot/Cryptexes/OS/{System,usr}, not as unions, so a lookup there stays on the
+  * SystemOS volume and never meets the root's links again. The two mount points are owner Data directories under
+  * /private/var/ngpu/preboot, shown over the root's empty /private/preboot as a read-only union. Never fatal; stage and status go to the
+- * boot log: 1 mount points made, 2 preboot shown, 3 System bound, 4 usr bound, 5 an extension of WebKit visible through the path. */
++ * boot log: 1 mount points made, 2 preboot shown, 3 System bound, 4 usr bound, 5 the stock standalone usr/lib graft mounted. */
+ volatile int native_cryptex_os_stage = 0;
+ volatile int native_cryptex_os_status = -1;
+ volatile int native_watchdogd_bind_status = -1;
+@@ -7756,7 +7756,6 @@
+ native_cryptex_os_view(proc_t p, user_addr_t scratch)
+ {
+ 	static const char *const points[] = {"/private/var/ngpu/preboot/Cryptexes/OS/System/", "/private/var/ngpu/preboot/Cryptexes/OS/usr/"};
+-	vnode_t probe = NULLVP;
+ 	int error = 0;
+ 	for (size_t i = 0; i < sizeof(points) / sizeof(points[0]) && !error; ++i) {
+ 		error = native_gpu_addon_parents(p, scratch, points[i]);
+@@ -7790,10 +7789,13 @@
+ 		printf("bbk watchdogd: overlay bind failed %d\n", native_watchdogd_bind_status);
+ 	}
+ 	native_cryptex_os_stage = 4;
+-	error = vnode_lookup("/System/Cryptexes/OS/System/Library/ExtensionKit/Extensions/WebContentExtension.appex/Info.plist", 0, &probe,
+-	    vfs_context_current());
++	/* The stock SystemOS volume is mounted at /private/preboot. Runtime
++	 * trampolines intentionally live outside the shared cache. Graft the
++	 * actual standalone-library directory over the root's usr/lib, retaining
++	 * root-only files through the existing read-only bindfs union support. */
++	error = native_cryptex_os_bind(p, scratch,
++	    "/private/preboot/usr/lib", "/usr/lib", MNT_UNION);
+ 	if (!error) {
+-		vnode_put(probe);
+ 		native_cryptex_os_stage = 5;
+ 	}
+ 	native_cryptex_os_status = error;

@@ -1,0 +1,16 @@
+[
+  {
+    "url": "https://raw.githubusercontent.com/UniXNU/AppleKeyStoreState/42ff83e08b2265fe741d4adaf084bebe003452ba/NativeKeyStoreEvents.cpp",
+    "revision": "42ff83e08b2265fe741d4adaf084bebe003452ba",
+    "file": "NativeKeyStoreEvents.cpp",
+    "bytes": 8506,
+    "sha256": "273b030afee897e48c30bc917c4df8a9c4d94a189d073ef80c0e0a15caef82ee"
+  },
+  {
+    "url": "https://raw.githubusercontent.com/UniXNU/AppleKeyStoreState/42ff83e08b2265fe741d4adaf084bebe003452ba/LICENSE",
+    "revision": "42ff83e08b2265fe741d4adaf084bebe003452ba",
+    "file": "LICENSE",
+    "bytes": 2687,
+    "sha256": "0a99193bda702c77e5b6a1b10029b68b6d4691cc2a4bf1010efb7dd8e5043e1b"
+  }
+]

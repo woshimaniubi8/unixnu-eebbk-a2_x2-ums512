@@ -254,7 +254,10 @@ void NativeSprdThermal::poll()
         auto *r=registers[controller[i]];
         uint32_t raw=r[0x5c/4+channel[i]]&0x3ff;
         next[i].time=now;
-        next[i].valid=!(r[0x54/4]&1) && SprdThermalMath::convert(calibration[i],raw,next[i].milliC);
+        // INTERNAL_STS1 is the vendor's first-conversion wait, not a sample
+        // validity flag. prepareHardware() already completed that wait; the
+        // stock steady-state read converts SENSORn_TEMP without rechecking it.
+        next[i].valid=SprdThermalMath::convert(calibration[i],raw,next[i].milliC);
         if(next[i].valid) { valid++; if(next[i].milliC>hottest) hottest=next[i].milliC; }
         if(ticks<3 || ticks%30==0) IOLog("bbk thm: sample id=%u raw=%u milliC=%d valid=%u\n",i,raw,next[i].milliC,next[i].valid);
     }

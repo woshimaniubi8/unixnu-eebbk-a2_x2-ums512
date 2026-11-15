@@ -33,15 +33,15 @@ diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
 +
 +	proc_selfname(bbk_name, (int)sizeof(bbk_name));
 +
-+	if (bbk_pid == 1 || strcmp(bbk_name, "watchdogd") == 0) {
-+		printf("bbk exc: pid=%d name=%s esr=0x%08x pc=0x%016llx lr=0x%016llx sp=0x%016llx fp=0x%016llx\n",
++	if ((unsigned int)bbk_pid <= 4096 || strcmp(bbk_name, "watchdogd") == 0) {
++		printf("M75 exc: pid=%d name=%s esr=0x%08x pc=0x%016llx lr=0x%016llx sp=0x%016llx fp=0x%016llx\n",
 +		    bbk_pid, bbk_name, esr,
 +		    (unsigned long long)get_saved_state_pc(state),
 +		    (unsigned long long)get_saved_state_lr(state),
 +		    (unsigned long long)get_saved_state_sp(state),
 +		    (unsigned long long)get_saved_state_fp(state));
 +
-+		printf("bbk exc-regs: pid=%d x0=0x%016llx x1=0x%016llx x19=0x%016llx x20=0x%016llx x21=0x%016llx\n",
++		printf("M75 exc-regs: pid=%d x0=0x%016llx x1=0x%016llx x19=0x%016llx x20=0x%016llx x21=0x%016llx\n",
 +		    bbk_pid,
 +		    (unsigned long long)get_saved_state_reg(state, 0),
 +		    (unsigned long long)get_saved_state_reg(state, 1),

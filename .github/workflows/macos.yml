@@ -47,6 +47,10 @@ on:
         description: Skip the SdhciBlock storage binding check (only for a run that derives a new table)
         type: boolean
         default: false
+      refresh_bindings:
+        description: Derive storage addresses from this link, rebuild, then require the normal binding guard
+        type: boolean
+        default: false
       data_seed:
         description: Build the writable APFS Data seed from the IPSW OS volume and put it in the payload
         type: boolean
@@ -76,7 +80,13 @@ jobs:
       - name: Clone UniXNU core
         run: |
           set -eux
-          git clone -q --depth 1 https://github.com/UniXNU/UniXNU.git UniXNU
+          # Pin the core snapshot contemporaneous with the qualified M67 build;
+          # unrelated upstream changes must not enter this platform-state repair.
+          git init -q UniXNU
+          git -C UniXNU remote add origin https://github.com/UniXNU/UniXNU.git
+          git -C UniXNU fetch -q --depth 1 origin d8210e089792946841ca23a8ff39f3b3641b002f
+          git -C UniXNU checkout -q --detach FETCH_HEAD
+          git -C UniXNU rev-parse HEAD
           test -f UniXNU/scripts/unixnu/cli.py
           test -f UniXNU/package/UniXNUPkg/Application/UniXNU/UniXNU.inf
           # Upstream gitlinks occasionally name commits that the component
@@ -192,6 +202,8 @@ jobs:
           cat device/components/SprdWatchdog.toml >> UniXNU/components.toml
           printf '\n' >> UniXNU/components.toml
           cat device/components/SprdThermal.toml >> UniXNU/components.toml
+          printf '\n' >> UniXNU/components.toml
+          cat device/components/A2KeyStoreState.toml >> UniXNU/components.toml
           python3 - <<'PY'
           from pathlib import Path
           import tomllib
@@ -270,6 +282,24 @@ jobs:
         run: |
           set -euxo pipefail
           ./unixnu build kernel 2>&1 | tee "$GITHUB_WORKSPACE/kernel.log"
+
+      - name: Rebuild with bindings derived from the current link
+        if: ${{ inputs.refresh_bindings }}
+        working-directory: UniXNU
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          KERNEL=$(ls out/*/*/*/kernel/kernel.macho | head -n 1)
+          TREE="$(dirname "$(dirname "$KERNEL")")/tree"
+          test -f "$KERNEL"
+          test -d "$TREE/kits/XnuPrelink"
+          cp "$KERNEL" "$KERNEL.binding-derivation"
+          python3 "$GITHUB_WORKSPACE/device/scripts/rederive-sdhci-bindings.py" \
+            "$KERNEL" "$GITHUB_WORKSPACE/device/drivers/SdhciBlock/storage-bindings.json" \
+            "$TREE/kits/XnuPrelink"
+          cp "$GITHUB_WORKSPACE/device/drivers/SdhciBlock/storage-bindings.json" "$GITHUB_WORKSPACE/storage-bindings.json"
+          ./unixnu build kernel 2>&1 | tee "$GITHUB_WORKSPACE/kernel-rebound.log"
 
       - name: Check the SdhciBlock storage bindings against the kernel
         # The driver's IOStorageFamily imports are bound to absolute addresses
@@ -379,6 +409,8 @@ jobs:
           name: macos-logs
           path: |
             kernel.log
+            kernel-rebound.log
+            storage-bindings.json
             payload.log
             status.txt
             UniXNU/out/*/*/*/logs/*.log
@@ -397,6 +429,7 @@ jobs:
             UniXNU/out/*/*/*/payload/payload.img
             UniXNU/out/*/*/*/payload/payload.json
             UniXNU/out/*/*/*/kernel/kernel.macho
+            storage-bindings.json
             UniXNU/build/owner-data-fixture/owner-data-32.cdr
             UniXNU/build/owner-data-fixture/trustcache.bundle
             UniXNU/build/owner-data-fixture/J120AP-Info.plist
