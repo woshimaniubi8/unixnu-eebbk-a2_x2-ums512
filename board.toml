@@ -1,5 +1,9 @@
 schema_version = 2
 
+# M88 hardware readback confirms native 16 KiB page-table support.
+[arch]
+page_size = 16384
+
 [board]
 name = "bbk-a2"
 soc = "UMS512"

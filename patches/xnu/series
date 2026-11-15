@@ -122,3 +122,6 @@ bbk-a2-tccd-io-traces.patch
 
 # Opt-in verbose boot diagnostics; retain errors and compact signed-file timing.
 bbk-a2-boot-trace-gate.patch
+
+# Actual UMS512 granule capability selects native 16K throughout XNU.
+bbk-a2-native16k.patch
