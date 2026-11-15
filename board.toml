@@ -108,7 +108,7 @@ dram_size = "0x100000000"
 panic_screen = false
 timeout = 0
 # M70 diagnosis: retain complete exit reasons for the early userspace processes.
-kernel_args = ["debug=0x144", "serial=3", "amfi_get_out_of_my_way=1", "bbk-skip-rootauth=1", "sheng-gpu-addon=1", "gpu-addon=1", "-wdt_no_pmu", "exception_log_max_pid=4096", "bbk-aks-state=1", "offline-mobile-graphics-load=1", "offline-legacy-register=1", "offline-legacy-gop=1", "offline-legacy-phase=4", "offline-legacy-unit-scale=2", "offline-legacy-pm=1", "offline-legacy-validate=1", "offline-legacy-transfer=1", "offline-legacy-cpu-present=1", "vsync=60"]
+kernel_args = ["debug=0x144", "serial=3", "amfi_get_out_of_my_way=1", "bbk-skip-rootauth=1", "sheng-gpu-addon=1", "gpu-addon=1", "-wdt_no_pmu", "exception_log_max_pid=4096", "bbk-aks-state=1", "offline-mobile-graphics-load=1", "offline-legacy-register=1", "offline-legacy-gop=1", "offline-legacy-phase=4", "offline-legacy-unit-scale=2", "offline-legacy-pm=1", "offline-legacy-validate=1", "offline-legacy-transfer=1", "offline-legacy-cpu-present=1", "vsync=60", "bbk-sdhci-batch-blocks=512"]
 # Static + System trust cache bundle built from this IPSW's StaticTrustCache and
 # Cryptex1,SystemTrustCache components (bundle format: <3I> header + modules).
 # Without it AMFI falls back to the amfid daemon port and rejects launchd/dyld.
