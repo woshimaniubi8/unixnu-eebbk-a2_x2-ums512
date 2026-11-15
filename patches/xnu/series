@@ -117,3 +117,4 @@ bbk-a2-cryptex-standalone-libs.patch
 bbk-a2-keystore-state.patch
 # Trace only unrecoverable tccd/launchd user aborts; retain exception routing.
 bbk-a2-tccd-abort-traces.patch
+bbk-a2-tccd-stack-traces.patch

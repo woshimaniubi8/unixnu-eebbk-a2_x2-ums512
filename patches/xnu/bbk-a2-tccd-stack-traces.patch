@@ -1,0 +1,50 @@
+diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -39,6 +39,8 @@
+ #include <arm64/instructions.h>
+ 
+ #include <kern/debug.h>
++#include <kern/backtrace.h>
++#include <vm/vm_map.h>
+ #include <kern/restartable.h>
+ #include <kern/socd_client.h>
+ #include <kern/task.h>
+@@ -1728,6 +1730,37 @@
+ 		    (unsigned long long)get_saved_state_reg(state, 23));
+ 	}
+ 
++	/* Use the kernel's bounded user unwinder; keep fault/exception semantics. */
++	if (strcmp(bbk_abort_name, "tccd") == 0) {
++		vm_map_offset_t queries[2] = { fault_addr, get_saved_state_fp(state) };
++		for (unsigned i = 0; i < 2; ++i) {
++			vm_map_offset_t base = queries[i];
++			vm_map_size_t size = 0;
++			vm_region_basic_info_data_64_t info = {0};
++			mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
++			kern_return_t kr = vm_map_region(current_map(), &base, &size,
++			    VM_REGION_BASIC_INFO_64, (vm_region_info_t)&info, &count, NULL);
++			printf("M78 stack-region: pid=%d query=%u addr=0x%llx kr=0x%x base=0x%llx size=0x%llx prot=0x%x max=0x%x contains=%u\n",
++			    bbk_abort_pid, i, (unsigned long long)queries[i], kr,
++			    (unsigned long long)base, (unsigned long long)size,
++			    info.protection, info.max_protection,
++			    kr == KERN_SUCCESS && queries[i] >= base && queries[i] - base < size);
++		}
++		if (ml_get_interrupts_enabled()) {
++			uintptr_t frames[64] = {0};
++			struct backtrace_user_info info = BTUINFO_INIT;
++			unsigned count = backtrace_user(frames, 64, NULL, &info);
++			printf("M78 stack: pid=%d count=%u err=%d flags=0x%x next=0x%llx\n",
++			    bbk_abort_pid, count, info.btui_error, (unsigned)info.btui_info,
++			    (unsigned long long)info.btui_next_frame_addr);
++			for (unsigned i = 0; i < count; ++i)
++				printf("M78 frame: pid=%d idx=%u pc=0x%016llx\n", bbk_abort_pid, i,
++				    (unsigned long long)frames[i]);
++		} else {
++			printf("M78 stack: pid=%d skipped=interrupts-disabled\n", bbk_abort_pid);
++		}
++	}
++
+ 	exception_triage(exc, codes, numcodes);
+ 	__builtin_unreachable();
+ }
