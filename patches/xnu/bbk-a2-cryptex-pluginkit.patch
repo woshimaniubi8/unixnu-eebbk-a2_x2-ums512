@@ -1,0 +1,69 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -882,11 +882,11 @@
+ 		get_bsdthread_info(thread)->uu_flag &= ~UT_LP64;
+ 	}
+ 	task_set_mach_header_address(task, result->mach_header);
+-	printf("bbk exec-image: pid=%d mh=0x%016llx entry=0x%016llx dyld_mh=0x%016llx\n",
++	printf("bbk exec-image: pid=%d mh=0x%016llx entry=0x%016llx dyld_mh=0x%016llx name=%s\n",
+ 	    proc_getpid(p),
+ 	    (unsigned long long)result->mach_header,
+ 	    (unsigned long long)result->entry_point,
+-	    (unsigned long long)result->dynlinker_mach_header);
++	    (unsigned long long)result->dynlinker_mach_header, proc_best_name(p));
+ 
+ 	ret = thread_state_initialize(thread);
+ 	if (ret != KERN_SUCCESS) {
+@@ -7811,6 +7811,32 @@
+ 	    "/private/preboot/usr/lib", "/usr/lib", MNT_UNION);
+ 	if (!error) {
+ 		native_cryptex_os_stage = 5;
++		/* PlugInKitDaemon is a standalone SystemOS framework, not a cache
++		 * image. Mount at the framework directory so the existing root's
++		 * Info.plist/resources remain available through the union lookup. */
++		const char *binary = "/System/Library/PrivateFrameworks/PlugInKitDaemon.framework/PlugInKitDaemon";
++		vnode_t probe = NULLVP;
++		int before_error = vnode_lookup(binary, 0, &probe, vfs_context_current());
++		if (!before_error) vnode_put(probe);
++		error = native_cryptex_os_bind(p, scratch,
++		    "/private/preboot/System/Library/PrivateFrameworks/PlugInKitDaemon.framework",
++		    "/System/Library/PrivateFrameworks/PlugInKitDaemon.framework", MNT_UNION);
++		int mount_error = error;
++		off_t bytes = 0;
++		if (!error) {
++			error = vnode_lookup(binary, 0, &probe, vfs_context_current());
++			if (!error) {
++				error = vnode_size(probe, &bytes, vfs_context_current());
++				vnode_put(probe);
++			}
++		}
++		int info_error = vnode_lookup("/System/Library/PrivateFrameworks/PlugInKitDaemon.framework/Info.plist",
++		    0, &probe, vfs_context_current());
++		if (!info_error) vnode_put(probe);
++		printf("bbk cryptex: PlugInKitDaemon before=%d mount=%d probe=%d bytes=%lld info=%d\n",
++		    before_error, mount_error, error, (long long)bytes, info_error);
++		if (!error && !info_error) native_cryptex_os_stage = 6;
++		if (!error) error = info_error;
+ 	}
+ 	native_cryptex_os_status = error;
+ }
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -1708,7 +1708,7 @@
+ 	int bbk_abort_pid = task_pid(current_task());
+ 	char bbk_abort_name[64] = {0};
+ 	proc_selfname(bbk_abort_name, (int)sizeof(bbk_abort_name));
+-	if (bbk_abort_pid == 1 || strcmp(bbk_abort_name, "tccd") == 0) {
++	if (bbk_abort_pid == 1 || (strcmp(bbk_abort_name, "tccd") == 0 || strcmp(bbk_abort_name, "SpringBoard") == 0 || strcmp(bbk_abort_name, "pkd") == 0)) {
+ 		printf("M77 abort: pid=%d name=%s esr=0x%08x far=0x%016llx pc=0x%016llx lr=0x%016llx sp=0x%016llx fp=0x%016llx code=0x%llx\n",
+ 		    bbk_abort_pid, bbk_abort_name, esr,
+ 		    (unsigned long long)fault_addr,
+@@ -1731,7 +1731,7 @@
+ 	}
+ 
+ 	/* Use the kernel's bounded user unwinder; keep fault/exception semantics. */
+-	if (strcmp(bbk_abort_name, "tccd") == 0) {
++	if ((strcmp(bbk_abort_name, "tccd") == 0 || strcmp(bbk_abort_name, "SpringBoard") == 0 || strcmp(bbk_abort_name, "pkd") == 0)) {
+ 		vm_map_offset_t queries[2] = { fault_addr, get_saved_state_fp(state) };
+ 		for (unsigned i = 0; i < 2; ++i) {
+ 			vm_map_offset_t base = queries[i];
