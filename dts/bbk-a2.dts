@@ -181,7 +181,7 @@
 				vol.fs_file = "/private/var";
 				vol.fs_name = "Data";
 				vol.fs_type = "rw";
-				vol.fs_mntopts = "nosuid,nodev,size=65536,template=/private/var/";
+				vol.fs_mntopts = "nosuid,nodev,size=524288,template=/private/var/";
 				vol.fs_mntorder = <0>;
 				vol.fs_passno = <2>;
 			};
