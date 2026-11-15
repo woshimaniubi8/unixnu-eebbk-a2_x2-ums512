@@ -119,3 +119,6 @@ bbk-a2-keystore-state.patch
 bbk-a2-tccd-abort-traces.patch
 bbk-a2-tccd-stack-traces.patch
 bbk-a2-tccd-io-traces.patch
+
+# Opt-in verbose boot diagnostics; retain errors and compact signed-file timing.
+bbk-a2-boot-trace-gate.patch

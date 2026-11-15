@@ -12,7 +12,7 @@ os_abi = ["ipados-17.7.11-21H461"]
 board_dependencies = []
 verified_devices = []
 dependencies = []
-source_files = ["NativeSdhciBlock.cpp"]
+source_files = ["NativeSdhciBlock.cpp", "AdmaReadPlan.h"]
 runtime_identifiers = ["NativeSdhciBlock", "NativeSdhciBlock.cpp"]
 build_stage = "kernel"
 # build-sdhci-block.py is device-owned (scripts/): it compiles the driver with

@@ -36,6 +36,7 @@
 // UEFI takeover driver does as well.
 
 #include <IOKit/IOBufferMemoryDescriptor.h>
+#include "AdmaReadPlan.h"
 #include <IOKit/IOBSD.h>
 #include <IOKit/IODeviceMemory.h>
 #include <IOKit/IOLib.h>
@@ -180,11 +181,11 @@ constexpr uint32_t kIntCommandComplete = 1U << 0;
 constexpr uint32_t kIntTransferComplete = 1U << 1;
 
 constexpr uint32_t kBlockBytes         = 512;
-constexpr uint32_t kMaxReadBlocks      = 64;
+constexpr uint32_t kMaxReadBlocks      = kBbkAdmaMaximumBlocks;
+constexpr uint32_t kDefaultReadBlocks  = 64;
 constexpr uint32_t kTransferBytes      = kMaxReadBlocks * kBlockBytes;
 constexpr uint32_t kCommandDataPresent = 0x003A0000U;  // RESP_48 | CRC | index | data
 constexpr uint32_t kTransferModeRead   = 0x0011U;      // DMA enable + data read
-constexpr uint32_t kDescriptorValid    = 0x23U;        // Valid | Tran | End
 
 constexpr uintptr_t kCacheLineBytes = 64;
 
@@ -292,6 +293,7 @@ private:
     uintptr_t registers = 0;
     uint64_t descriptorPhysical = 0;
     uint64_t transferPhysical = 0;
+    uint32_t batchBlocks = kDefaultReadBlocks;
     uint64_t capacity = 0;             // sectors of the published window
     uint64_t partitionFirstLba = 0;    // eMMC sector of published window sector 0
     uint64_t userdataFirstLba = 0;     // eMMC sector of the userdata partition
@@ -542,11 +544,10 @@ bool NativeSdhciBlock::dataCommandLocked(uint32_t commandIndex, uint64_t argumen
     uint8_t *data = static_cast<uint8_t *>(transferMemory->getBytesNoCopy());
 
     const uint32_t transferBytes = blocks * kBlockBytes;
-    descriptor[0] = (transferBytes << 16) | kDescriptorValid;
-    descriptor[1] = static_cast<uint32_t>(transferPhysical);
-    descriptor[2] = static_cast<uint32_t>(transferPhysical >> 32);
-    descriptor[3] = 0;
-    cacheClean(descriptor, 4 * sizeof(uint32_t));
+    const size_t descriptors = bbkBuildAdmaReadPlan(descriptor, 4096 / sizeof(uint32_t),
+                                                   transferPhysical, blocks);
+    if (!descriptors) return false;
+    cacheClean(descriptor, descriptors * kBbkAdmaWordsPerDescriptor * sizeof(uint32_t));
     cacheInvalidate(data, transferBytes);
 
     // Stock sdhcr11_prepare_data: select the vendor ADMA engine, ADMA2 with
@@ -703,19 +704,19 @@ bool NativeSdhciBlock::readBlocks(uint64_t lba, uint32_t blocks)
 
 bool NativeSdhciBlock::verifyMultiBlock()
 {
-    if (!readBlocks(1, kMaxReadBlocks)) return false;
-    OSData *snapshot = OSData::withBytes(sectorData(), kTransferBytes);
+    if (!readBlocks(1, batchBlocks)) return false;
+    OSData *snapshot = OSData::withBytes(sectorData(), batchBlocks * kBlockBytes);
     if (!snapshot) return false;
     bool matched = true;
     const uint8_t *bytes = static_cast<const uint8_t *>(snapshot->getBytesNoCopy());
-    for (uint32_t i = 0; i < kMaxReadBlocks; ++i) {
+    for (uint32_t i = 0; i < batchBlocks; ++i) {
         if (!readSector(1 + i) || memcmp(sectorData(), bytes + i * kBlockBytes, kBlockBytes)) {
             IOLog("NativeSdhciBlock: batch comparison failed at GPT LBA %u\n", 1 + i);
             matched = false; break;
         }
     }
     snapshot->release();
-    IOLog("NativeSdhciBlock: batch comparison blocks=%u matched=%u CMD23/CMD18 versus CMD17\n", kMaxReadBlocks, matched);
+    IOLog("NativeSdhciBlock: batch comparison blocks=%u matched=%u CMD23/CMD18 versus CMD17\n", batchBlocks, matched);
     return matched;
 }
 
@@ -930,6 +931,15 @@ bool NativeSdhciBlock::start(IOService *provider)
         return false;
     }
     IOLog("SDHCI M74 DMA: node=%s\n", provider->getName());
+    uint32_t requestedBatch = kDefaultReadBlocks;
+    PE_parse_boot_argn("bbk-sdhci-batch-blocks", &requestedBatch, sizeof(requestedBatch));
+    if (!requestedBatch || requestedBatch > kMaxReadBlocks ||
+        (requestedBatch & (requestedBatch - 1))) {
+        IOLog("NativeSdhciBlock: invalid batch size %u; device not published\n", requestedBatch);
+        return false;
+    }
+    batchBlocks = requestedBatch;
+
     // The device tree gives each instance the SHNGROOT window it publishes:
     // "OS" for the root disk and "SystemOS" for the preboot/dyld-cache disk.
     // The ADT generator keeps only name/compatible/reg/interrupts, so the node
@@ -958,6 +968,9 @@ bool NativeSdhciBlock::start(IOService *provider)
         if (PE_parse_boot_argn("bbk-sdhci-verbose", &verboseArg, sizeof(verboseArg))) {
             gBbkSdhciVerbose = verboseArg != 0;
         }
+        uint32_t bootTrace = 0;
+        PE_parse_boot_argn("bbk-boot-trace", &bootTrace, sizeof(bootTrace));
+        gBbkSdhciVerbose = gBbkSdhciVerbose || bootTrace != 0;
         IOLog("NativeSdhciBlock: verbose tracing %s\n", gBbkSdhciVerbose ? "on" : "off");
     }
     if (!IOBlockStorageDevice::start(provider)) {
@@ -1001,7 +1014,7 @@ bool NativeSdhciBlock::start(IOService *provider)
     }
     IOByteCount length = 0;
     descriptorPhysical = descriptorMemory->getPhysicalSegment(0, &length);
-    if (descriptorPhysical == 0 || length < 4 * sizeof(uint32_t)) {
+    if (descriptorPhysical == 0 || length < kBbkAdmaMaximumDescriptors * kBbkAdmaWordsPerDescriptor * sizeof(uint32_t)) {
         IOLog("NativeSdhciBlock: the descriptor table is not physically contiguous\n");
         return false;
     }
@@ -1012,6 +1025,8 @@ bool NativeSdhciBlock::start(IOService *provider)
     }
     bzero(descriptorMemory->getBytesNoCopy(), 4096);
     bzero(transferMemory->getBytesNoCopy(), kTransferBytes);
+    IOLog("bbk perf: sdhci batch_blocks=%u segment_bytes=%u trace=%u\n",
+          batchBlocks, kBbkAdmaSegmentBytes, gBbkSdhciVerbose ? 1U : 0U);
     gate = IOLockAlloc();
     if (!gate) {
         return false;
@@ -1070,7 +1085,7 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
     // reads, so print whether such a request reaches the transport, makes
     // progress and completes.  Small requests stay silent.
     static uint32_t s_traceBudget = 6000;
-    const bool trace = (count >= 64) && (s_traceBudget > 0);
+    const bool trace = gBbkSdhciVerbose && (count >= 64) && (s_traceBudget > 0);
     const uint32_t reqId = ++g_reqSeq;
     uint64_t nextProgress = 0;
     if (trace) {
@@ -1106,7 +1121,7 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
             }
         }
         const uint64_t remainingBlocks = (count * kBlockBytes - actual) / kBlockBytes;
-        const uint32_t blocksNow = static_cast<uint32_t>(remainingBlocks < kMaxReadBlocks ? remainingBlocks : kMaxReadBlocks);
+        const uint32_t blocksNow = static_cast<uint32_t>(remainingBlocks < batchBlocks ? remainingBlocks : batchBlocks);
         const uint32_t bytesNow = blocksNow * kBlockBytes;
         if (!readBlocks(partitionFirstLba + block + actual / kBlockBytes, blocksNow)) {
             if (trace) {
@@ -1148,7 +1163,7 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
     IOLockUnlock(gate);
     traceCmd = false;
     verboseCmd = false;
-    if (trace) {
+    if (trace || result != kIOReturnSuccess) {
         uint64_t elapsedNs = 0;
         absolutetime_to_nanoseconds(mach_absolute_time() - reqStart, &elapsedNs);
         IOLog("NativeSdhciBlock: req %s id=%u result=0x%x actual=0x%llx elapsed_us=%llu\n",

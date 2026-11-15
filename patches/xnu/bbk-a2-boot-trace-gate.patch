@@ -1,0 +1,489 @@
+--- a/bsd/kern/kern_descrip.c
++++ b/bsd/kern/kern_descrip.c
+@@ -74,6 +74,7 @@
+ 
+ #include <sys/param.h>
+ #include <sys/systm.h>
++#include <sys/bbk_boot_trace.h>
+ #include <sys/filedesc.h>
+ #include <sys/kernel.h>
+ #include <sys/vnode_internal.h>
+@@ -3951,7 +3952,7 @@
+ 			goto outdrop;
+ 		}
+ 
+-		printf("bbk cs: fcntl97 enter cmd=%d start=0x%llx blob=0x%llx size=0x%llx tid=%lld\n",
++		BBK_BOOT_TRACE("bbk cs: fcntl97 enter cmd=%d start=0x%llx blob=0x%llx size=0x%llx tid=%lld\n",
+ 		    cmd, (unsigned long long)fs.fs_file_start,
+ 		    (unsigned long long)fs.fs_blob_start, (unsigned long long)fs.fs_blob_size,
+ 		    (long long)thread_tid(current_thread()));
+@@ -3960,7 +3961,7 @@
+ 		 * First check if we have something loaded a this offset
+ 		 */
+ 		blob = ubc_cs_blob_get(vp, CPU_TYPE_ANY, CPU_SUBTYPE_ANY, fs.fs_file_start);
+-		printf("bbk cs: blob_get -> %p\n", blob);
++		BBK_BOOT_TRACE("bbk cs: blob_get -> %p\n", blob);
+ 		if (blob != NULL) {
+ 			/* If this is for dyld_sim revalidate the blob */
+ 			if (cmd == F_ADDFILESIGS_FOR_DYLD_SIM) {
+@@ -3993,9 +3994,9 @@
+ 			}
+ 
+ 			kernel_blob_size = CAST_DOWN(vm_size_t, fs.fs_blob_size);
+-			printf("bbk cs: blob_allocate enter size=0x%llx\n", (unsigned long long)fs.fs_blob_size);
++			BBK_BOOT_TRACE("bbk cs: blob_allocate enter size=0x%llx\n", (unsigned long long)fs.fs_blob_size);
+ 			kr = ubc_cs_blob_allocate(&kernel_blob_addr, &kernel_blob_size);
+-			printf("bbk cs: blob_allocate kr=%d size=0x%llx\n", kr, (unsigned long long)kernel_blob_size);
++			BBK_BOOT_TRACE_ERROR(kr != KERN_SUCCESS, "bbk cs: blob_allocate kr=%d size=0x%llx\n", kr, (unsigned long long)kernel_blob_size);
+ 			if (kr != KERN_SUCCESS || kernel_blob_size < fs.fs_blob_size) {
+ 				error = ENOMEM;
+ 				vnode_put(vp);
+@@ -4009,7 +4010,7 @@
+ 			} else { /* F_ADDFILESIGS || F_ADDFILESIGS_RETURN || F_ADDFILESIGS_FOR_DYLD_SIM || F_ADDFILESIGS_INFO */
+ 				int resid;
+ 
+-				printf("bbk cs: vn_rdwr enter off=0x%llx size=0x%llx\n",
++				BBK_BOOT_TRACE("bbk cs: vn_rdwr enter off=0x%llx size=0x%llx\n",
+ 				    (unsigned long long)(fs.fs_file_start + fs.fs_blob_start),
+ 				    (unsigned long long)kernel_blob_size);
+ 				error = vn_rdwr(UIO_READ,
+@@ -4022,7 +4023,7 @@
+ 				    kauth_cred_get(),
+ 				    &resid,
+ 				    p);
+-				printf("bbk cs: vn_rdwr done err=%d resid=%d\n", error, resid);
++				BBK_BOOT_TRACE_ERROR(error != 0, "bbk cs: vn_rdwr done err=%d resid=%d\n", error, resid);
+ 				if ((error == 0) && resid) {
+ 					/* kernel_blob_size rounded to a page size, but signature may be at end of file */
+ 					memset((void *)(kernel_blob_addr + (kernel_blob_size - resid)), 0x0, resid);
+@@ -4048,7 +4049,7 @@
+ 			    blob_add_flags,
+ 			    &blob);
+ 
+-			printf("bbk cs: blob_add done err=%d\n", error);
++			BBK_BOOT_TRACE_ERROR(error != 0, "bbk cs: blob_add done err=%d\n", error);
+ 			/* ubc_blob_add() has consumed "kernel_blob_addr" if it is zeroed */
+ 			if (error) {
+ 				if (kernel_blob_addr) {
+@@ -4076,7 +4077,7 @@
+ 				end_offset = blob->csb_end_offset;
+ 			}
+ 			error = copyout(&end_offset, argp, sizeof(end_offset));
+-			printf("bbk cs: copyout err=%d end=0x%llx\n", error, (unsigned long long)end_offset);
++			BBK_BOOT_TRACE_ERROR(error != 0, "bbk cs: copyout err=%d end=0x%llx\n", error, (unsigned long long)end_offset);
+ 
+ 			if (error) {
+ 				vnode_put(vp);
+--- a/bsd/kern/ubc_subr.c
++++ b/bsd/kern/ubc_subr.c
+@@ -39,6 +39,8 @@
+ #include <sys/types.h>
+ #include <sys/param.h>
+ #include <sys/systm.h>
++#include <sys/bbk_boot_trace.h>
++#include <kern/clock.h>
+ #include <sys/lock.h>
+ #include <sys/mman.h>
+ #include <sys/mount_internal.h>
+@@ -4689,7 +4691,7 @@
+ 		*ret_blob = NULL;
+ 	}
+ 
+-	printf("bbk cs: blob_add enter vp=%p size=0x%llx base=0x%llx\n",
++	BBK_BOOT_TRACE("bbk cs: blob_add enter vp=%p size=0x%llx base=0x%llx\n",
+ 	    (void *)vp, (unsigned long long)size, (unsigned long long)base_offset);
+ 
+ 	/*
+@@ -4701,7 +4703,7 @@
+ 	 * blob which we allocate from the read-only allocator.
+ 	 */
+ 	error = cs_blob_init_validated(addr, size, &tmp_blob, &cd);
+-	printf("bbk cs: init_validated err=%d\n", error);
++	BBK_BOOT_TRACE_ERROR(error != 0, "bbk cs: init_validated err=%d\n", error);
+ 	if (error != 0) {
+ 		printf("unable to create a validated cs_blob object: %d\n", error);
+ 		return error;
+@@ -4713,7 +4715,7 @@
+ 
+ 	/* Perform 1st stage reconstitution */
+ 	error = reconstitute_code_signature(&tmp_blob);
+-	printf("bbk cs: reconstitute1 err=%d\n", error);
++	BBK_BOOT_TRACE_ERROR(error != 0, "bbk cs: reconstitute1 err=%d\n", error);
+ 	if (error != 0) {
+ 		goto out;
+ 	}
+@@ -4773,7 +4775,7 @@
+ 	unsigned int cs_flags = tmp_blob.csb_flags;
+ 	unsigned int signer_type = tmp_blob.csb_signer_type;
+ 
+-	printf("bbk cs: mac_check enter\n");
++	BBK_BOOT_TRACE("bbk cs: mac_check enter\n");
+ 	error = mac_vnode_check_signature(
+ 		vp,
+ 		&tmp_blob,
+@@ -4782,7 +4784,7 @@
+ 		&signer_type,
+ 		flags,
+ 		platform);
+-	printf("bbk cs: mac_check err=%d\n", error);
++	BBK_BOOT_TRACE_ERROR(error != 0, "bbk cs: mac_check err=%d\n", error);
+ 
+ 	if (error != 0) {
+ 		printf("validation of code signature failed through MACF policy: %d\n", error);
+@@ -4827,21 +4829,21 @@
+ 
+ 	/* Perform 2nd stage reconstitution */
+ 	error = reconstitute_code_signature_2nd_stage(&tmp_blob);
+-	printf("bbk cs: reconstitute2 err=%d\n", error);
++	BBK_BOOT_TRACE_ERROR(error != 0, "bbk cs: reconstitute2 err=%d\n", error);
+ 	if (error != 0) {
+ 		goto out;
+ 	}
+ 
+ 	/* Setup any multi-level hashing for the code signature */
+ 	error = setup_multilevel_hashing(&tmp_blob);
+-	printf("bbk cs: mlh err=%d\n", error);
++	BBK_BOOT_TRACE_ERROR(error != 0, "bbk cs: mlh err=%d\n", error);
+ 	if (error != 0) {
+ 		goto out;
+ 	}
+ 
+ 	/* Ensure security critical auxiliary blobs still exist */
+ 	error = validate_auxiliary_signed_blobs(&tmp_blob);
+-	printf("bbk cs: aux err=%d\n", error);
++	BBK_BOOT_TRACE_ERROR(error != 0, "bbk cs: aux err=%d\n", error);
+ 	if (error != 0) {
+ 		goto out;
+ 	}
+@@ -4855,7 +4857,7 @@
+ 	 * signature around.
+ 	 */
+ 	error = accelerate_entitlement_queries(&tmp_blob);
+-	printf("bbk cs: entitlements err=%d\n", error);
++	BBK_BOOT_TRACE_ERROR(error != 0, "bbk cs: entitlements err=%d\n", error);
+ 	if (error != 0) {
+ 		goto out;
+ 	}
+@@ -4885,15 +4887,15 @@
+ 		goto out;
+ 	}
+ 
+-	printf("bbk cs: coverage start=0x%llx end=0x%llx pageshift=%d\n",
++	BBK_BOOT_TRACE("bbk cs: coverage start=0x%llx end=0x%llx pageshift=%d\n",
+ 	    (unsigned long long)blob_start_offset, (unsigned long long)blob_end_offset,
+ 	    (int)tmp_blob.csb_hash_pageshift);
+ 
+ #if defined(XNU_NATIVE_CS_HASH_CACHE) && XNU_NATIVE_CS_HASH_CACHE
+ 	/* Authenticate before publishing the signed object or taking its locks. */
+-	printf("bbk cs: native4k enter\n");
++	BBK_BOOT_TRACE("bbk cs: native4k enter\n");
+ 	error = cs_native4k_prepare(vp, &tmp_blob);
+-	printf("bbk cs: native4k err=%d\n", error);
++	BBK_BOOT_TRACE_ERROR(error != 0, "bbk cs: native4k err=%d\n", error);
+ 	if (error != 0) {
+ 		goto out;
+ 	}
+@@ -4909,9 +4911,9 @@
+ 		OS_PTRAUTH_DISCRIMINATOR("ubc_cs_blob_add.blocking_op0"),
+ 		PTRAUTH_ADDR_DIVERSIFY);
+ 
+-	printf("bbk cs: vnode_lock enter\n");
++	BBK_BOOT_TRACE("bbk cs: vnode_lock enter\n");
+ 	vnode_lock(vp);
+-	printf("bbk cs: vnode locked\n");
++	BBK_BOOT_TRACE("bbk cs: vnode locked\n");
+ 	if (!UBCINFOEXISTS(vp)) {
+ 		vnode_unlock(vp);
+ 		error = ENOENT;
+@@ -5801,6 +5803,7 @@
+ 	uint8_t *buffer = NULL;
+ 	uint64_t limit, offset, chunk;
+ 	int error = EBADEXEC, ioflags;
++	uint64_t bbk_read_ticks = 0, bbk_hash_ticks = 0;
+ 	kern_return_t kr;
+ 
+ 	if (blob->csb_hash_pageshift <= PAGE_SHIFT) {
+@@ -5814,7 +5817,7 @@
+ 		return ENOTSUP;
+ 	}
+ 	limit = ntohl(cd->codeLimit);
+-	printf("bbk cs: n4k cd version=0x%x limit=0x%llx nCodeSlots=%u hashPage=%u scatter=0x%x base=0x%llx\n",
++	BBK_BOOT_TRACE("bbk cs: n4k cd version=0x%x limit=0x%llx nCodeSlots=%u hashPage=%u scatter=0x%x base=0x%llx\n",
+ 	    ntohl(cd->version), (unsigned long long)limit, ntohl(cd->nCodeSlots),
+ 	    (unsigned)blob->csb_hash_pageshift, ntohl(cd->scatterOffset),
+ 	    (unsigned long long)blob->csb_base_offset);
+@@ -5848,7 +5851,7 @@
+ 			error = EOVERFLOW;
+ 			goto out;
+ 		}
+-		printf("bbk cs: n4k read chunk=0x%llx len=0x%llx pos=0x%llx\n",
++		BBK_BOOT_TRACE("bbk cs: n4k read chunk=0x%llx len=0x%llx pos=0x%llx\n",
+ 		    (unsigned long long)chunk, (unsigned long long)chunk_length,
+ 		    (unsigned long long)position);
+ 		const uint64_t read_start = mach_absolute_time();
+@@ -5856,9 +5859,10 @@
+ 		    UIO_SYSSPACE, ioflags, vfs_context_ucred(vfs_context_current()),
+ 		    &resid, current_proc());
+ 		const uint64_t hash_start = mach_absolute_time();
+-		printf("bbk cs: n4k done chunk=0x%llx err=%d resid=%d\n",
++		BBK_BOOT_TRACE_ERROR(error != 0 || resid != 0, "bbk cs: n4k done chunk=0x%llx err=%d resid=%d\n",
+ 		    (unsigned long long)chunk, error, resid);
+ 		os_atomic_add(&cs_native4k_read_ticks, hash_start - read_start, relaxed);
++		bbk_read_ticks += hash_start - read_start;
+ 		os_atomic_add(&cs_native4k_bytes, (uint64_t)chunk_length, relaxed);
+ 		if (error || resid) {
+ 			error = error ? error : EIO;
+@@ -5896,7 +5900,9 @@
+ 				memcpy((void *)(storage + index * md->cs_size), digest, md->cs_size);
+ 			}
+ 		}
+-		os_atomic_add(&cs_native4k_hash_ticks, mach_absolute_time() - hash_start, relaxed);
++		const uint64_t bbk_hash_elapsed = mach_absolute_time() - hash_start;
++		os_atomic_add(&cs_native4k_hash_ticks, bbk_hash_elapsed, relaxed);
++		bbk_hash_ticks += bbk_hash_elapsed;
+ 	}
+ 	kr = vm_map_protect(kernel_map, storage, storage + allocation, VM_PROT_READ, TRUE);
+ 	if (kr != KERN_SUCCESS) {
+@@ -5910,6 +5916,15 @@
+ 	os_atomic_inc(&cs_native4k_ready_blobs, relaxed);
+ 	error = 0;
+ out:
++    if (limit > CS_NATIVE4K_UNCACHED || error != 0) {
++        uint64_t read_ns = 0, hash_ns = 0;
++        absolutetime_to_nanoseconds(bbk_read_ticks, &read_ns);
++        absolutetime_to_nanoseconds(bbk_hash_ticks, &hash_ns);
++        printf("bbk perf: native4k bytes=0x%llx read_us=%llu hash_us=%llu total_bytes=0x%llx err=%d\n",
++            (unsigned long long)limit, (unsigned long long)(read_ns / 1000),
++            (unsigned long long)(hash_ns / 1000),
++            (unsigned long long)os_atomic_load(&cs_native4k_bytes, relaxed), error);
++    }
+ 	kfree_data(buffer, CS_NATIVE4K_CHUNK);
+ 	if (storage) {
+ 		kmem_free(kernel_map, storage, allocation);
+--- a/bsd/vfs/vfs_vnops.c
++++ b/bsd/vfs/vfs_vnops.c
+@@ -76,6 +76,7 @@
+ #include <sys/param.h>
+ #include <sys/types.h>
+ #include <sys/systm.h>
++#include <sys/bbk_boot_trace.h>
+ #include <sys/kernel.h>
+ #include <sys/file_internal.h>
+ #include <sys/stat.h>
+@@ -970,9 +971,9 @@
+ 	int error = 0;
+ 	UIO_STACKBUF(uio_buf, 1);
+ 
+-	boolean_t bbk_trace = (p != NULL) && (proc_getpid(p) == 1) && (len >= 0x100000);
++	boolean_t bbk_trace = (p != NULL) && (proc_getpid(p) == 1) && (len >= 0x100000) && bbk_boot_trace_enabled();
+ 	if (bbk_trace) {
+-		printf("bbk vfs: vn_rdwr rw=%d off=0x%llx len=0x%llx ioflg=0x%x tid=%lld\n",
++		BBK_BOOT_TRACE("bbk vfs: vn_rdwr rw=%d off=0x%llx len=0x%llx ioflg=0x%x tid=%lld\n",
+ 		    (int)rw, (long long)offset, (long long)len, ioflg,
+ 		    (long long)thread_tid(current_thread()));
+ 	}
+@@ -1009,8 +1010,8 @@
+ 	}
+ #endif
+ 
+-	if (bbk_trace) {
+-		printf("bbk vfs: mac_read err=%d\n", error);
++	if (bbk_trace || error != 0) {
++		BBK_BOOT_TRACE_ERROR(error != 0, "bbk vfs: mac_read err=%d\n", error);
+ 	}
+ 
+ 	if (error == 0) {
+@@ -1019,11 +1020,11 @@
+ 				error = vn_read_swapfile(vp, auio);
+ 			} else {
+ 				if (bbk_trace) {
+-					printf("bbk vfs: VNOP_READ enter\n");
++					BBK_BOOT_TRACE("bbk vfs: VNOP_READ enter\n");
+ 				}
+ 				error = VNOP_READ(vp, auio, ioflg, &context);
+-				if (bbk_trace) {
+-					printf("bbk vfs: VNOP_READ done err=%d resid=%lld\n",
++				if (bbk_trace || error != 0) {
++					BBK_BOOT_TRACE_ERROR(error != 0 || uio_resid(auio) != 0, "bbk vfs: VNOP_READ done err=%d resid=%lld\n",
+ 					    error, (long long)uio_resid(auio));
+ 				}
+ 			}
+--- a/bsd/vfs/vfs_syscalls.c
++++ b/bsd/vfs/vfs_syscalls.c
+@@ -73,6 +73,7 @@
+ 
+ #include <sys/param.h>
+ #include <sys/systm.h>
++#include <sys/bbk_boot_trace.h>
+ #include <sys/namei.h>
+ #include <sys/filedesc.h>
+ #include <sys/kernel.h>
+@@ -5134,13 +5135,13 @@
+ {
+ 	int bbk_error = openat_internal(vfs_context_current(), uap->path, uap->flags,
+ 	           uap->mode, AT_FDCWD, UIO_USERSPACE, retval);
+-	if (proc_getpid(current_proc()) == 1) {
++	if (proc_getpid(current_proc()) == 1 && (bbk_error != 0 || bbk_boot_trace_enabled())) {
+ 		char bbk_path[200];
+ 		size_t bbk_path_len = 0;
+ 		if (copyinstr(uap->path, bbk_path, sizeof(bbk_path), &bbk_path_len) != 0) {
+ 			strlcpy(bbk_path, "<bad ptr>", sizeof(bbk_path));
+ 		}
+-		printf("bbk open: path=%s flags=0x%x -> err=%d fd=%d\n", bbk_path, uap->flags, bbk_error, bbk_error == 0 ? *retval : -1);
++		BBK_BOOT_TRACE_ERROR(bbk_error != 0, "bbk open: path=%s flags=0x%x -> err=%d fd=%d\n", bbk_path, uap->flags, bbk_error, bbk_error == 0 ? *retval : -1);
+ 	}
+ 	return bbk_error;
+ }
+@@ -5151,13 +5152,13 @@
+ {
+ 	int bbk_error = openat_internal(vfs_context_current(), uap->path, uap->flags,
+ 	           uap->mode, uap->fd, UIO_USERSPACE, retval);
+-	if (proc_getpid(current_proc()) == 1) {
++	if (proc_getpid(current_proc()) == 1 && (bbk_error != 0 || bbk_boot_trace_enabled())) {
+ 		char bbk_path[200];
+ 		size_t bbk_path_len = 0;
+ 		if (copyinstr(uap->path, bbk_path, sizeof(bbk_path), &bbk_path_len) != 0) {
+ 			strlcpy(bbk_path, "<bad ptr>", sizeof(bbk_path));
+ 		}
+-		printf("bbk open: path=%s flags=0x%x -> err=%d fd=%d\n", bbk_path, uap->flags, bbk_error, bbk_error == 0 ? *retval : -1);
++		BBK_BOOT_TRACE_ERROR(bbk_error != 0, "bbk open: path=%s flags=0x%x -> err=%d fd=%d\n", bbk_path, uap->flags, bbk_error, bbk_error == 0 ? *retval : -1);
+ 	}
+ 	return bbk_error;
+ }
+--- a/bsd/dev/arm/systemcalls.c
++++ b/bsd/dev/arm/systemcalls.c
+@@ -22,6 +22,7 @@
+ #include <sys/proc_internal.h>
+ #include <sys/syscall.h>
+ #include <sys/systm.h>
++#include <sys/bbk_boot_trace.h>
+ #include <sys/user.h>
+ #include <sys/errno.h>
+ #include <sys/kdebug.h>
+@@ -179,37 +180,37 @@
+ 
+ 	AUDIT_SYSCALL_ENTER(code, proc, uthread);
+ 
+-	if (proc_getpid(proc) == 1) {
++	if (proc_getpid(proc) == 1 && bbk_boot_trace_enabled()) {
+ 		uint64_t bbk_tid = (uint64_t)thread_tid(current_thread());
+ 
+ 		switch (code) {
+ 		case 92:  /* fcntl */
+ 		case 406: /* fcntl_nocancel */
+-			printf("bbk sys: > fcntl tid=%llu fd=%d cmd=%d arg=0x%llx\n",
++			BBK_BOOT_TRACE("bbk sys: > fcntl tid=%llu fd=%d cmd=%d arg=0x%llx\n",
+ 			    (unsigned long long)bbk_tid, (int)uthread->uu_arg[0],
+ 			    (int)uthread->uu_arg[1], (unsigned long long)uthread->uu_arg[2]);
+ 			if ((int)uthread->uu_arg[1] == 97) { /* F_ADDFILESIGS_RETURN */
+ 				uint64_t bbk_fsig[3] = { 0, 0, 0 };
+ 				if (copyin((user_addr_t)uthread->uu_arg[2], bbk_fsig, sizeof(bbk_fsig)) == 0) {
+-					printf("bbk sys:   addfilesigs start=0x%llx blob=0x%llx size=0x%llx\n",
++					BBK_BOOT_TRACE("bbk sys:   addfilesigs start=0x%llx blob=0x%llx size=0x%llx\n",
+ 					    (unsigned long long)bbk_fsig[0], (unsigned long long)bbk_fsig[1],
+ 					    (unsigned long long)bbk_fsig[2]);
+ 				} else {
+-					printf("bbk sys:   addfilesigs copyin failed\n");
++					BBK_BOOT_TRACE("bbk sys:   addfilesigs copyin failed\n");
+ 				}
+ 			}
+ 			break;
+ 		case 339: /* fstat64 */
+-			printf("bbk sys: > fstat64 tid=%llu fd=%d\n",
++			BBK_BOOT_TRACE("bbk sys: > fstat64 tid=%llu fd=%d\n",
+ 			    (unsigned long long)bbk_tid, (int)uthread->uu_arg[0]);
+ 			break;
+ 		case 6:   /* close */
+ 		case 399: /* close_nocancel */
+-			printf("bbk sys: > close tid=%llu fd=%d\n",
++			BBK_BOOT_TRACE("bbk sys: > close tid=%llu fd=%d\n",
+ 			    (unsigned long long)bbk_tid, (int)uthread->uu_arg[0]);
+ 			break;
+ 		case 73: /* munmap */
+-			printf("bbk sys: > munmap tid=%llu addr=0x%llx len=0x%llx\n",
++			BBK_BOOT_TRACE("bbk sys: > munmap tid=%llu addr=0x%llx len=0x%llx\n",
+ 			    (unsigned long long)bbk_tid, (unsigned long long)uthread->uu_arg[0],
+ 			    (unsigned long long)uthread->uu_arg[1]);
+ 			break;
+@@ -252,44 +253,44 @@
+ 		}
+ 	}
+ 
+-	if (proc_getpid(proc) == 1) {
++	if (proc_getpid(proc) == 1 && (error != 0 || bbk_boot_trace_enabled())) {
+ 		uint64_t bbk_rv = *((uint64_t *)(&uthread->uu_rval[0]));
+ 		switch (code) {
+ 		case 197: /* mmap */
+-			printf("bbk sys: mmap addr=0x%llx len=0x%llx prot=0x%x flags=0x%x fd=%d pos=0x%llx -> err=%d ret=0x%llx\n",
++			BBK_BOOT_TRACE_ERROR(error != 0, "bbk sys: mmap addr=0x%llx len=0x%llx prot=0x%x flags=0x%x fd=%d pos=0x%llx -> err=%d ret=0x%llx\n",
+ 			    (unsigned long long)uthread->uu_arg[0], (unsigned long long)uthread->uu_arg[1],
+ 			    (unsigned int)uthread->uu_arg[2], (unsigned int)uthread->uu_arg[3],
+ 			    (int)uthread->uu_arg[4], (unsigned long long)uthread->uu_arg[5], error,
+ 			    (unsigned long long)bbk_rv);
+ 			break;
+ 		case 153: /* pread */
+-			printf("bbk sys: pread fd=%d len=0x%llx off=0x%llx -> err=%d ret=0x%llx\n",
++			BBK_BOOT_TRACE_ERROR(error != 0, "bbk sys: pread fd=%d len=0x%llx off=0x%llx -> err=%d ret=0x%llx\n",
+ 			    (int)uthread->uu_arg[0], (unsigned long long)uthread->uu_arg[2],
+ 			    (unsigned long long)uthread->uu_arg[3], error, (unsigned long long)bbk_rv);
+ 			break;
+ 		case 3: /* read */
+-			printf("bbk sys: read fd=%d len=0x%llx -> err=%d ret=0x%llx\n",
++			BBK_BOOT_TRACE_ERROR(error != 0, "bbk sys: read fd=%d len=0x%llx -> err=%d ret=0x%llx\n",
+ 			    (int)uthread->uu_arg[0], (unsigned long long)uthread->uu_arg[2], error,
+ 			    (unsigned long long)bbk_rv);
+ 			break;
+ 		case 189: /* fstat */
+-			printf("bbk sys: fstat fd=%d -> err=%d\n", (int)uthread->uu_arg[0], error);
++			BBK_BOOT_TRACE_ERROR(error != 0, "bbk sys: fstat fd=%d -> err=%d\n", (int)uthread->uu_arg[0], error);
+ 			break;
+ 		case 6:   /* close */
+ 		case 399: /* close_nocancel */
+-			printf("bbk sys: close fd=%d -> err=%d\n", (int)uthread->uu_arg[0], error);
++			BBK_BOOT_TRACE_ERROR(error != 0, "bbk sys: close fd=%d -> err=%d\n", (int)uthread->uu_arg[0], error);
+ 			break;
+ 		case 92:  /* fcntl */
+ 		case 406: /* fcntl_nocancel */
+-			printf("bbk sys: < fcntl fd=%d cmd=%d -> err=%d ret=0x%llx\n",
++			BBK_BOOT_TRACE_ERROR(error != 0, "bbk sys: < fcntl fd=%d cmd=%d -> err=%d ret=0x%llx\n",
+ 			    (int)uthread->uu_arg[0], (int)uthread->uu_arg[1], error,
+ 			    (unsigned long long)bbk_rv);
+ 			break;
+ 		case 339: /* fstat64 */
+-			printf("bbk sys: < fstat64 fd=%d -> err=%d\n", (int)uthread->uu_arg[0], error);
++			BBK_BOOT_TRACE_ERROR(error != 0, "bbk sys: < fstat64 fd=%d -> err=%d\n", (int)uthread->uu_arg[0], error);
+ 			break;
+ 		case 73: /* munmap */
+-			printf("bbk sys: < munmap addr=0x%llx len=0x%llx -> err=%d\n",
++			BBK_BOOT_TRACE_ERROR(error != 0, "bbk sys: < munmap addr=0x%llx len=0x%llx -> err=%d\n",
+ 			    (unsigned long long)uthread->uu_arg[0], (unsigned long long)uthread->uu_arg[1], error);
+ 			break;
+ 		default:
+--- /dev/null
++++ b/bsd/sys/bbk_boot_trace.h
+@@ -0,0 +1,15 @@
++/* SPDX-License-Identifier: BSD-2-Clause-Patent */
++#ifndef BBK_BOOT_TRACE_H
++#define BBK_BOOT_TRACE_H
++#include <pexpert/pexpert.h>
++/* Boot arguments are immutable here. Parsing the opt-in avoids an unsynchronised
++ * lazily initialised global in paths entered concurrently during exec and VFS. */
++static inline int
++bbk_boot_trace_enabled(void)
++{
++    int enabled = 0;
++    return PE_parse_boot_argn("bbk-boot-trace", &enabled, sizeof(enabled)) && enabled != 0;
++}
++#define BBK_BOOT_TRACE(...) do { if (bbk_boot_trace_enabled()) { printf(__VA_ARGS__); } } while (0)
++#define BBK_BOOT_TRACE_ERROR(failed, ...) do { if ((failed) || bbk_boot_trace_enabled()) { printf(__VA_ARGS__); } } while (0)
++#endif
+--- a/bsd/sys/Makefile
++++ b/bsd/sys/Makefile
+@@ -170,6 +170,7 @@
+ # Installs header file for Apple internal use for kernel extensions -
+ #	  $(DSTROOT)/System/Library/Frameworks/Kernel.framework/PrivateHeaders
+ PRIVATE_KERNELFILES = \
++	bbk_boot_trace.h \
+ 	acct.h \
+ 	codesign.h \
+ 	cprotect.h \
