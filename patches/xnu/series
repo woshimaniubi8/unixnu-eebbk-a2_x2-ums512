@@ -137,3 +137,6 @@ bbk-a2-ui-ipc-depth.patch
 
 # Pair mprotect entry/return on the measured SpringBoard main thread.
 bbk-a2-mprotect-pair.patch
+
+# Observe the original snapshot and container-management service peers.
+bbk-a2-ui-service-peers.patch

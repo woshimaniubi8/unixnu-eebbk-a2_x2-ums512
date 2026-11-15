@@ -1,0 +1,55 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -2045,7 +2045,10 @@
+ 	if (proc_getpid(p) == 1 || strcmp(proc_best_name(p), "SpringBoard") == 0 ||
+ 	    strcmp(proc_best_name(p), "backboardd") == 0 ||
+ 	    strcmp(proc_best_name(p), "pkd") == 0 ||
+-	    strcmp(proc_best_name(p), "lsd") == 0) {
++	    strcmp(proc_best_name(p), "lsd") == 0 ||
++	    strcmp(proc_best_name(p), "splashboardd") == 0 ||
++	    strcmp(proc_best_name(p), "containermanagerd") == 0 ||
++	    strcmp(proc_best_name(p), "containermanagerd_system") == 0) {
+ 		unsigned char bbk_hash[CS_CDHASH_LEN] = {0};
+ 		int bbk_hash_error = ubc_cs_getcdhash(imgp->ip_vp, imgp->ip_arch_offset, bbk_hash);
+ 		printf("M93 exec-ok: pid=%d name=%s cdhash_err=%d cdhash=",
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -1713,7 +1713,8 @@
+ 	int bbk_abort_pid = task_pid(current_task());
+ 	char bbk_abort_name[64] = {0};
+ 	proc_selfname(bbk_abort_name, (int)sizeof(bbk_abort_name));
+-	if (bbk_abort_pid == 1 || (strcmp(bbk_abort_name, "tccd") == 0 || strcmp(bbk_abort_name, "SpringBoard") == 0 || strcmp(bbk_abort_name, "pkd") == 0)) {
++	if (bbk_abort_pid == 1 || (strcmp(bbk_abort_name, "tccd") == 0 || strcmp(bbk_abort_name, "SpringBoard") == 0 || strcmp(bbk_abort_name, "pkd") == 0 || strcmp(bbk_abort_name, "splashboardd") == 0 ||
++	    strcmp(bbk_abort_name, "containermanagerd") == 0 || strcmp(bbk_abort_name, "containermanagerd_system") == 0)) {
+ 		printf("M77 abort: pid=%d name=%s esr=0x%08x far=0x%016llx pc=0x%016llx lr=0x%016llx sp=0x%016llx fp=0x%016llx code=0x%llx\n",
+ 		    bbk_abort_pid, bbk_abort_name, esr,
+ 		    (unsigned long long)fault_addr,
+@@ -1736,7 +1737,8 @@
+ 	}
+ 
+ 	/* Use the kernel's bounded user unwinder; keep fault/exception semantics. */
+-	if ((strcmp(bbk_abort_name, "tccd") == 0 || strcmp(bbk_abort_name, "SpringBoard") == 0 || strcmp(bbk_abort_name, "pkd") == 0)) {
++	if ((strcmp(bbk_abort_name, "tccd") == 0 || strcmp(bbk_abort_name, "SpringBoard") == 0 || strcmp(bbk_abort_name, "pkd") == 0 || strcmp(bbk_abort_name, "splashboardd") == 0 ||
++	    strcmp(bbk_abort_name, "containermanagerd") == 0 || strcmp(bbk_abort_name, "containermanagerd_system") == 0)) {
+ 		vm_map_offset_t queries[2] = { fault_addr, get_saved_state_fp(state) };
+ 		for (unsigned i = 0; i < 2; ++i) {
+ 			vm_map_offset_t base = queries[i];
+@@ -1973,7 +1975,7 @@
+ 
+ /* Current-thread, bounded UI IPC evidence. No foreign map activation, thread
+  * suspension, fake reply or watchdog-policy modification is performed here. */
+-#define BBK_UI_ROLES 3
++#define BBK_UI_ROLES 6
+ #define BBK_UI_SLOTS 64
+ #define BBK_UI_FRAMES 32
+ struct bbk_ui_record {
+@@ -1991,7 +1993,8 @@
+ static struct bbk_ui_record bbk_ui_records[BBK_UI_ROLES][BBK_UI_SLOTS];
+ static _Atomic int bbk_ui_pids[BBK_UI_ROLES];
+ static _Atomic uint64_t bbk_ui_main_tids[BBK_UI_ROLES];
+-static const char * const bbk_ui_names[BBK_UI_ROLES] = {"SpringBoard", "backboardd", "lsd"};
++static const char * const bbk_ui_names[BBK_UI_ROLES] = {"SpringBoard", "backboardd", "lsd",
++    "splashboardd", "containermanagerd", "containermanagerd_system"};
+ static _Atomic int bbk_ui_started, bbk_ui_enabled;
+ static unsigned int bbk_ui_dropped[BBK_UI_ROLES], bbk_ui_round;
+ static thread_call_t bbk_ui_call;
