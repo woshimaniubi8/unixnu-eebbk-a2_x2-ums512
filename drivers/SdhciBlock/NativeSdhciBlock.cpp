@@ -16,9 +16,9 @@
 // The controller at 0x71400000 is already initialised by cboot/U-Boot and this
 // driver deliberately inherits that state (clock control 0x0207, host control
 // 0x20, host control 2 0x3000, vendor clock register 0x204 = 0x30303060): the
-// UEFI takeover driver proved on hardware that no timing, clock or bus-width
-// reprogramming is needed or possible (CAP base clock reads 0).  Only the
-// command/data path below is used.
+// UEFI takeover driver has read the GPT using this inherited state.  A zero
+// CAP base-clock field does not establish the actual SoC source clock or prove
+// that retiming is impossible; this transport keeps timing unchanged.
 //
 // Command path (replicated from the stock Android sdhcr11 driver through the
 // UEFI SprdSdhciMmcHostDxe takeover driver, both of which read LBA 1 and the
@@ -180,6 +180,8 @@ constexpr uint32_t kIntCommandComplete = 1U << 0;
 constexpr uint32_t kIntTransferComplete = 1U << 1;
 
 constexpr uint32_t kBlockBytes         = 512;
+constexpr uint32_t kMaxReadBlocks      = 64;
+constexpr uint32_t kTransferBytes      = kMaxReadBlocks * kBlockBytes;
 constexpr uint32_t kCommandDataPresent = 0x003A0000U;  // RESP_48 | CRC | index | data
 constexpr uint32_t kTransferModeRead   = 0x0011U;      // DMA enable + data read
 constexpr uint32_t kDescriptorValid    = 0x23U;        // Valid | Tran | End
@@ -351,9 +353,12 @@ private:
     }
 
     bool waitCommandIdle(uint32_t milliseconds);
-    bool dataCommand(uint32_t commandIndex, uint64_t argument);
-    bool dataCommandLocked(uint32_t commandIndex, uint64_t argument);
+    bool dataCommand(uint32_t commandIndex, uint64_t argument, uint32_t blocks = 1);
+    bool setBlockCountLocked(uint32_t blocks);
+    bool dataCommandLocked(uint32_t commandIndex, uint64_t argument, uint32_t blocks);
     bool readSector(uint64_t emmcLba);
+    bool readBlocks(uint64_t emmcLba, uint32_t blocks);
+    bool verifyMultiBlock();
     bool readExtCsd();
     bool readGptHeader();
     bool findUserdataPartition();
@@ -460,9 +465,12 @@ bool NativeSdhciBlock::waitCommandIdle(uint32_t milliseconds)
     return false;
 }
 
-bool NativeSdhciBlock::dataCommand(uint32_t commandIndex, uint64_t argument)
+bool NativeSdhciBlock::dataCommand(uint32_t commandIndex, uint64_t argument, uint32_t blocks)
 {
+    if (!ownsDevice || !registers || !blocks || blocks > kMaxReadBlocks ||
+        (blocks > 1 && commandIndex != 18)) return false;
     IOLock *lock = controllerLock();
+    if (!lock) return false;
     // Lock lines stay at the 64-sector sampling rate even inside the last-128
     // window: the issued/done pair there already pinpoints the sector.  Once a
     // request has been running long enough (verboseCmd) every sector prints the
@@ -485,14 +493,47 @@ bool NativeSdhciBlock::dataCommand(uint32_t commandIndex, uint64_t argument)
               commandIndex, (unsigned long long)lockNs, argument,
               read32(kPresentState), cmdSectorIndex);
     }
-    const bool ok = dataCommandLocked(commandIndex, argument);
+    // CMD23 and CMD18 form one transaction on the shared physical controller.
+    const bool counted = blocks == 1 || setBlockCountLocked(blocks);
+    const bool ok = counted && dataCommandLocked(commandIndex, argument, blocks);
     if (lock) {
         IOLockUnlock(lock);
     }
     return ok;
 }
 
-bool NativeSdhciBlock::dataCommandLocked(uint32_t commandIndex, uint64_t argument)
+bool NativeSdhciBlock::setBlockCountLocked(uint32_t blocks)
+{
+    if (!blocks || blocks > kMaxReadBlocks || !waitCommandIdle(2000)) return false;
+    write32(kNormalIntSignal, 0);
+    write32(kNormalIntEnable, 0xFFFFFFFFU);
+    write32(kNormalIntStatus, 0xFFFFFFFFU);
+    write32(kArgument, blocks);
+    // MMC SET_BLOCK_COUNT is an R1 command with no data phase.
+    write32(kTransferMode, (23U << 24) | (kCommandDataPresent & ~0x00200000U));
+    bool finished = false;
+    uint32_t status = 0;
+    for (uint32_t spin = 0; spin < 200000; ++spin) {
+        status = read32(kNormalIntStatus);
+        if (status & (kIntError | kIntCommandComplete)) { finished = true; break; }
+        IODelay(10);
+    }
+    const uint32_t response = read32(kResponse);
+    lastStatus = status; lastError = read16(kErrorIntStatus);
+    lastPresentState = read32(kPresentState); lastAdmaError = read8(kAdmaErrorStatus);
+    write32(kNormalIntStatus, 0xFFFFFFFFU);
+    write32(kNormalIntEnable, 0);
+    dmaBarrier();
+    if (!finished || (status & kIntError) || !(status & kIntCommandComplete) ||
+        (response & 0xFFF9A000U)) {
+        IOLog("NativeSdhciBlock: CMD23 failed blocks=%u status=0x%08x error=0x%04x response=0x%08x ps=0x%08x\n",
+              blocks, status, lastError, response, lastPresentState);
+        return false;
+    }
+    return true;
+}
+
+bool NativeSdhciBlock::dataCommandLocked(uint32_t commandIndex, uint64_t argument, uint32_t blocks)
 {
     if (!ownsDevice || !registers) {
         return false;
@@ -500,12 +541,13 @@ bool NativeSdhciBlock::dataCommandLocked(uint32_t commandIndex, uint64_t argumen
     uint32_t *descriptor = static_cast<uint32_t *>(descriptorMemory->getBytesNoCopy());
     uint8_t *data = static_cast<uint8_t *>(transferMemory->getBytesNoCopy());
 
-    descriptor[0] = (kBlockBytes << 16) | kDescriptorValid;
+    const uint32_t transferBytes = blocks * kBlockBytes;
+    descriptor[0] = (transferBytes << 16) | kDescriptorValid;
     descriptor[1] = static_cast<uint32_t>(transferPhysical);
     descriptor[2] = static_cast<uint32_t>(transferPhysical >> 32);
     descriptor[3] = 0;
     cacheClean(descriptor, 4 * sizeof(uint32_t));
-    cacheInvalidate(data, kBlockBytes);
+    cacheInvalidate(data, transferBytes);
 
     // Stock sdhcr11_prepare_data: select the vendor ADMA engine, ADMA2 with
     // 64-bit descriptors, and clear the vendor bit that forces 32-bit mode.
@@ -538,7 +580,7 @@ bool NativeSdhciBlock::dataCommandLocked(uint32_t commandIndex, uint64_t argumen
     }
 
     write16(kBlockSize, static_cast<uint16_t>((kBlockBytes & 0xFFFU) | 0x7000U));
-    write32(kBlockCount, 1);
+    write32(kBlockCount, blocks);
     write32(kAdmaAddressLow, static_cast<uint32_t>(descriptorPhysical));
     write32(kAdmaAddressHigh, static_cast<uint32_t>(descriptorPhysical >> 32));
     write32(kArgument, static_cast<uint32_t>(argument));
@@ -547,7 +589,9 @@ bool NativeSdhciBlock::dataCommandLocked(uint32_t commandIndex, uint64_t argumen
     write32(kNormalIntSignal, 0);
     dmaBarrier();
 
-    write32(kTransferMode, ((commandIndex & 0x3FU) << 24) | kCommandDataPresent | kTransferModeRead);
+    // eMMC uses CMD23's predefined count, not the SD AUTO_CMD12 policy.
+    const uint32_t mode = kTransferModeRead | (blocks > 1 ? 0x22U : 0U);
+    write32(kTransferMode, ((commandIndex & 0x3FU) << 24) | kCommandDataPresent | mode);
     if (traceSampled() || verbose) {
         IOLog("NativeSdhciBlock: cmd%u issued lba=0x%llx ps=0x%08x idx=%u\n", commandIndex, argument,
               read32(kPresentState), cmdSectorIndex);
@@ -588,7 +632,7 @@ bool NativeSdhciBlock::dataCommandLocked(uint32_t commandIndex, uint64_t argumen
     write32(kNormalIntSignal, 0);
     write32(kNormalIntEnable, 0);
     dmaBarrier();
-    cacheInvalidate(data, kBlockBytes);
+    cacheInvalidate(data, transferBytes);
 
     if (spin > 2000) {
         IOLog("NativeSdhciBlock: cmd %u slow lba 0x%llx spin=%u status=0x%08x err=0x%04x adma=0x%02x ps=0x%08x resp=0x%08x\n",
@@ -641,6 +685,38 @@ bool NativeSdhciBlock::readSector(uint64_t emmcLba)
               read32(kPresentState));
     }
     return true;
+}
+
+bool NativeSdhciBlock::readBlocks(uint64_t lba, uint32_t blocks)
+{
+    if (blocks == 1) return readSector(lba);
+    cmdSectorIndex += blocks;
+    if (!dataCommand(18, lba, blocks)) {
+        __atomic_fetch_add(&native_sdhci_read_failures, 1, __ATOMIC_RELAXED);
+        IOLog("NativeSdhciBlock: CMD18 failed lba=0x%llx blocks=%u autoerr=0x%04x\n",
+              lba, blocks, (unsigned)read16(0x3C));
+        return false;
+    }
+    __atomic_fetch_add(&native_sdhci_read_requests, 1, __ATOMIC_RELAXED);
+    return true;
+}
+
+bool NativeSdhciBlock::verifyMultiBlock()
+{
+    if (!readBlocks(1, kMaxReadBlocks)) return false;
+    OSData *snapshot = OSData::withBytes(sectorData(), kTransferBytes);
+    if (!snapshot) return false;
+    bool matched = true;
+    const uint8_t *bytes = static_cast<const uint8_t *>(snapshot->getBytesNoCopy());
+    for (uint32_t i = 0; i < kMaxReadBlocks; ++i) {
+        if (!readSector(1 + i) || memcmp(sectorData(), bytes + i * kBlockBytes, kBlockBytes)) {
+            IOLog("NativeSdhciBlock: batch comparison failed at GPT LBA %u\n", 1 + i);
+            matched = false; break;
+        }
+    }
+    snapshot->release();
+    IOLog("NativeSdhciBlock: batch comparison blocks=%u matched=%u CMD23/CMD18 versus CMD17\n", kMaxReadBlocks, matched);
+    return matched;
 }
 
 bool NativeSdhciBlock::readExtCsd()
@@ -918,7 +994,7 @@ bool NativeSdhciBlock::start(IOService *provider)
             static_cast<IOOptionBits>(kIOMemoryPhysicallyContiguous), 4096, 4096);
     transferMemory = IOBufferMemoryDescriptor::inTaskWithOptions(kernel_task,
         static_cast<IOOptionBits>(kIODirectionInOut) |
-            static_cast<IOOptionBits>(kIOMemoryPhysicallyContiguous), 4096, 4096);
+            static_cast<IOOptionBits>(kIOMemoryPhysicallyContiguous), kTransferBytes, 4096);
     if (!descriptorMemory || !transferMemory) {
         IOLog("NativeSdhciBlock: DMA buffer allocation failed\n");
         return false;
@@ -930,19 +1006,18 @@ bool NativeSdhciBlock::start(IOService *provider)
         return false;
     }
     transferPhysical = transferMemory->getPhysicalSegment(0, &length);
-    if (transferPhysical == 0 || length < kBlockBytes) {
+    if (transferPhysical == 0 || length < kTransferBytes) {
         IOLog("NativeSdhciBlock: the transfer buffer is not physically contiguous\n");
         return false;
     }
     bzero(descriptorMemory->getBytesNoCopy(), 4096);
-    bzero(transferMemory->getBytesNoCopy(), 4096);
+    bzero(transferMemory->getBytesNoCopy(), kTransferBytes);
     gate = IOLockAlloc();
     if (!gate) {
         return false;
     }
 
-    readExtCsd();
-    if (!readGptHeader() || !findUserdataPartition()) {
+    if (!readExtCsd() || !readGptHeader() || !findUserdataPartition()) {
         IOLog("NativeSdhciBlock: eMMC read path not proven, no block device published\n");
         return false;
     }
@@ -960,6 +1035,10 @@ bool NativeSdhciBlock::start(IOService *provider)
         capacity = userdataBlocks;
     }
 
+    if (!verifyMultiBlock()) {
+        IOLog("NativeSdhciBlock: batch path did not pass comparison; device not published\n");
+        return false;
+    }
     online = true;
     native_sdhci_ready = 1;
     native_sdhci_sectors = capacity;
@@ -1026,7 +1105,10 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
                       partitionFirstLba + block + actual / kBlockBytes);
             }
         }
-        if (!readSector(partitionFirstLba + block + actual / kBlockBytes)) {
+        const uint64_t remainingBlocks = (count * kBlockBytes - actual) / kBlockBytes;
+        const uint32_t blocksNow = static_cast<uint32_t>(remainingBlocks < kMaxReadBlocks ? remainingBlocks : kMaxReadBlocks);
+        const uint32_t bytesNow = blocksNow * kBlockBytes;
+        if (!readBlocks(partitionFirstLba + block + actual / kBlockBytes, blocksNow)) {
             if (trace) {
                 IOLog("NativeSdhciBlock: req %s readSector failed lba=0x%llx\n",
                       windowName, partitionFirstLba + block + actual / kBlockBytes);
@@ -1034,7 +1116,7 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
             result = kIOReturnIOError;
             break;
         }
-        if (buffer->writeBytes(actual, sectorData(), kBlockBytes) != kBlockBytes) {
+        if (buffer->writeBytes(actual, sectorData(), bytesNow) != bytesNow) {
             if (trace) {
                 IOLog("NativeSdhciBlock: req %s writeBytes failed at 0x%llx\n",
                       windowName, actual);
@@ -1042,7 +1124,7 @@ IOReturn NativeSdhciBlock::doAsyncReadWrite(IOMemoryDescriptor *buffer, UInt64 b
             result = kIOReturnIOError;
             break;
         }
-        actual += kBlockBytes;
+        actual += bytesNow;
         if (trace && actual >= nextProgress) {
             IOLog("NativeSdhciBlock: req %s progress 0x%llx/0x%llx\n",
                   windowName, actual, count * kBlockBytes);
