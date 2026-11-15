@@ -25,8 +25,6 @@ volatile uint32_t native_legacy_gpu_fallbacks,native_legacy_gpu_last_status;
 static IOService *activeLegacyDisplay;
 // Keep one diagnostic mapping alive until reboot, even after backend stop.
 // The pulse is permanently closed before any system-frame copy.
-static IOMemoryMap *diagnosticAnchorMapping;
-extern "C" int boot_progress_pulse_anchor(uintptr_t,uint64_t,unsigned,unsigned,unsigned) __attribute__((weak_import));
 static IORegistryEntry *unitScaleChosen;
 static bool unitScaleAdded,unitRotationAdded;
 static void finishUnitScalePolicy(bool keep) {
@@ -78,39 +76,21 @@ volatile int native_legacy_client_pid,native_legacy_client_status=-1;
 volatile uint64_t native_legacy_client_task,native_legacy_client_object;
 char native_legacy_client_class[64];
 extern kern_return_t OSKextLoadKextWithIdentifier(const char *);
-extern int boot_progress_prepare_scanout(void) __attribute__((weak_import));
-extern void boot_progress_cancel_scanout(void) __attribute__((weak_import));
-extern void boot_progress_stage(const char *) __attribute__((weak_import));
 volatile uint32_t native_legacy_prepare_calls,native_legacy_prepare_reason,native_legacy_prepare_attempts;
 volatile uint32_t native_legacy_prepare_failures,native_legacy_prepare_retried,native_legacy_prepare_max_attempts;
 volatile uint64_t native_legacy_prepare_wait_us;
 static uint64_t probeNowUs(void) {uint64_t ns;absolutetime_to_nanoseconds(mach_absolute_time(),&ns);return ns/1000;}
 bool native_legacy_prepare_scanout(void) {
-    native_legacy_prepare_calls=native_legacy_prepare_calls+1;native_legacy_prepare_reason=0;native_legacy_prepare_attempts=0;
-    if (!boot_progress_prepare_scanout) return true;
-    if (ml_at_interrupt_context()) {native_legacy_prepare_reason=1;return false;}
-    if (!ml_get_interrupts_enabled()) {native_legacy_prepare_reason=2;return false;}
-    // Yield to any in-flight diagnostic writer; never spin on a preempted
-    // holder or claim a frame that the console can still overwrite.
-    const uint64_t began=probeNowUs();
-    for (unsigned attempt=0;attempt<100;++attempt) {
-        native_legacy_prepare_attempts=attempt+1;
-        if (boot_progress_prepare_scanout()) {
-            if(attempt) {
-                native_legacy_prepare_retried=native_legacy_prepare_retried+1;native_legacy_prepare_wait_us=native_legacy_prepare_wait_us+(probeNowUs()-began);
-                if(attempt+1>native_legacy_prepare_max_attempts)native_legacy_prepare_max_attempts=attempt+1;
-            }
-            return true;
-        }
-        IOSleep(1);
-    }
-    native_legacy_prepare_failures=native_legacy_prepare_failures+1;native_legacy_prepare_wait_us=native_legacy_prepare_wait_us+(probeNowUs()-began);
-    native_legacy_prepare_reason=3;
-    if(boot_progress_cancel_scanout)boot_progress_cancel_scanout();
-    return false;
+    native_legacy_prepare_calls=native_legacy_prepare_calls+1;
+    // There is no XNU BootProgress writer in this board image. After EBS the
+    // serialized display work loop owns GOP; a missing optional observer is
+    // not a substitute hardware/GPU completion interface.
+    native_legacy_prepare_reason=0;
+    if(ml_at_interrupt_context()){native_legacy_prepare_reason=1;return false;}
+    if(!ml_get_interrupts_enabled()){native_legacy_prepare_reason=2;return false;}
+    return true;
 }
-// Every exit of the display probes passes here. A probe that did not publish the display (stage 10) says where it stopped, once
-// per exit: without the display the OS finds no framebuffer, and the stage is otherwise visible only in memory.
+
 __attribute__((noinline)) void native_legacy_display_checkpoint(void) {
     __asm__ volatile("" ::: "memory");
     if(native_legacy_stage==10){IOLog("bbk display: published original Legacy class bytes=%u dt=%u mode=%ux%u framebuffer=%llx bytes=%llu\n",native_legacy_object_size,native_legacy_dt_attached,native_legacy_gop_width,native_legacy_gop_height,native_legacy_gop_physical,native_legacy_gop_bytes);return;}
@@ -278,11 +258,7 @@ __attribute__((noinline)) void native_legacy_transfer_observed(IOReturn status,c
     if(native_legacy_transfer_calls<=8 || status!=kIOReturnSuccess)printf("bbk display: transfer n=%u status=0x%x bytes=%llu\n",native_legacy_transfer_calls,(unsigned)status,bytes);
     if(status==kIOReturnSuccess)native_legacy_swap_stage(2);
     native_legacy_transfer_status=status;native_legacy_transfer_request=(uintptr_t)request;native_legacy_transfer_bytes=bytes;
-    if(status!=kIOReturnSuccess && boot_progress_stage) {
-        char message[120];snprintf(message,sizeof(message),"DISPLAY COPY FAILED status=%08x prepare=%u tries=%u",
-          (unsigned)status,native_legacy_prepare_reason,native_legacy_prepare_attempts);
-        boot_progress_stage(message);
-    }
+
 }
 bool native_legacy_gpu_offer(void *display,IOMemoryDescriptor *memory,uint64_t stride,uint32_t width,uint32_t height,uint32_t format) {
     return false;
@@ -435,18 +411,6 @@ __attribute__((noinline)) bool native_legacy_gop_mapping_observed(IOService *obj
     native_legacy_gop_map=(uintptr_t)mapping;native_legacy_gop_virtual=mapping->getVirtualAddress();
     native_legacy_gop_physical=mapping->getPhysicalAddress();native_legacy_gop_bytes=mapping->getLength();
     native_legacy_gop_width=width;native_legacy_gop_height=height;
-    if(boot_progress_pulse_anchor && !diagnosticAnchorMapping) {
-        PE_Video anchorVideo={};
-        if(!PE_current_console(&anchorVideo) && anchorVideo.v_depth==32 &&
-           anchorVideo.v_rowBytes<=65536 &&
-           anchorVideo.v_width==width && anchorVideo.v_height==height &&
-           anchorVideo.v_baseAddr==mapping->getPhysicalAddress() && !anchorVideo.v_rotate) {
-            mapping->retain();
-            if(boot_progress_pulse_anchor(mapping->getVirtualAddress(),mapping->getLength(),width,height,
-                (unsigned)anchorVideo.v_rowBytes))diagnosticAnchorMapping=mapping;
-            else mapping->release();
-        }
-    }
     native_legacy_gop_mapping_checkpoint();
     unsigned enabled=0;PE_parse_boot_argn("offline-legacy-unit-scale",&enabled,sizeof(enabled));
     if(!enabled)return true;
