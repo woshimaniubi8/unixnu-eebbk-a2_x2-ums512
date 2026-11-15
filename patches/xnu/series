@@ -143,3 +143,6 @@ bbk-a2-ui-service-peers.patch
 
 # Use native coherent Stackshot plus native checked kcdata iterators for wait owners.
 bbk-a2-native-stackshot.patch
+
+# Start the original snapshot daemon early enough to complete its native warm-up.
+bbk-a2-splashboard-prewarm.patch
