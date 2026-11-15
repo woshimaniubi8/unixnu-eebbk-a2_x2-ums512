@@ -1,13 +1,8 @@
 --- a/DarwinBootPkg/Driver/DarwinBoot.c
 +++ b/DarwinBootPkg/Driver/DarwinBoot.c
-@@ -18,7 +18,9 @@
- #include "WindowSize.h"
- 
+@@ -20,2 +20,4 @@
  #define WINDOW_SIZE  SIZE_256MB
 -#define BLOCK_SIZE   SIZE_2MB
 +// XNU's native 16K bootstrap uses 32 MiB L2 blocks. Preserve the
 +// kernel VA/PA offset within that block; this also satisfies 4K's 2 MiB blocks.
 +#define BLOCK_SIZE   SIZE_32MB
- #define MAX_SEGMENTS 64
- 
- typedef struct {
