@@ -160,7 +160,8 @@
 	 * Apple's mount reads IODeviceTree:/filesystems/fstab for the user-space
 	 * mount table.  The ramdisk branch (vol.fs_ephemeral) copies the template
 	 * directory into a tmpfs, and parses size= from vol.fs_mntopts in units of
-	 * 512-byte blocks: 32 MiB / 512 = 65536 = 0x10000.
+	 * 512-byte blocks: 256 MiB / 512 = 524288 = 0x80000.
+	 * The 32 MiB seed is a template, not the live tmpfs capacity limit.
 	 */
 	filesystems {
 		e-apfs;
