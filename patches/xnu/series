@@ -131,3 +131,6 @@ bbk-a2-cryptex-pluginkit.patch
 
 # Bounded, current-thread SpringBoard last-SVC snapshots; retain watchdog policy.
 bbk-a2-springboard-last-svc.patch
+
+# Deep current-thread stacks on both sides of the UI IPC handshake.
+bbk-a2-ui-ipc-depth.patch
