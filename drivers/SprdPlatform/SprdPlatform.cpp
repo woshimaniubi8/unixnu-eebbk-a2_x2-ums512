@@ -15,6 +15,7 @@
 #include <mach/kmod.h>
 #include "SprdBus.h"
 #include "SprdBacklight.h"
+#include "SprdTouchPins.h"
 extern "C" kmod_info_t g_kernel_kmod_info;
 extern "C" void sprd_hid_static_init() __asm__("__GLOBAL__sub_I_NativeHidInput.cpp");
 extern "C" IOService *sprd_hid_allocate(bool);
@@ -43,6 +44,8 @@ bool compatible(IOService *p) {
 class NativeSprdPlatform : public IOService {
     OSDeclareDefaultStructors(NativeSprdPlatform)
     IOMemoryMap *maps[7]={}; Registers mmio[7];
+    IOMemoryMap *touchPinMap=nullptr;Registers touchPinRegisters;
+    TouchPins<Registers,Registers> touchPins{touchPinRegisters,mmio[1]};
     IOWorkLoop *loop=nullptr;IOTimerEventSource *timer=nullptr;
     IOService *keys=nullptr,*touch=nullptr,*backlight=nullptr;
     bool keysStarted=false,touchStarted=false;
@@ -56,7 +59,7 @@ class NativeSprdPlatform : public IOService {
     Frame lastFrame={};Debounce debounce;
     Adi<Registers> adi{mmio[0]};I2c<Registers> bus3{mmio[4]},bus4{mmio[5]};
     static void tick(OSObject *o,IOTimerEventSource *) {static_cast<NativeSprdPlatform *>(o)->poll();}
-    bool prepare();bool publishInput();void identifyTouch();void poll();void readTouch();void restore();
+    bool prepare();bool publishInput();void identifyTouch();void recoverTouchReset();void poll();void readTouch();void restore();
 public:
     IOService *probe(IOService *p,SInt32 *score) override {if(!compatible(p))return nullptr;if(score)*score=2200;return this;}
     IOWorkLoop *getWorkLoop() const override {return loop;}
@@ -141,6 +144,22 @@ void NativeSprdPlatform::identifyTouch() {
     // from real ID evidence before enabling its generation-specific parser.
     setProperty("TouchControllerIdentified",false);
 }
+void NativeSprdPlatform::recoverTouchReset() {
+    // Reset only the two factory touch candidates after both addresses NACK.
+    // A responding controller keeps its firmware configuration and state.
+    if(goodixResult!=Nack || ftsResult[0]!=Nack || ftsResult[1]!=Nack || ftsResult[2]!=Nack)return;
+    IODeviceMemory *memory=IODeviceMemory::withRange(0x32450000,0x1000);
+    touchPinMap=memory?memory->map(kIOMapAnywhere|kIOMapInhibitCache):nullptr;
+    OSSafeReleaseNULL(memory);
+    if(!touchPinMap){IOLog("M105 touch: pinctrl map failed\n");return;}
+    touchPinRegisters.base=(volatile uint8_t *)touchPinMap->getVirtualAddress();
+    IOLog("M105 touch: before reset gpio=0x%x dir=0x%x inen=0x%x pins=%x/%x/%x/%x\n",
+        mmio[1].read32(0x480),mmio[1].read32(0x488),mmio[1].read32(0x4a8),
+        touchPinRegisters.read32(0x2b8),touchPinRegisters.read32(0x2bc),touchPinRegisters.read32(0x2c0),touchPinRegisters.read32(0x2c4));
+    Result r=touchPins.resetToAddress14();
+    IOLog("M105 touch: factory reset result=%d gpio=0x%x\n",r,mmio[1].read32(0x480));
+    if(r==Ok)identifyTouch();
+}
 void NativeSprdPlatform::readTouch() {
     if(!touch || touchKind!=1)return;
     uint8_t status=0,raw[80]={};Result r=bus3.readRegister(0x14,0x814e,2,&status,1);
@@ -188,7 +207,7 @@ bool NativeSprdPlatform::start(IOService *p) {
     loop=IOWorkLoop::workLoop();if(!loop){stop(p);return false;}
     for(unsigned i=0;i<7;i++){maps[i]=p->mapDeviceMemoryWithIndex(i);if(!maps[i]){IOLog("bbk platform: MMIO map failed index=%u\n",i);stop(p);return false;}mmio[i].base=(volatile uint8_t *)maps[i]->getVirtualAddress();}
     if(!prepare()){IOLog("bbk platform: hardware prepare failed\n");stop(p);return false;}
-    identifyTouch();
+    identifyTouch();recoverTouchReset();
     if(!publishInput()){IOLog("bbk platform: HID publication failed\n");stop(p);return false;}
     timer=IOTimerEventSource::timerEventSource(this,tick);
     if(!timer || loop->addEventSource(timer)!=kIOReturnSuccess){stop(p);return false;}
@@ -198,6 +217,7 @@ bool NativeSprdPlatform::start(IOService *p) {
     IOLog("bbk platform: ready ADI/GPIO/I2C3/4, keys polled at 10ms\n");return true;
 }
 void NativeSprdPlatform::restore() {
+    if(touchPinMap){touchPins.restore();OSSafeReleaseNULL(touchPinMap);touchPinRegisters.base=nullptr;}
     if(pmicChanged && mmio[0].base)adi.update(0x284,0x1a,pmicMask);pmicChanged=false;
     if(gpioChanged)for(unsigned i=0;i<3;i++){unsigned off=7*0x80+(i==0?4:i==1?8:0x28);mmio[1].write32(off,(mmio[1].read32(off)&~(1u<<12))|(gpioSaved[i]&(1u<<12)));}gpioChanged=false;
     if(clockChanged)for(unsigned i=0;i<2;i++){mmio[4+i].write32(0,0);mmio[6].write32(0x40+4*i,clockSaved[i]);}clockChanged=false;

@@ -62,3 +62,20 @@ The CoreBrightness conformance bridge copies exactly 168 verified IOService
 slots and qualifies the original AppleARMBacklight metaclass extent `0x370`.
 Publishing a backlight service alone is not end-to-end brightness evidence;
 record CoreBrightness requests, PWM readback and physical display observation.
+
+## Touch reset and pin mux
+
+After both factory touch addresses explicitly NACK, `SprdTouchPins.h` applies
+the shipped gt9xx RESET/INT address-selection sequence once. GPIO145 RESET
+is low20ms, GPIO144 INT high2ms, RESET high6ms, INT low50ms, then INT is input.
+Existing responding controllers are not reset. No touchscreen firmware or
+configuration table is written.
+
+The shipped `sprd_pinctrl_probe` passes common offset `0x34`, misc offset
+`0x434`; its pin table has63 global entries followed by common pins. EXTINT0,
+EXTINT1,SDA3,SCL3 (224..227) therefore use `0x2b8/2bc/2c0/2c4`. Only mux
+bits5:4 are changed, preserving pull, drive and sleep settings. GPIO bank9
+changes only bits0/1. Stop restores those bits and the original muxes.
+The original 1h190 touchscreen supply VDD28 is always-on; this code does not
+guess new regulator programming. A NACK after this sequence remains a real
+failure requiring the physical controller/supply evidence.
