@@ -29,6 +29,7 @@ extern "C" IOReturn sprd_hid_contacts(IOService *,const SprdBus::Frame *,unsigne
 extern "C" void sprd_hid_diagnostics(IOService *);
 using namespace SprdBus;
 namespace {
+constexpr FuelOcvPoint kFactoryOcvCapacity[]={{4386000,100},{4329000,95},{4274000,90},{4217000,85},{4160000,80},{4106000,75},{4055000,70},{4008000,65},{3964000,60},{3905000,55},{3866000,50},{3840000,45},{3818000,40},{3800000,35},{3784000,30},{3766000,25},{3744000,20},{3719000,15},{3690000,10},{3679000,5},{3460000,0}};
 struct Registers {
     volatile uint8_t *base=nullptr;
     uint32_t read32(unsigned off) {uint32_t v=*(volatile uint32_t *)(base+off);__asm__ volatile("dsb ld":::"memory");return v;}
@@ -271,7 +272,7 @@ void NativeSprdPlatform::poll() {
     }
     if(!(ticks%2))readTouch();
     if(!(ticks%6000)) {
-        uint16_t voltage=0,current=0,area=0,module=0,clock=0;
+        uint16_t voltage=0,current=0,area=0,module=0,clock=0,pocv=0,qmax=0;
         Result v=adi.read(0xc20,voltage),c=adi.read(0xc2c,current),a=adi.read(0xca8,area);
         IOLog("bbk battery: raw voltage=%u current=%u user=0x%x status=%d/%d/%d (SOC not initialized, not published as percent)\n",voltage,current,area,v,c,a);
         Result m=adi.read(0x1808,module),t=adi.read(0x1810,clock);int mv=0,ma=0;
@@ -280,6 +281,15 @@ void NativeSprdPlatform::poll() {
         IOLog("M106 fuel: sample status=%d voltage_mV=%d current_mA=%d module=0x%x rtc=0x%x persisted_capacity_present=%u\n",
             decoded,mv,ma,module,clock,a==Ok && (area&0xfff)<=1000);
         if(decoded==Ok){setProperty("FGUVoltageMillivolts",(unsigned)mv,32);setProperty("FGUCurrentMilliamps",(unsigned)ma,32);}
+        Result pr=adi.read(0xc28,pocv),qr=adi.read(0xc74,qmax);int ocv=0,openMa=0,bootPercent=-1;
+        Result soc=Invalid;int savedDeci=-1;const unsigned savedCapacity=area&0xfff,bootMode=(area>>12)&0xf;
+        if(a==Ok && fuelSavedDeciPercent(area,savedDeci)==Ok){bootPercent=savedDeci/10;soc=Ok;}
+        else if(a==Ok && fuelFirstPowerOn(area) && decoded==Ok && pr==Ok && qr==Ok)
+            soc=fuelBootOcv(pocv,qmax,fuelCal,134000,ocv,openMa)==Ok?
+                fuelOcvCapacity(kFactoryOcvCapacity,sizeof(kFactoryOcvCapacity)/sizeof(kFactoryOcvCapacity[0]),(unsigned)ocv,bootPercent):Invalid;
+        IOLog("M113 fuel: soc=%d area=0x%x mode=0x%x saved_raw=%u saved_deci=%d first=%u pocv=%u qmax=%u ocv_uV=%d open_mA=%d estimate=%d source=%s reads=%d/%d/%d\n",
+            soc,area,bootMode,savedCapacity,savedDeci,fuelFirstPowerOn(area),pocv,qmax,ocv,openMa,bootPercent,
+            fuelFirstPowerOn(area)?"factory-OCV-unpublished":"persisted",a,pr,qr);
         uint8_t charge=0,fault=0;Result cr=bus4.readRegister(0x6b,8,1,&charge,1),fr=bus4.readRegister(0x6b,9,1,&fault,1);
         IOLog("M106 charger: status=%d/%d raw=0x%x fault=0x%x (read only)\n",cr,fr,charge,fault);
     }

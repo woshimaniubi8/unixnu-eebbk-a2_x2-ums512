@@ -13,6 +13,14 @@ struct FuelReadTrace {
     unsigned phase=0;uint32_t gate=0,control=0,token=0;
     uint16_t status=0,module=0,mode=0;
 };
+struct FuelOcvPoint {uint32_t microvolts;uint8_t percent;};
+
+inline bool fuelFirstPowerOn(uint16_t userArea) {
+    const unsigned mode=(userArea>>12)&0xf;
+    const unsigned capacity=userArea&0xfff;
+    return mode==0xf || mode==0xa || capacity==0xfff;
+}
+
 
 inline FuelCalibration fuelCalibration(uint16_t efuse) {
     FuelCalibration c;
@@ -32,6 +40,50 @@ inline Result fuelMeasurements(unsigned voltage,unsigned current,const FuelCalib
     ma=delta<0?-(int)((-delta*1000+c.currentAdcPerAmp/2)/c.currentAdcPerAmp):
                (int)((delta*1000+c.currentAdcPerAmp/2)/c.currentAdcPerAmp);
     return Ok;
+}
+
+inline Result fuelSavedDeciPercent(uint16_t userArea,int &deciPercent) {
+    if(fuelFirstPowerOn(userArea))return Invalid;
+    unsigned whole=userArea&0xff,part=(userArea>>8)&0xf;
+    if(whole>100 || part>9 || (whole==100 && part))return Invalid;
+    deciPercent=(int)(whole*10+part);return Ok;
+}
+
+inline Result fuelBootOcv(unsigned pocvAdc,unsigned qmaxAdc,const FuelCalibration &c,
+                          unsigned internalResistanceMicroOhms,int &ocvMicrovolts,int &openCurrentMilliamps) {
+    if(qmaxAdc>8191 || internalResistanceMicroOhms>1000000)return Invalid;
+    const unsigned firstCurrentAdc=qmaxAdc*2;
+    int voltageMillivolts=0;
+    Result r=fuelMeasurements(pocvAdc,firstCurrentAdc,c,voltageMillivolts,openCurrentMilliamps);
+    if(r!=Ok)return r;
+    // The shipped get_boot_voltage treats POCV<=3449mV as unqualified and
+    // switches to a live-OCV path. This read-only stage does not substitute
+    // a different sample; retain the failed qualification in the log.
+    if(voltageMillivolts<=3449 || voltageMillivolts>5000)return Invalid;
+    const int64_t ocv=(int64_t)voltageMillivolts*1000-
+                      (int64_t)openCurrentMilliamps*(internalResistanceMicroOhms/1000);
+    if(ocv<=0 || ocv>6000000)return Invalid;
+    ocvMicrovolts=(int)ocv;
+    return Ok;
+}
+
+inline Result fuelOcvCapacity(const FuelOcvPoint *table,unsigned count,unsigned ocvMicrovolts,int &percent) {
+    if(!table || count<2 || count>64)return Invalid;
+    for(unsigned i=0;i<count;i++) {
+        if(table[i].percent>100 || (i && (table[i-1].microvolts<=table[i].microvolts ||
+                                           table[i-1].percent<table[i].percent)))return Invalid;
+    }
+    if(ocvMicrovolts>table[0].microvolts){percent=table[0].percent;return Ok;}
+    if(ocvMicrovolts<=table[count-1].microvolts){percent=table[count-1].percent;return Ok;}
+    for(unsigned i=1;i<count;i++) {
+        if(table[i].microvolts<ocvMicrovolts) {
+            const uint32_t voltageSpan=table[i-1].microvolts-table[i].microvolts;
+            const unsigned percentSpan=table[i-1].percent-table[i].percent;
+            percent=table[i].percent+(unsigned)((uint64_t)(ocvMicrovolts-table[i].microvolts)*percentSpan/voltageSpan);
+            return Ok;
+        }
+    }
+    return Invalid;
 }
 
 template<class AdiBus,class HwLock,class Aon> class FuelGaugeCalibration {

@@ -42,6 +42,21 @@ struct Gate {
     void write32(unsigned off,uint32_t v){assert(v==(1u<<10));assert(off==0x1004 || off==0x2004);if(!refuse)value=off==0x1004?value|v:value&~v;}
 };
 int main() {
+    const FuelOcvPoint ocv[]={{4386000,100},{4329000,95},{4274000,90},{4217000,85},{4160000,80},{4106000,75},{4055000,70},{4008000,65},{3964000,60},{3905000,55},{3866000,50},{3840000,45},{3818000,40},{3800000,35},{3784000,30},{3766000,25},{3744000,20},{3719000,15},{3690000,10},{3679000,5},{3460000,0}};
+    assert(fuelFirstPowerOn(0xafff) && fuelFirstPowerOn(0x5fff) && fuelFirstPowerOn(0xf064) && !fuelFirstPowerOn(0x5064));
+    int percent=-1,ocvUv=0,openMa=0,savedDeci=-1;
+    assert(fuelSavedDeciPercent(0x5352,savedDeci)==Ok && savedDeci==823);
+    assert(fuelSavedDeciPercent(0x5064,savedDeci)==Ok && savedDeci==1000);
+    assert(fuelSavedDeciPercent(0xafff,savedDeci)==Invalid);
+    assert(fuelSavedDeciPercent(0x5a50,savedDeci)==Invalid);
+    assert(fuelSavedDeciPercent(0x5100|100,savedDeci)==Invalid);
+    assert(fuelOcvCapacity(ocv,21,3460000,percent)==Ok && percent==0);
+    assert(fuelOcvCapacity(ocv,21,4160000,percent)==Ok && percent==80);
+    assert(fuelOcvCapacity(ocv,21,4386000,percent)==Ok && percent==100);
+    assert(fuelOcvCapacity(ocv,21,5000000,percent)==Ok && percent==100);
+    assert(fuelOcvCapacity(ocv,21,3000000,percent)==Ok && percent==0);
+    assert(fuelOcvCapacity(ocv,21,4133000,percent)==Ok && percent==77);
+    assert(fuelOcvCapacity(ocv,1,4160000,percent)==Invalid);
     for(unsigned e=0;e<65536;e++) {
         auto c=fuelCalibration((uint16_t)e);int mv=-1,ma=-1;
         assert(c.voltageAdcPerVolt==(((e&511)+2611)*10+21)/42);
@@ -73,5 +88,9 @@ int main() {
     AdiModel readable;Hardware recordOnly;Gate powered;recordOnly.control=0;recordOnly.zeroRecordRead=true;
     FuelGaugeCalibration actual(readable,recordOnly,powered);FuelCalibration qualified;
     assert(actual.read(qualified)==Ok && qualified.efuse==125 && recordOnly.unlocks==1 && !recordOnly.held);
-    std::puts("PASS: SC2730 read-only efuse, hardware lock12, exact board coefficients, signed current, fault cleanup and no programming commands");
+    auto cal=fuelCalibration(0x775d);
+    assert(fuelBootOcv(2939,4096,cal,134000,ocvUv,openMa)==Ok && ocvUv>4100000 && ocvUv<4200000);
+    assert(fuelBootOcv(2939,0xffff,cal,134000,ocvUv,openMa)==Invalid);
+    assert(fuelBootOcv(1000,4096,cal,134000,ocvUv,openMa)==Invalid);
+    std::puts("PASS: SC2730 read-only efuse, factory first-poweron flag, exact OCV table interpolation, QMAX/POCV math, fault cleanup and no FGU programming commands");
 }
