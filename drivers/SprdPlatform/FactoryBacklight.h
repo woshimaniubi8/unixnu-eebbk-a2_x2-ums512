@@ -21,6 +21,6 @@ constexpr uint16_t kFactoryBacklightLevels[256]={
     694,700,706,712,718,724,730,736,742,748,754,760,766,772,778,784,
     790,796,802,808,814,820,826,832,838,844,850,856,862,868,874,880,
 };
-inline unsigned backlightDuty(unsigned level) { return (unsigned)kFactoryBacklightLevels[level>255?255:level]*255/880; }
+inline unsigned backlightDuty(unsigned level) { return ((unsigned)kFactoryBacklightLevels[level>255?255:level]*255+440)/880; }
 inline unsigned backlightLevel(unsigned duty) { unsigned best=0,diff=256;for(unsigned i=0;i<256;i++){unsigned d=backlightDuty(i);unsigned delta=d>duty?d-duty:duty-d;if(delta<diff){best=i;diff=delta;}}return best; }
 }

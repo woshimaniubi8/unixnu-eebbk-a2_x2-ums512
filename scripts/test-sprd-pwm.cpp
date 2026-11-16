@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include "../drivers/SprdPlatform/SprdPwm.h"
+#include "../drivers/SprdPlatform/FactoryBacklight.h"
 #include <cassert>
 #include <cstdio>
 #include <cstring>
@@ -16,6 +17,11 @@ struct Registers {
     }
 };
 int main() {
+    assert(SprdBus::backlightDuty(0)==0 && SprdBus::backlightDuty(1)==1 && SprdBus::backlightDuty(255)==255);
+    for(unsigned level=1;level<=255;level++) {
+        unsigned duty=SprdBus::backlightDuty(level);
+        assert(duty>0 && duty<=255 && duty>=SprdBus::backlightDuty(level-1));
+    }
     Registers io;for(unsigned i=0;i<32;i++)io.words[i]=0x12340000+i;
     io.words[0x40/4]=0x8003;io.words[0x44/4]=255;io.words[0x48/4]=81;io.words[0x58/4]=1;
     uint32_t baseline[32];std::memcpy(baseline,io.words,sizeof baseline);
@@ -41,5 +47,5 @@ int main() {
     io.words[0x44/4]=0;size_t before=io.writes.size();
     assert(pwm.duty(80,true)==SprdBus::Protocol && io.writes.size()==before);
     SprdBus::Pwm<Registers> bad(io,4);assert(bad.read(state)==SprdBus::Invalid);
-    std::puts("PASS: PWM2 256 levels, period and sibling preservation, off/resume, readback failure, invalid takeover, stable period restoration and bit15 transition without masking divider faults");
+    std::puts("PASS: PWM2 256 levels, period and sibling preservation, off/resume, readback failure, invalid takeover, rounded factory 256-level nonzero monotonic curve, stable period restoration and bidirectional bit15 transition without masking divider faults");
 }
