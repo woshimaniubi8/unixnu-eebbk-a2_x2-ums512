@@ -79,3 +79,28 @@ changes only bits0/1. Stop restores those bits and the original muxes.
 The original 1h190 touchscreen supply VDD28 is always-on; this code does not
 guess new regulator programming. A NACK after this sequence remains a real
 failure requiring the physical controller/supply evidence.
+
+## SC2730 FGU calibration and power dependency
+
+`SprdFuelGauge.h` reads the shipped FGU calibration cell at byteoffset6,
+using SC2730 module1808 bit6 and hardware lock12. Its real clock is
+`splk-eb` (AON+4 bit10), obtained after applying the factory Image's relative
+relocations and including the `clk_hw_onecell_data` count/padding. The
+adjacent USB PHY clock is not substituted. Only READ_START/CLR_RDDONE are
+issued; programming-start, DATA_WR and timing registers are never written.
+The original module, clock and lock ownership are restored on return.
+
+Voltage/current conversion follows the shipped FGU coefficients and the
+board's spec20000/real10000 uOhm ratio. Failed calibration or inactive FGU
+gates leave measurements unavailable. The invalid persisted capacityFFF is
+not a battery percentage; calibrated samples alone are not a SOC algorithm
+or an iOS battery-service implementation. Charger status/fault reads remain
+read-only.
+
+The current pinned ArmCpu quiesce disables its timer and GIC interface and
+does not implement a system-resume path. A physical power-key report works
+only while its polling CPU runs. This service therefore owns a standard
+CPU PM assertion, released on stop, while this acquisition path is active.
+Display-off remains available. Full SoC suspend/resume, interrupt wake and
+per-device power restoration remain unqualified; do not label this assertion
+as hardware sleep support.

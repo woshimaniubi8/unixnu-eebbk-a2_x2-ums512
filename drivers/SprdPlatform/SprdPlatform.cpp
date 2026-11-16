@@ -6,6 +6,7 @@
 #include <IOKit/IOLib.h>
 #include <IOKit/IOWorkLoop.h>
 #include <IOKit/IOTimerEventSource.h>
+#include <IOKit/pwr_mgt/RootDomain.h>
 #include <libkern/OSKextLib.h>
 #include <libkern/c++/OSMetaClass.h>
 #include <libkern/c++/OSKext.h>
@@ -16,6 +17,7 @@
 #include "SprdBus.h"
 #include "SprdBacklight.h"
 #include "SprdTouchPins.h"
+#include "SprdFuelGauge.h"
 extern "C" kmod_info_t g_kernel_kmod_info;
 extern "C" void sprd_hid_static_init() __asm__("__GLOBAL__sub_I_NativeHidInput.cpp");
 extern "C" IOService *sprd_hid_allocate(bool);
@@ -45,6 +47,9 @@ class NativeSprdPlatform : public IOService {
     OSDeclareDefaultStructors(NativeSprdPlatform)
     IOMemoryMap *maps[7]={}; Registers mmio[7];
     IOMemoryMap *touchPinMap=nullptr;Registers touchPinRegisters;
+    IOMemoryMap *fuelLockMap=nullptr;Registers fuelLockRegisters;
+    FuelCalibration fuelCal;Result fuelCalibrationResult=Invalid;
+    IOPMrootDomain *sleepRoot=nullptr;IOPMDriverAssertionID pollingAssertion=kIOPMUndefinedDriverAssertionID;
     TouchPins<Registers,Registers> touchPins{touchPinRegisters,mmio[1]};
     IOWorkLoop *loop=nullptr;IOTimerEventSource *timer=nullptr;
     IOService *keys=nullptr,*touch=nullptr,*backlight=nullptr;
@@ -59,7 +64,7 @@ class NativeSprdPlatform : public IOService {
     Frame lastFrame={};Debounce debounce;
     Adi<Registers> adi{mmio[0]};I2c<Registers> bus3{mmio[4]},bus4{mmio[5]};
     static void tick(OSObject *o,IOTimerEventSource *) {static_cast<NativeSprdPlatform *>(o)->poll();}
-    bool prepare();bool publishInput();void identifyTouch();void recoverTouchReset();void poll();void readTouch();void restore();
+    bool prepare();bool publishInput();void identifyTouch();void recoverTouchReset();void prepareFuelGauge();void requirePollingPower();void poll();void readTouch();void restore();
 public:
     IOService *probe(IOService *p,SInt32 *score) override {if(!compatible(p))return nullptr;if(score)*score=2200;return this;}
     IOWorkLoop *getWorkLoop() const override {return loop;}
@@ -124,6 +129,32 @@ bool NativeSprdPlatform::publishInput() {
     }
     return true;
 }
+void NativeSprdPlatform::prepareFuelGauge() {
+    if(chipHi!=0x2730){IOLog("M106 fuel: PMIC variant not qualified; calibration not read\n");return;}
+    IODeviceMemory *memory=IODeviceMemory::withRange(0x327f0000,0x1000);
+    fuelLockMap=memory?memory->map(kIOMapAnywhere|kIOMapInhibitCache):nullptr;
+    OSSafeReleaseNULL(memory);
+    if(!fuelLockMap){IOLog("M106 fuel: hwspinlock map failed\n");return;}
+    fuelLockRegisters.base=(volatile uint8_t *)fuelLockMap->getVirtualAddress();
+    FuelGaugeCalibration<Adi<Registers>,Registers,Registers> reader(adi,fuelLockRegisters,mmio[2]);
+    fuelCalibrationResult=reader.read(fuelCal);
+    IOLog("M106 fuel: calibration status=%d efuse3=0x%x voltage_adc=%u current_adc=%u (factory 20mOhm/10mOhm)\n",
+        fuelCalibrationResult,fuelCal.efuse,fuelCal.voltageAdcPerVolt,fuelCal.currentAdcPerAmp);
+    if(fuelCalibrationResult==Ok){setProperty("FGUVoltageAdcPerVolt",fuelCal.voltageAdcPerVolt,32);setProperty("FGUCurrentAdcPerAmp",fuelCal.currentAdcPerAmp,32);}
+}
+void NativeSprdPlatform::requirePollingPower() {
+    if(pollingAssertion || ticks%100)return;
+    sleepRoot=getPMRootDomain();
+    if(sleepRoot)pollingAssertion=sleepRoot->createPMAssertion(kIOPMDriverAssertionCPUBit,kIOPMDriverAssertionLevelOn,this,
+        "org.unixnu.eebbk.1h190.polled-input-requires-running-cpu");
+    // The qualified ArmCpu quiesce disables its timer and GIC CPU interface;
+    // it has no system-resume entry. Do not advertise a wake-capable device
+    // merely because a polled key works while the CPU is running. The normal
+    // PM assertion permits display-off/dark wake while retaining acquisition.
+    setProperty("SystemSuspendResumeQualified",false);
+    if(pollingAssertion)IOLog("M106 power: polled-input CPU assertion=%llu; display-off allowed, system suspend unsupported\n",pollingAssertion);
+    else if(ticks<6000)IOLog("M106 power: PM assertion pending root=%p tick=%u\n",sleepRoot,ticks);
+}
 void NativeSprdPlatform::identifyTouch() {
     uint8_t *id=goodixId,config[5]={};Result r=bus3.readRegister(0x14,0x8140,2,id,sizeof(goodixId));goodixResult=r;
     bool numeric=true;for(unsigned i=0;i<3;i++)numeric&=id[i]>='0' && id[i]<='9';
@@ -175,6 +206,7 @@ void NativeSprdPlatform::readTouch() {
     lastFrame=frame;touchReports++;
 }
 void NativeSprdPlatform::poll() {
+    requirePollingPower();
     uint16_t raw=0;Result r=adi.read(0x280,raw);
     if(r==Ok) {
         uint32_t gpio=mmio[1].read32(7*0x80);
@@ -196,9 +228,17 @@ void NativeSprdPlatform::poll() {
     }
     if(!(ticks%2))readTouch();
     if(!(ticks%6000)) {
-        uint16_t voltage=0,current=0,area=0;
+        uint16_t voltage=0,current=0,area=0,module=0,clock=0;
         Result v=adi.read(0xc20,voltage),c=adi.read(0xc2c,current),a=adi.read(0xca8,area);
-        IOLog("bbk battery: raw voltage=%u current=%u user=0x%x status=%d/%d/%d (uncalibrated, not published as percent)\n",voltage,current,area,v,c,a);
+        IOLog("bbk battery: raw voltage=%u current=%u user=0x%x status=%d/%d/%d (SOC not initialized, not published as percent)\n",voltage,current,area,v,c,a);
+        Result m=adi.read(0x1808,module),t=adi.read(0x1810,clock);int mv=0,ma=0;
+        Result decoded=(fuelCalibrationResult==Ok && v==Ok && c==Ok && m==Ok && t==Ok && (module&0x80) && (clock&0x40))?
+            fuelMeasurements(voltage,current,fuelCal,mv,ma):Invalid;
+        IOLog("M106 fuel: sample status=%d voltage_mV=%d current_mA=%d module=0x%x rtc=0x%x persisted_capacity_present=%u\n",
+            decoded,mv,ma,module,clock,a==Ok && (area&0xfff)<=1000);
+        if(decoded==Ok){setProperty("FGUVoltageMillivolts",(unsigned)mv,32);setProperty("FGUCurrentMilliamps",(unsigned)ma,32);}
+        uint8_t charge=0,fault=0;Result cr=bus4.readRegister(0x6b,8,1,&charge,1),fr=bus4.readRegister(0x6b,9,1,&fault,1);
+        IOLog("M106 charger: status=%d/%d raw=0x%x fault=0x%x (read only)\n",cr,fr,charge,fault);
     }
     ticks++;if(timer)timer->setTimeoutMS(10);
 }
@@ -207,6 +247,7 @@ bool NativeSprdPlatform::start(IOService *p) {
     loop=IOWorkLoop::workLoop();if(!loop){stop(p);return false;}
     for(unsigned i=0;i<7;i++){maps[i]=p->mapDeviceMemoryWithIndex(i);if(!maps[i]){IOLog("bbk platform: MMIO map failed index=%u\n",i);stop(p);return false;}mmio[i].base=(volatile uint8_t *)maps[i]->getVirtualAddress();}
     if(!prepare()){IOLog("bbk platform: hardware prepare failed\n");stop(p);return false;}
+    prepareFuelGauge();
     identifyTouch();recoverTouchReset();
     if(!publishInput()){IOLog("bbk platform: HID publication failed\n");stop(p);return false;}
     timer=IOTimerEventSource::timerEventSource(this,tick);
@@ -217,6 +258,7 @@ bool NativeSprdPlatform::start(IOService *p) {
     IOLog("bbk platform: ready ADI/GPIO/I2C3/4, keys polled at 10ms\n");return true;
 }
 void NativeSprdPlatform::restore() {
+    OSSafeReleaseNULL(fuelLockMap);fuelLockRegisters.base=nullptr;
     if(touchPinMap){touchPins.restore();OSSafeReleaseNULL(touchPinMap);touchPinRegisters.base=nullptr;}
     if(pmicChanged && mmio[0].base)adi.update(0x284,0x1a,pmicMask);pmicChanged=false;
     if(gpioChanged)for(unsigned i=0;i<3;i++){unsigned off=7*0x80+(i==0?4:i==1?8:0x28);mmio[1].write32(off,(mmio[1].read32(off)&~(1u<<12))|(gpioSaved[i]&(1u<<12)));}gpioChanged=false;
@@ -228,6 +270,7 @@ void NativeSprdPlatform::restore() {
 void NativeSprdPlatform::stop(IOService *p) {
     if(backlight){backlight->stop(this);backlight->detach(this);backlight->release();backlight=nullptr;}
     if(timer){timer->cancelTimeout();if(loop)loop->removeEventSource(timer);OSSafeReleaseNULL(timer);}
+    if(pollingAssertion && sleepRoot){sleepRoot->releasePMAssertion(pollingAssertion);pollingAssertion=kIOPMUndefinedDriverAssertionID;sleepRoot=nullptr;}
     IOService **devices[]={&touch,&keys};bool started[]={touchStarted,keysStarted};
     for(unsigned i=0;i<2;i++){IOService **d=devices[i];if(*d){if((*d)->getProvider()==this){if(started[i])(*d)->stop(this);(*d)->detach(this);}(*d)->release();*d=nullptr;}}
     touchStarted=keysStarted=false;
