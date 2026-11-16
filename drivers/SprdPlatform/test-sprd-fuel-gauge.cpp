@@ -3,6 +3,7 @@
 #include <cassert>
 #include <map>
 #include <cstdio>
+#include <vector>
 using namespace SprdBus;
 struct AdiModel {
     std::map<unsigned,uint16_t> regs{{0x1808,0x8291},{0x30c,19},{0x310,0x80},{0x304,125}};
@@ -40,6 +41,15 @@ struct Gate {
     uint32_t value=0x123000;bool refuse=false;
     uint32_t read32(unsigned off){assert(off==4);return value;}
     void write32(unsigned off,uint32_t v){assert(v==(1u<<10));assert(off==0x1004 || off==0x2004);if(!refuse)value=off==0x1004?value|v:value&~v;}
+};
+struct CounterModel {
+    std::vector<uint16_t> values;
+    unsigned at=0,fail=100;
+    Result read(unsigned off,uint16_t &value) {
+        assert(off==(at%3==1?0xc6c:0xc68));
+        if(at==fail)return Timeout;
+        assert(at<values.size());value=values[at++];return Ok;
+    }
 };
 int main() {
     const FuelOcvPoint ocv[]={{4386000,100},{4329000,95},{4274000,90},{4217000,85},{4160000,80},{4106000,75},{4055000,70},{4008000,65},{3964000,60},{3905000,55},{3866000,50},{3840000,45},{3818000,40},{3800000,35},{3784000,30},{3766000,25},{3744000,20},{3719000,15},{3690000,10},{3679000,5},{3460000,0}};
@@ -92,5 +102,44 @@ int main() {
     assert(fuelBootOcv(2939,4096,cal,134000,ocvUv,openMa)==Ok && ocvUv>4100000 && ocvUv<4200000);
     assert(fuelBootOcv(2939,0xffff,cal,134000,ocvUv,openMa)==Invalid);
     assert(fuelBootOcv(1000,4096,cal,134000,ocvUv,openMa)==Invalid);
+    CounterModel coherent{{0x1234,0x5678,0x1234}};uint32_t counter=0;
+    assert(fuelCounterRead(coherent,counter)==Ok && counter==0x12345678);
+    CounterModel rollover{{0x1234,0xffff,0x1235,0x1235,7,0x1235}};
+    assert(fuelCounterRead(rollover,counter)==Ok && counter==0x12350007);
+    CounterModel broken{{1,2,3,4,5,6,7,8,9,10,11,12}};
+    counter=123;assert(fuelCounterRead(broken,counter)==Protocol && counter==123);
+    CounterModel unreadable{{1,2,1}};unreadable.fail=1;
+    assert(fuelCounterRead(unreadable,counter)==Timeout && counter==123);
+    int64_t mah=0;const int countsPerMah=cal.currentAdcPerAmp*72/10;
+    assert(fuelCounterDeltaMah(countsPerMah,cal,mah)==Ok && mah==1);
+    assert(fuelCounterDeltaMah(-countsPerMah,cal,mah)==Ok && mah==-1);
+    FuelCounterState state;int deci=-1;
+    assert(state.observe(1,1,cal,deci)==Invalid);
+    assert(state.begin(1001,0,0)==Invalid);
+    assert(state.begin(800,0xfffffff0,1)==Ok);
+    assert(state.observe(0x20,1000000001,cal,deci)==Ok && deci==800 && state.accumulated==48);
+    auto saved=state;
+    assert(state.observe(0x70000000,2000000001,cal,deci)==Protocol);
+    assert(state.last==saved.last && state.accumulated==saved.accumulated && state.lastNanoseconds==saved.lastNanoseconds);
+    assert(state.observe(0x20,1000000001,cal,deci)==Invalid);
+    assert(state.begin(800,12345,1)==Ok);
+    for(unsigned i=1;i<=72;i++) {
+        // 1A over an hour adds 1000mAh against the exact factory 4900mAh.
+        assert(state.observe((uint32_t)(12345+(uint64_t)countsPerMah*1000*i/72),i*50000000000ULL+1,cal,deci)==Ok);
+    }
+    assert(deci==1000);
+    assert(state.begin(800,0x20000000,1)==Ok);
+    for(unsigned i=1;i<=72;i++)assert(state.observe((uint32_t)(0x20000000-(uint64_t)countsPerMah*1000*i/72),i*50000000000ULL+1,cal,deci)==Ok);
+    assert(deci==596);
+    auto charger=chargerState(0xbc,0,0,0x10);
+    assert(charger.external && charger.chargeCapable && !charger.charging && charger.terminated);
+    charger=chargerState(0xb4,0,0,0x10);assert(charger.charging && !charger.terminated);
+    charger=chargerState(0xb4,0x80,0,0x10);assert(charger.charging);
+    charger=chargerState(0xb4,0x10,0,0x10);assert(!charger.charging && !charger.chargeCapable);
+    charger=chargerState(0xb4,2,0,0x10);assert(charger.charging);
+    charger=chargerState(0xb4,5,0,0x10);assert(!charger.charging);
+    charger=chargerState(0xb4,0,0x80,0x10);assert(!charger.charging);
+    charger=chargerState(0xf4,0,0,0x30);assert(!charger.external && !charger.charging);
+    std::puts("PASS: coherent read-only CLBCNT acquisition, rollovers, signed factory counter units, 1A-hour charge/discharge, reset rejection and real charger state");
     std::puts("PASS: SC2730 read-only efuse, factory first-poweron flag, exact OCV table interpolation, QMAX/POCV math, fault cleanup and no FGU programming commands");
 }

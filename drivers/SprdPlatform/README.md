@@ -5,7 +5,7 @@ Factory authority is the shipped 4.14.193 kernel (SHA256
 `70a55f276551f0fedbbc3c36ad1950d85eab19352b6b0d4eb6e69ae737c98104`)
 and its base DTB merged with DTBO #3 (`ums512_1h190`).
 
-## Implemented in this source, not yet hardware-qualified
+## Acquisition and qualification
 
 - ADIv3 transactions: physical slave window `0x32120000`, original address echo
   comparison `read_data[30:16] == physical_address[16:2]`; bounded timeouts.
@@ -17,8 +17,12 @@ and its base DTB merged with DTBO #3 (`ums512_1h190`).
 - Goodix GT9x frame parser and original IOHIDDevice digitizer delivery only after
   valid ID and controller-reported geometry. A FocalTech ACK alone is not a
   qualified IC version and does not enable guessed firmware/config writes.
-- FGU raw diagnostics only. No fabricated battery percentage, calibration,
-  current limit or charging state is published.
+- SC2730 FGU efuse calibration, qualified factory boot OCV and a coherent
+  split-register coulomb counter. The battery frontend subclasses the original
+  IOPMPowerSource, using UniXNU-sheng's normalized capacity interface. Publication
+  requires calibrated measurements, the real EIC3 battery-present signal, a
+  qualified capacity origin/counter and successful charger reads. No FGU counter
+  initialization, user-area persistence or charger control register is written.
 
 GPIO/PWM/ADI clock restoration changes only bits owned by this component. I2C
 register accesses are serialized on the single platform work loop. The current
@@ -104,3 +108,34 @@ CPU PM assertion, released on stop, while this acquisition path is active.
 Display-off remains available. Full SoC suspend/resume, interrupt wake and
 per-device power restoration remain unqualified; do not label this assertion
 as hardware sleep support.
+
+## Battery source and runtime evidence
+
+Through M113, the device reports efuse `775d` (voltage ADC705/current ADC5640),
+POCV2940, QMAX4097 and compensated boot OCV4170000uV. The exact factory table
+maps that to80%; `USER_AREA=afff` is first-power-on with invalid saved capacity,
+not100%. M113 leaves that estimate unpublished. The M114 battery frontend is
+new source pending its own runtime qualification; a successful compile is not
+evidence that powerd consumed it.
+
+`SprdBattery.h` adapts the IOPMPowerSource setters/notification frontend from
+the pinned UniXNU-sheng `ShengBattery.cpp` under BSD-2-Clause-Patent. The backend
+uses this board's shipped4.14 kernel and4900mAh design capacity. The original
+OCV routine was emulated against10067 compiled-C++ vectors; the original counter
+arithmetic was emulated against11845 vectors including every ADC calibration
+value, both signs and rounding boundaries. Source tests cover torn counter
+reads, wraparound, counter resets and unavailable hardware samples.
+
+Capacity starts once from a qualified boot OCV or correctly decoded saved
+capacity, then follows calibrated2Hz coulomb-count deltas. This is the factory
+normal-temperature estimate; learned full capacity, temperature compensation,
+aging/cycle count, time estimates and charge-current/JEITA control are not yet
+qualified. They are not filled with fixed values. REG09 is read consecutively
+twice to separate latched and current charger faults. Charger termination alone
+does not force the factory-OCV estimate to100%.
+
+M109-M113 also verify GT9110fw5023 at the factory address and attachment of the
+original IOHIDEventDriver and its user client. Physical touch contacts and the
+1920x1200-to-1200x1920 transform remain unobserved. M112 verifies CoreBrightness
+dim/off/on requests reaching PWM2 with logical1/duty1, off0/0 and on1/1, with
+strict register readback. Physical display appearance is a separate observation.

@@ -21,6 +21,7 @@
 #include "SprdBacklight.h"
 #include "SprdTouchPins.h"
 #include "SprdFuelGauge.h"
+#include "SprdBattery.h"
 extern "C" kmod_info_t g_kernel_kmod_info;
 extern "C" void sprd_hid_static_init() __asm__("__GLOBAL__sub_I_NativeHidInput.cpp");
 extern "C" IOService *sprd_hid_allocate(bool);
@@ -57,6 +58,9 @@ class NativeSprdPlatform : public IOService {
     IOMemoryMap *touchPinMap=nullptr;Registers touchPinRegisters;
     IOMemoryMap *fuelLockMap=nullptr;Registers fuelLockRegisters;
     FuelCalibration fuelCal;Result fuelCalibrationResult=Invalid;
+    FuelCounterState fuelCounter;NativeSprdBattery *battery=nullptr;
+    const char *capacityOrigin=nullptr;unsigned batteryFailures=0;
+    bool batteryStarted=false,batteryRemovalSeen=false;
     IOPMrootDomain *sleepRoot=nullptr;IOPMDriverAssertionID pollingAssertion=kIOPMUndefinedDriverAssertionID;
     TouchPins<Registers,Registers> touchPins{touchPinRegisters,mmio[1]};
     IOWorkLoop *loop=nullptr;IOTimerEventSource *timer=nullptr;
@@ -73,7 +77,7 @@ class NativeSprdPlatform : public IOService {
     Frame lastFrame={};Debounce debounce;
     Adi<Registers> adi{mmio[0]};I2c<Registers> bus3{mmio[4]},bus4{mmio[5]};
     static void tick(OSObject *o,IOTimerEventSource *) {static_cast<NativeSprdPlatform *>(o)->poll();}
-    bool prepare();bool publishInput();void identifyTouch();void recoverTouchReset();void prepareFuelGauge();void requirePollingPower();void poll();void readTouch();void restore();
+    bool prepare();bool publishInput();void identifyTouch();void recoverTouchReset();void prepareFuelGauge();void readBattery();void requirePollingPower();void poll();void readTouch();void restore();
 public:
     IOService *probe(IOService *p,SInt32 *score) override {if(!compatible(p))return nullptr;if(score)*score=2200;return this;}
     IOWorkLoop *getWorkLoop() const override {return loop;}
@@ -180,6 +184,69 @@ void NativeSprdPlatform::prepareFuelGauge() {
         fuelCalibrationResult,fuelCal.efuse,fuelCal.voltageAdcPerVolt,fuelCal.currentAdcPerAmp);
     if(fuelCalibrationResult==Ok){setProperty("FGUVoltageAdcPerVolt",fuelCal.voltageAdcPerVolt,32);setProperty("FGUCurrentAdcPerAmp",fuelCal.currentAdcPerAmp,32);}
 }
+void NativeSprdPlatform::readBattery() {
+    uint16_t voltage=0,current=0,module=0,clock=0,eic=0,config=0;
+    uint32_t counter=0;int mv=0,ma=0,capacity=-1;
+    Result result=fuelCalibrationResult;
+    if(result==Ok)result=adi.read(0x1808,module);
+    if(result==Ok)result=adi.read(0x1810,clock);
+    if(result==Ok && (!(module&0x80) || !(clock&0x40)))result=Invalid;
+    if(result==Ok)result=adi.read(0xc20,voltage);
+    if(result==Ok)result=adi.read(0xc2c,current);
+    if(result==Ok)result=fuelMeasurements(voltage,current,fuelCal,mv,ma);
+    if(result==Ok && (mv<2500 || mv>5000))result=Invalid;
+    if(result==Ok)result=adi.read(0x280,eic);
+    if(result==Ok && !(eic&8)) {
+        if(battery)battery->removed();
+        batteryRemovalSeen=true;fuelCounter.initialized=false;return;
+    }
+    if(result==Ok && batteryRemovalSeen)result=Invalid; // hot-plug needs a new qualified boot OCV
+    if(result==Ok)result=adi.read(0xc04,config);
+    if(result==Ok)result=fuelCounterRead(adi,counter);
+    uint64_t now=0;absolutetime_to_nanoseconds(mach_absolute_time(),&now);
+    if(result==Ok && !fuelCounter.initialized) {
+        uint16_t area=0,pocv=0,qmax=0;int ocv=0,openMa=0,percent=-1;
+        result=adi.read(0xca8,area);
+        if(result==Ok && fuelFirstPowerOn(area)) {
+            result=adi.read(0xc28,pocv);
+            if(result==Ok)result=adi.read(0xc74,qmax);
+            if(result==Ok)result=fuelBootOcv(pocv,qmax,fuelCal,134000,ocv,openMa);
+            if(result==Ok)result=fuelOcvCapacity(kFactoryOcvCapacity,sizeof(kFactoryOcvCapacity)/sizeof(kFactoryOcvCapacity[0]),(unsigned)ocv,percent);
+            if(result==Ok){capacity=percent*10;capacityOrigin="FactoryBootOCV+CoulombCounter";}
+        } else if(result==Ok) {
+            result=fuelSavedDeciPercent(area,capacity);
+            if(result==Ok)capacityOrigin="FactoryPersistedCapacity+CoulombCounter";
+        }
+        if(result==Ok)result=fuelCounter.begin(capacity,counter,now?now-1:0);
+        IOLog("M114 fuel: initialize result=%d area=0x%x pocv=%u qmax=%u ocv_uV=%d open_mA=%d initial_deci=%d counter=0x%x cfg=0x%x eic=0x%x\n",
+            result,area,pocv,qmax,ocv,openMa,capacity,counter,config,eic);
+    }
+    if(result==Ok)result=fuelCounter.observe(counter,now,fuelCal,capacity);
+    uint8_t input=0,control=0,status=0,latched=0,live=0;
+    if(result==Ok && (chargerResult!=Ok || chargerId!=0x2c))result=Invalid;
+    if(result==Ok)result=bus4.readRegister(0x6b,0,1,&input,1);
+    if(result==Ok)result=bus4.readRegister(0x6b,1,1,&control,1);
+    if(result==Ok)result=bus4.readRegister(0x6b,8,1,&status,1);
+    // BQ2560x REG09 first read is latched; the consecutive second read is
+    // current state. Preserve both rather than inventing a healthy charger.
+    if(result==Ok)result=bus4.readRegister(0x6b,9,1,&latched,1);
+    if(result==Ok)result=bus4.readRegister(0x6b,9,1,&live,1);
+    if(result!=Ok) {
+        if(battery)battery->unavailable(result);
+        if(batteryFailures++<8 || !(batteryFailures%12))IOLog("M114 battery: acquisition failed=%d module=0x%x rtc=0x%x eic=0x%x cfg=0x%x mv=%d ma=%d counter=0x%x; no status invented\n",
+            result,module,clock,eic,config,mv,ma,counter);
+        return;
+    }
+    if(!battery) {
+        battery=OSTypeAlloc(NativeSprdBattery);
+        if(!battery || !battery->init() || !battery->attach(this) || !(batteryStarted=battery->start(this))) {
+            if(battery){if(battery->getProvider()==this)battery->detach(this);battery->release();battery=nullptr;}
+            IOLog("M114 battery: IOPMPowerSource initialization failed\n");return;
+        }
+    }
+    battery->acquired(capacity,mv,ma,true,chargerState(status,live,input,control),latched,live,
+        counter,fuelCounter.accumulated,capacityOrigin);
+}
 void NativeSprdPlatform::requirePollingPower() {
     if(pollingAssertion || ticks%100)return;
     sleepRoot=getPMRootDomain();
@@ -271,6 +338,7 @@ void NativeSprdPlatform::poll() {
         if(keys)sprd_hid_diagnostics(keys);if(touch)sprd_hid_diagnostics(touch);
     }
     if(!(ticks%2))readTouch();
+    if(!(ticks%500))readBattery();
     if(!(ticks%6000)) {
         uint16_t voltage=0,current=0,area=0,module=0,clock=0,pocv=0,qmax=0;
         Result v=adi.read(0xc20,voltage),c=adi.read(0xc2c,current),a=adi.read(0xca8,area);
@@ -279,7 +347,7 @@ void NativeSprdPlatform::poll() {
         Result decoded=(fuelCalibrationResult==Ok && v==Ok && c==Ok && m==Ok && t==Ok && (module&0x80) && (clock&0x40))?
             fuelMeasurements(voltage,current,fuelCal,mv,ma):Invalid;
         IOLog("M106 fuel: sample status=%d voltage_mV=%d current_mA=%d module=0x%x rtc=0x%x persisted_capacity_present=%u\n",
-            decoded,mv,ma,module,clock,a==Ok && (area&0xfff)<=1000);
+            decoded,mv,ma,module,clock,a==Ok && !fuelFirstPowerOn(area) && (area&0xff)<=100 && ((area>>8)&0xf)<=9);
         if(decoded==Ok){setProperty("FGUVoltageMillivolts",(unsigned)mv,32);setProperty("FGUCurrentMilliamps",(unsigned)ma,32);}
         Result pr=adi.read(0xc28,pocv),qr=adi.read(0xc74,qmax);int ocv=0,openMa=0,bootPercent=-1;
         Result soc=Invalid;int savedDeci=-1;const unsigned savedCapacity=area&0xfff,bootMode=(area>>12)&0xf;
@@ -323,6 +391,7 @@ void NativeSprdPlatform::restore() {
 void NativeSprdPlatform::stop(IOService *p) {
     if(backlight){backlight->stop(this);backlight->detach(this);backlight->release();backlight=nullptr;}
     if(timer){timer->cancelTimeout();if(loop)loop->removeEventSource(timer);OSSafeReleaseNULL(timer);}
+    if(battery){battery->terminate(kIOServiceSynchronous);if(batteryStarted)battery->stop(this);battery->detach(this);battery->release();battery=nullptr;batteryStarted=false;}
     if(pollingAssertion && sleepRoot){sleepRoot->releasePMAssertion(pollingAssertion);pollingAssertion=kIOPMUndefinedDriverAssertionID;sleepRoot=nullptr;}
     IOService **devices[]={&touch,&keys};bool started[]={touchStarted,keysStarted};
     for(unsigned i=0;i<2;i++){IOService **d=devices[i];if(*d){if((*d)->getProvider()==this){if(started[i])(*d)->stop(this);(*d)->detach(this);}(*d)->release();*d=nullptr;}}

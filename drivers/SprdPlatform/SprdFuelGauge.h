@@ -86,6 +86,78 @@ inline Result fuelOcvCapacity(const FuelOcvPoint *table,unsigned count,unsigned 
     return Invalid;
 }
 
+// The shipped capacity routine reads +0x6c/+0x68. Qualify the split counter
+// across a rollover instead of combining halves from different samples.
+template<class AdiBus> Result fuelCounterRead(AdiBus &adi,uint32_t &counter) {
+    for(unsigned attempt=0;attempt<4;attempt++) {
+        uint16_t high=0,low=0,check=0;
+        Result r=adi.read(0xc68,high);if(r!=Ok)return r;
+        r=adi.read(0xc6c,low);if(r!=Ok)return r;
+        r=adi.read(0xc68,check);if(r!=Ok)return r;
+        if(high==check){counter=((uint32_t)high<<16)|low;return Ok;}
+    }
+    return Protocol;
+}
+
+inline int64_t fuelRoundSigned(int64_t value,unsigned divisor) {
+    return value<0?-((-value+divisor/2)/divisor):(value+divisor/2)/divisor;
+}
+
+inline Result fuelCounterDeltaMah(int64_t counts,const FuelCalibration &c,int64_t &mah) {
+    if(c.voltageAdcPerVolt<622 || c.voltageAdcPerVolt>744 ||
+       c.currentAdcPerAmp!=c.voltageAdcPerVolt*8 ||
+       counts<-(1LL<<46) || counts>(1LL<<46))return Invalid;
+    // Original 1h190 get_capacity @ffffff80087b4b00: 2Hz, 3.6C/mAh;
+    // retain BOTH signed roundings before the percentage conversion.
+    mah=fuelRoundSigned(fuelRoundSigned(counts*10,72),c.currentAdcPerAmp);
+    return Ok;
+}
+
+struct FuelCounterState {
+    bool initialized=false;
+    uint32_t last=0;
+    uint64_t lastNanoseconds=0;
+    int initialDeciPercent=0;
+    int64_t accumulated=0;
+    Result begin(int deciPercent,uint32_t counter,uint64_t now) {
+        if(deciPercent<0 || deciPercent>1000)return Invalid;
+        initialDeciPercent=deciPercent;last=counter;lastNanoseconds=now;
+        accumulated=0;initialized=true;return Ok;
+    }
+    Result observe(uint32_t counter,uint64_t now,const FuelCalibration &c,int &deciPercent) {
+        if(!initialized || now<=lastNanoseconds)return Invalid;
+        const uint64_t elapsed=now-lastNanoseconds;
+        // Two samples/second, bounded by the complete 16-bit ADC range,
+        // plus two sample periods. A reset/jump is an error, not a new base.
+        if(elapsed>3600000000000ULL)return Protocol;
+        const uint64_t bound=elapsed*131072/1000000000+131072;
+        const uint32_t wrapped=counter-last;
+        const int64_t delta=wrapped&0x80000000u?(int64_t)wrapped-0x100000000LL:wrapped;
+        if(delta>(int64_t)bound || delta<-(int64_t)bound)return Protocol;
+        const int64_t total=accumulated+delta;int64_t mah=0;
+        Result r=fuelCounterDeltaMah(total,c,mah);if(r!=Ok)return r;
+        int64_t capacity=initialDeciPercent+fuelRoundSigned(mah*1000,4900);
+        deciPercent=(int)(capacity<0?0:capacity>1000?1000:capacity);
+        last=counter;lastNanoseconds=now;accumulated=total;return Ok;
+    }
+};
+
+struct ChargerState {
+    bool external=false,chargeCapable=false,charging=false,terminated=false;
+    unsigned source=0,phase=0;
+};
+inline ChargerState chargerState(uint8_t status,uint8_t liveFault,uint8_t input,uint8_t control) {
+    ChargerState s;s.source=status>>5;s.phase=(status>>3)&3;
+    s.external=(status&4) && s.source>0 && s.source<7 && !(control&0x20);
+    // Watchdog-expired (bit7) is reported separately. Charge/NTC/battery
+    // faults and input HIZ prevent a charge-capable claim.
+    const unsigned ntc=liveFault&7;
+    const bool temperatureAllowsCharge=ntc==0 || ntc==2 || ntc==3; // normal/warm/cool
+    s.chargeCapable=s.external && !(input&0x80) && !(liveFault&0x38) && temperatureAllowsCharge;
+    s.charging=s.chargeCapable && (control&0x10) && (s.phase==1 || s.phase==2);
+    s.terminated=s.chargeCapable && s.phase==3;return s;
+}
+
 template<class AdiBus,class HwLock,class Aon> class FuelGaugeCalibration {
     AdiBus &adi;HwLock &hw;Aon &aon;
     FuelReadTrace trace;

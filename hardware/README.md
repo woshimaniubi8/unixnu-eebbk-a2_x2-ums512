@@ -13,8 +13,8 @@ read-only partition extraction; firmware binaries remain local.
 | GPU | Mali-gondul60000000 | GPU power/job/MMU backend and iOS IOGPU/Metal user interface; existing CPU framebuffer scanout is independent |
 | Camera | Factory I2C sensor candidates, CSI/DCAM/ISP | Actual sensor IDs/power sequence, capture buffers, ISP pipeline and iOS camera interface |
 | Sensors | SharkL5Pro CM4 sensorhub, SIPC/mailbox | Firmware/shared-memory handshake, frame CRC/timestamps/calibration and CoreMotion/HID delivery |
-| Brightness | PWM2, 256-entry factory curve | Implemented source plus host tests; still requires build and physical/CoreBrightness verification |
-| Power | SC2730 ADI, FGU, regulators, CPU PSCI | Raw reads verified; calibrated SOC/charge management and per-device suspend/resume remain |
+| Brightness | PWM2, 256-entry factory curve | M112 CoreBrightness dim/off/on and strict PWM readback verified; physical appearance and panel-rail lifecycle remain |
+| Power | SC2730 ADI, FGU, regulators, CPU PSCI | M113 calibrated voltage/current and original boot OCV verified; M114 IOPMPowerSource is pending runtime qualification; temperature/aging/charge control and system suspend/resume remain |
 
 ## Inputs and reusable implementations
 
@@ -31,18 +31,22 @@ read-only partition extraction; firmware binaries remain local.
 - Mali compiler/protocol reference: Mesa Panfrost. A Linux GLES/Vulkan driver
   is not a ready-made iOS Metal/IOGPU adapter.
 
-## Runtime evidence through M103-local
+## Runtime evidence through M113
 
 - Original IOHIDEventDriver attached to physical-key HID device.
 - GPIO124 volume-down and SC2730 EIC1 power both produced debounced down/up
   reports, with original HID handleReport returning success.
 - Explicit factory INT_EN fixed I2C completion: BQ device register0B reads2C.
-- Both factory touch candidates return NACK. The factory pinmux/reset path is
-  implemented separately and must prove a chip ID before reports are enabled.
-- SC2730 IDs B000/2730 and raw FGU voltage/current reads succeed. Persisted
-  capacity fieldFFF is invalid; no fabricated battery percentage is published.
-- One M102 run hit SpringBoard userspace watchdog timeout. Preserve that
-  independent UI failure; do not disable the watchdog to claim stability.
+- The factory pinmux/reset path identifies Goodix GT9110fw5023. Its original
+  IOHIDEventDriver and IOHIDEventServiceUserClient now attach. No physical
+  touch contact or coordinate transform has been qualified.
+- SC2730 IDs B000/2730, efuse775d, calibrated voltage/current and POCV/QMAX
+  reads succeed. M113 boot OCV4170000uV maps to80% in the original curve;
+  that diagnostic is unpublished. Persisted USER_AREAafff is invalid.
+- M112 CoreBrightness requests produce PWM logical1/duty1, off0/0 and on1/1.
+  All transitions pass register readback. This does not qualify SoC sleep.
+- M109 onward removes the previous wrong HID personality/busy panic. A short
+  stable run is not qualification of hours of idle or full suspend/resume.
 
 ## Firmware extracted from this tablet
 
