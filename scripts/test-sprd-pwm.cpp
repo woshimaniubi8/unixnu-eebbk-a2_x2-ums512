@@ -12,7 +12,7 @@ struct Registers {
 };
 int main() {
     Registers io;for(unsigned i=0;i<32;i++)io.words[i]=0x12340000+i;
-    io.words[0x40/4]=7;io.words[0x44/4]=255;io.words[0x48/4]=81;io.words[0x58/4]=1;
+    io.words[0x40/4]=0x8003;io.words[0x44/4]=255;io.words[0x48/4]=81;io.words[0x58/4]=1;
     uint32_t baseline[32];std::memcpy(baseline,io.words,sizeof baseline);
     SprdBus::Pwm<Registers> pwm(io,2);SprdBus::PwmState state;
     assert(pwm.read(state)==SprdBus::Ok && state.duty==81);
@@ -23,6 +23,7 @@ int main() {
     assert(pwm.duty(0,false)==SprdBus::Ok && io.words[0x58/4]==0);
     assert(pwm.duty(256,true)==SprdBus::Invalid);
     assert(pwm.restore(state)==SprdBus::Ok && !std::memcmp(io.words,baseline,sizeof baseline));
+    io.words[0x40/4]=65536;assert(pwm.read(state)==SprdBus::Protocol);io.words[0x40/4]=0x8003;
     io.refuse=true;assert(pwm.duty(82,true)==SprdBus::Protocol);io.refuse=false;
     io.words[0x44/4]=0;size_t before=io.writes.size();
     assert(pwm.duty(80,true)==SprdBus::Protocol && io.writes.size()==before);

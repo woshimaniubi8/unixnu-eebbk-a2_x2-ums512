@@ -16,7 +16,10 @@ public:
         s={io.read32(base),io.read32(base+4),io.read32(base+8),io.read32(base+0x18)};
         // Take over the configured waveform. Never invent a PWM period or
         // source clock when boot firmware has left no usable configuration.
-        return s.prescale<=255 && s.mod==255 && s.duty<=255 && !(s.enable&~1u)?Ok:Protocol;
+        // The shipped 4.14 get_state masks PRESCALE with0xffff. Firmware
+        // leaves0x8003 here; the newer mainline8-bit mask is not this ABI.
+        // Preserve the whole configured divider, including its upper bits.
+        return s.prescale<=65535 && s.mod==255 && s.duty<=255 && !(s.enable&~1u)?Ok:Protocol;
     }
     Result duty(uint32_t value,bool enabled) {
         if(value>255)return Invalid;
@@ -31,7 +34,7 @@ public:
             after.duty==value && after.enable==(enabled?1u:0u)?Ok:Protocol;
     }
     Result restore(const PwmState &s) {
-        if(base>=4*0x20 || s.prescale>255 || s.mod!=255 || s.duty>255 || s.enable>1)return Invalid;
+        if(base>=4*0x20 || s.prescale>65535 || s.mod!=255 || s.duty>255 || s.enable>1)return Invalid;
         io.write32(base+0x18,0);
         io.write32(base,s.prescale);io.write32(base+4,s.mod);
         io.write32(base+8,s.duty);io.write32(base+0x18,s.enable);

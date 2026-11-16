@@ -6,11 +6,14 @@
 #include <IOKit/IOLib.h>
 #include <IOKit/IOWorkLoop.h>
 #include <IOKit/IOTimerEventSource.h>
+#include <IOKit/IOCatalogue.h>
 #include <IOKit/pwr_mgt/RootDomain.h>
 #include <libkern/OSKextLib.h>
 #include <libkern/c++/OSMetaClass.h>
 #include <libkern/c++/OSKext.h>
 #include <libkern/c++/OSData.h>
+#include <libkern/c++/OSArray.h>
+#include <libkern/c++/OSBoolean.h>
 #include <libkern/c++/OSSymbol.h>
 #include <libkern/libkern.h>
 #include <mach/kmod.h>
@@ -42,6 +45,10 @@ bool compatible(IOService *p) {
         if(!strcmp(s+at,"eebbk,1h190-platform"))return true;at+=(unsigned)z+1;}
     return false;
 }
+bool stringProperty(OSDictionary *d,const char *key,const char *text) {
+    OSString *s=OSString::withCString(text);if(!s)return false;
+    bool ok=d->setObject(key,s);s->release();return ok;
+}
 }
 class NativeSprdPlatform : public IOService {
     OSDeclareDefaultStructors(NativeSprdPlatform)
@@ -53,6 +60,7 @@ class NativeSprdPlatform : public IOService {
     TouchPins<Registers,Registers> touchPins{touchPinRegisters,mmio[1]};
     IOWorkLoop *loop=nullptr;IOTimerEventSource *timer=nullptr;
     IOService *keys=nullptr,*touch=nullptr,*backlight=nullptr;
+    OSDictionary *touchPersonality=nullptr;
     bool keysStarted=false,touchStarted=false;
     uint32_t aonAdded[2]={},apAdded=0,clockSaved[2]={};bool clockChanged=false;
     uint32_t gpioSaved[3]={};bool gpioChanged=false,pmicChanged=false,pmicReady=false;
@@ -114,6 +122,27 @@ bool NativeSprdPlatform::publishInput() {
         false,false,kOSKextExcludeNone,kOSKextExcludeNone,nullptr);
     IOLog("M102 hid: IOHIDEventDriver matching load=0x%x\n",match);
     if(match!=kOSReturnSuccess)return false;
+    if(touchKind) {
+        // Use the original in-kernel digitizer parser for this exact physical
+        // device. The generic iOS DriverKit personality otherwise matches it
+        // and leaves IOHIDInterface busy waiting for a missing user driver.
+        // Match scope is Vendor1782/Product1902, not all HID interfaces.
+        touchPersonality=OSDictionary::withCapacity(8);OSDictionary *properties=OSDictionary::withCapacity(2);
+        OSArray *drivers=OSArray::withCapacity(1);OSNumber *vendor=OSNumber::withNumber(0x1782ULL,32);
+        OSNumber *product=OSNumber::withNumber(0x1902ULL,32),*score=OSNumber::withNumber(100000ULL,32);
+        bool ok=touchPersonality && properties && drivers && vendor && product && score;
+        if(ok)ok=properties->setObject("VendorID",vendor) && properties->setObject("ProductID",product) &&
+            stringProperty(touchPersonality,"CFBundleIdentifier","com.apple.iokit.IOHIDFamily") &&
+            stringProperty(touchPersonality,"IOClass","IOHIDEventDriver") &&
+            stringProperty(touchPersonality,"IOProviderClass","IOHIDInterface") &&
+            stringProperty(touchPersonality,"IOMatchCategory","IODefaultMatchCategory") &&
+            touchPersonality->setObject("IOPropertyMatch",properties) && touchPersonality->setObject("IOProbeScore",score) &&
+            touchPersonality->setObject("NativeSprdPhysicalTouch",kOSBooleanTrue) && drivers->setObject(touchPersonality);
+        if(ok)ok=gIOCatalogue->addDrivers(drivers,true);
+        OSSafeReleaseNULL(properties);OSSafeReleaseNULL(drivers);OSSafeReleaseNULL(vendor);OSSafeReleaseNULL(product);OSSafeReleaseNULL(score);
+        IOLog("M107 touch: original kernel event-driver personality installed=%u vendor=1782 product=1902\n",ok);
+        if(!ok)return false;
+    }
     void *handle=OSMetaClass::preModLoad(g_kernel_kmod_info.name);if(!handle)return false;
     sprd_hid_static_init();OSReturn status=OSMetaClass::postModLoad(handle);
     if(status){IOLog("bbk input: own metaclass registration status=0x%x\n",status);return false;}
@@ -138,6 +167,9 @@ void NativeSprdPlatform::prepareFuelGauge() {
     fuelLockRegisters.base=(volatile uint8_t *)fuelLockMap->getVirtualAddress();
     FuelGaugeCalibration<Adi<Registers>,Registers,Registers> reader(adi,fuelLockRegisters,mmio[2]);
     fuelCalibrationResult=reader.read(fuelCal);
+    const FuelReadTrace &trace=reader.diagnostic();
+    IOLog("M107 fuel: phase=%u gate=0x%x control=0x%x token12=0x%x status=0x%x module=0x%x mode=0x%x\n",
+        trace.phase,trace.gate,trace.control,trace.token,trace.status,trace.module,trace.mode);
     IOLog("M106 fuel: calibration status=%d efuse3=0x%x voltage_adc=%u current_adc=%u (factory 20mOhm/10mOhm)\n",
         fuelCalibrationResult,fuelCal.efuse,fuelCal.voltageAdcPerVolt,fuelCal.currentAdcPerAmp);
     if(fuelCalibrationResult==Ok){setProperty("FGUVoltageAdcPerVolt",fuelCal.voltageAdcPerVolt,32);setProperty("FGUCurrentAdcPerAmp",fuelCal.currentAdcPerAmp,32);}
@@ -199,9 +231,15 @@ void NativeSprdPlatform::readTouch() {
     Frame frame={};unsigned count=status&15;
     if(count<=10 && count)r=bus3.readRegister(0x14,0x814f,2,raw,count*8);
     if(r==Ok)r=goodixFrame(raw,sizeof(raw),count,touchW,touchH,frame);
-    const uint8_t clear=0;Result ack=bus3.writeRegister(0x14,0x814e,2,&clear,1);
-    if(r!=Ok || ack!=Ok){if(touchErrors++<8)IOLog("bbk touch: frame/ack error=%d/%d status=0x%x\n",r,ack,status);return;}
+    const uint8_t clear=0;
+    if(r!=Ok){bus3.writeRegister(0x14,0x814e,2,&clear,1);if(touchErrors++<8)IOLog("bbk touch: invalid frame=%d status=0x%x\n",r,status);return;}
     IOReturn sent=sprd_hid_contacts(touch,&frame,touchW,touchH);
+    // Keep a valid hardware sample pending until the real consumer accepts
+    // it. In particular do not discard reset's measured zero-contact state
+    // while IOHIDEventDriver is still opening its interface.
+    if(sent!=kIOReturnSuccess){if(touchErrors++<8)IOLog("M107 touch: report pending hid=0x%x contacts=%u\n",sent,frame.count);return;}
+    Result ack=bus3.writeRegister(0x14,0x814e,2,&clear,1);
+    if(ack!=Ok){if(touchErrors++<8)IOLog("bbk touch: ack error=%d status=0x%x\n",ack,status);return;}
     if(frame.count!=lastFrame.count || touchReports<6)IOLog("bbk touch: frame contacts=%u first=%u,%u hid=0x%x\n",frame.count,frame.contacts[0].x,frame.contacts[0].y,sent);
     lastFrame=frame;touchReports++;
 }
@@ -274,5 +312,6 @@ void NativeSprdPlatform::stop(IOService *p) {
     IOService **devices[]={&touch,&keys};bool started[]={touchStarted,keysStarted};
     for(unsigned i=0;i<2;i++){IOService **d=devices[i];if(*d){if((*d)->getProvider()==this){if(started[i])(*d)->stop(this);(*d)->detach(this);}(*d)->release();*d=nullptr;}}
     touchStarted=keysStarted=false;
+    if(touchPersonality){gIOCatalogue->removeDrivers(touchPersonality,false);OSSafeReleaseNULL(touchPersonality);}
     restore();for(auto &m:maps)OSSafeReleaseNULL(m);OSSafeReleaseNULL(loop);IOService::stop(p);
 }

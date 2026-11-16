@@ -60,7 +60,7 @@ class NativeHidInput : public IOHIDDevice {
     IOReturn send(const uint8_t *bytes,size_t length) {
         if(!report || length>report->getLength())return kIOReturnBadArgument;
         if(report->writeBytes(0,bytes,length)!=length)return kIOReturnUnderrun;
-        report->setLength(length);return handleReport(report,0,0);
+        report->setLength(length);IOReturn r=handleReport(report,0,0);attempts++;lastResult=r;return r;
     }
 public:
     void configure(bool touch) {touchOnly=touch;}
@@ -89,7 +89,7 @@ public:
         if(touchOnly || !ready()){notReady++;return kIOReturnNotReady;}
         keys&=14; // Physical board has Power/Vol+/Vol-, no Home GPIO.
         if(sentKeys && keys==lastKeys)return kIOReturnSuccess;
-        uint8_t bytes[]={2,keys};IOReturn r=send(bytes,sizeof(bytes));attempts++;lastResult=r;
+        uint8_t bytes[]={2,keys};IOReturn r=send(bytes,sizeof(bytes));
         if(r==kIOReturnSuccess){sentKeys=true;lastKeys=keys;IOLog("bbk input: keys mask=0x%x report=0x%x\n",keys,r);}
         return r;
     }
@@ -111,7 +111,7 @@ public:
         unsigned budget=12;describeTree(this,4,budget);
     }
     IOReturn contacts(const SprdBus::Frame &frame,unsigned width,unsigned height) {
-        if(!touchOnly || !ready())return kIOReturnNotReady;
+        if(!touchOnly || !ready()){notReady++;return kIOReturnNotReady;}
         if(frame.count>10 || width<2 || height<2)return kIOReturnBadArgument;
         // Reuse the source-proven per-contact release convention. A report can
         // hold ten contacts; when all IDs change, release the old set first.
