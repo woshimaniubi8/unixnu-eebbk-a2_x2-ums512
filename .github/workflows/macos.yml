@@ -116,6 +116,7 @@ jobs:
           # Native 16K bootstrap block mappings require congruent VA/PA
           # offsets inside 32 MiB, which is also valid for the old 4K kernel.
           git -C UniXNU/drivers/DarwinBoot apply --unidiff-zero "$GITHUB_WORKSPACE/device/patches/unixnu/darwinboot-16k-window-alignment.patch"
+          python3 "$GITHUB_WORKSPACE/device/scripts/install-memory-handoff.py" UniXNU
           # ArmCpu keeps the commit this board was validated against.
           git clone -q https://github.com/UniXNU/ArmCpu.git UniXNU/drivers/ArmCpu
           git -C UniXNU/drivers/ArmCpu checkout -q 9066b53bbc82e92a98ec44a11dd50fd13eaf1a1b

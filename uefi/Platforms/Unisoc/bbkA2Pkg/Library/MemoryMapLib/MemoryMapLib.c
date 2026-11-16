@@ -34,9 +34,12 @@
     0x9D000000  cboot bmp-mem / 0x9E000000 logobuffer (the panel framebuffer).
     0xFFF80000  ramoops (persistent log + watchdog dump).
 
+  Deliberately withheld from Conventional memory:
+    * 0x9A000000..0x9E9E4000 - cboot scratch / BMP / framebuffer sources; these
+      ranges have Reserved descriptors, and the framebuffer is mapped through
+      the "Display Reserved" entry.
+
   Deliberately unmapped:
-    * 0x9A000000..0x9E9E4000 - cboot scratch / BMP / framebuffer sources; the
-      framebuffer itself is mapped through the "Display Reserved" entry only.
     * the AON watchdog block 0x322F0000 - TODO(hardware): its clock gate bits
       are not verified; leaving it unmapped turns an accidental access into a
       translation fault instead of a bus hang.
@@ -58,6 +61,9 @@ gMemoryDescriptor[] = {
   {"UEFI Stack",         0x80480000, 0x00200000, AddMem,  SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK_XN},
   {"SEC Heap",           0x80680000, 0x00100000, AddMem,  SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK_XN},
   {"MMU PageTables",     0x80780000, 0x00040000, AddMem,  SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK_XN},
+  // The page-table allocation ends at 0x807C0000 and the FD begins at
+  // 0x80800000.  Keep the unclassified alignment gap out of the allocator.
+  {"Firmware alignment gap", 0x807C0000, 0x00040000, AddMem, MEM_RES, UNCACHEABLE, Reserv, UNCACHED_UNBUFFERED_XN},
   {"UEFI FD",            0x80800000, 0x00400000, AddMem,  SYS_MEM, SYS_MEM_CAP, BsData, WRITE_BACK},
   // DXE heap: 0x80C00000..0x81FF0000.  It has to stop at the FDT cboot passes
   // in x0 ([CB] start_linux x0 = 0x82000000), at the Initrd window below and
@@ -78,14 +84,20 @@ gMemoryDescriptor[] = {
   // address; the MMU must cover whatever /chosen reports, and this window is
   // the union of the two candidates (see header comment).  It ends at the
   // vendor audio-mem reservation.
-  {"Initrd",             0x82100000, 0x05400000, AddMem,  MEM_RES, UNCACHED_UNBUFFERED_XN, Reserv, UNCACHED_UNBUFFERED_XN},
+  // 111 MiB: the Data-seed payload decompresses to 96 MiB at 0x83000000,
+  // which needs the window to reach 0x89000000.
+  {"Initrd",             0x82100000, 0x06F00000, AddMem,  MEM_RES, WRITE_BACK_XN, Reserv, WRITE_BACK_XN},
 
   // DDR: reserved by the vendor firmware / secure world / modem  [DT]
   {"DDRBIST",            0x80000000, 0x00001000, AddMem,  MEM_RES, UNCACHEABLE,   Reserv, UNCACHED_UNBUFFERED_XN},
+
   {"RebootEscrow",       0x81FF0000, 0x00010000, AddMem,  MEM_RES, UNCACHEABLE,   Reserv, UNCACHED_UNBUFFERED_XN},
-  {"Audio Mem",          0x87500000, 0x00300000, AddMem,  MEM_RES, UNCACHEABLE,   Reserv, UNCACHED_UNBUFFERED_XN},
-  {"SIPC",               0x87800000, 0x00800000, AddMem,  MEM_RES, UNCACHEABLE,   Reserv, UNCACHED_UNBUFFERED_XN},
-  {"Sensorhub",          0x88000000, 0x01000000, AddMem,  MEM_RES, UNCACHEABLE,   Reserv, UNCACHED_UNBUFFERED_XN},
+  // Audio Mem 0x87500000..0x87800000: inside the enlarged Initrd window; unused by the iOS bring-up.
+
+  // SIPC 0x87800000..0x88000000: inside the enlarged Initrd window; unused by the iOS bring-up.
+
+  // Sensorhub 0x88000000..0x89000000: inside the enlarged Initrd window; unused by the iOS bring-up.
+
   {"AudioDSP",           0x89000000, 0x00600000, AddMem,  MEM_RES, UNCACHEABLE,   Reserv, UNCACHED_UNBUFFERED_XN},
   {"CP Memory",          0x89600000, 0x04900000, AddMem,  MEM_RES, UNCACHEABLE,   Reserv, UNCACHED_UNBUFFERED_XN},
   {"IQ Memory",          0x90000000, 0x04000000, AddMem,  MEM_RES, UNCACHEABLE,   Reserv, UNCACHED_UNBUFFERED_XN},
@@ -111,12 +123,46 @@ gMemoryDescriptor[] = {
   // 12692 pages).  These are handed to the UEFI allocator as Conventional.
   //
   //
-  // Everything above the vendor carve-outs is plain DRAM: U-Boot reports 1 GiB
-  // starting at 0x80000000, so 0xA0000000..0xC0000000 is real memory that the
-  // vendor map simply does not mention.  This is where DarwinBoot can get its
-  // multi-megabyte contiguous window from.
+  // Runtime FDT (/memory/reg from the cboot handoff) describes
+  //   base 0x80000000, size 0xFFFFF000  = 4 GiB - 4 KiB,
+  // so the whole 0x80000000..0x17FFFF000 range is real DRAM.  U-Boot still
+  // prints "DRAM: 1 GiB" on the same boot; that discrepancy is unresolved and
+  // is tracked separately.  Everything above the vendor carve-outs is handed
+  // to the UEFI allocator as Conventional so DarwinBoot and XNU can use it.
   //
+  // cboot scratch that must not be handed out: secboot verify buffer and the
+  // BMP/logo staging area sit in the 0x9A000000..0x9E000000 hole.
+  {"cboot secboot",      0x9A000000, 0x03000000, AddMem,  MEM_RES, UNCACHEABLE,   Reserv, UNCACHED_UNBUFFERED_XN},
+  {"cboot BMP",          0x9D000000, 0x01000000, AddMem,  MEM_RES, UNCACHEABLE,   Reserv, UNCACHED_UNBUFFERED_XN},
+
   {"Darwin E",           0xA0000000, 0x20000000, AddMem,  SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK_XN},
+
+  // 0xC0000000..0xFD708000: free DRAM ends at the original Android
+  // framebuffer/writeback carve-outs, before ramoops.
+  {"High DRAM 0",        0xC0000000, 0x3D708000, AddMem,  SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK_XN},
+
+  // Original1h190 DTBO display DMA carve-outs; exclude from allocation.
+  {"Android framebuffer",0xFD708000, 0x01E5A000, AddMem, MEM_RES, UNCACHEABLE, Reserv, UNCACHED_UNBUFFERED_XN},
+  {"Android writeback",  0xFF562000, 0x00A1E000, AddMem, MEM_RES, UNCACHEABLE, Reserv, UNCACHED_UNBUFFERED_XN},
+
+  // 0xFFFC0000..0x100000000 (256 KiB): the tail after ramoops, not reserved by
+  // the vendor DTB.
+  {"High DRAM tail",     0xFFFC0000, 0x00040000, AddMem,  SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK_XN},
+
+  // 0x100000000..0x100001000: vendor debug-mem reservation [DT].
+  {"debug-mem",          0x100000000, 0x00001000, AddMem, MEM_RES, UNCACHEABLE,   Reserv, UNCACHED_UNBUFFERED_XN},
+
+  // 0x100001000..0x17FFFF000 (0x7FFFE000 = 2 GiB - 8 KiB): the rest of the
+  // 4 GiB span described by the runtime FDT (base 0x80000000, size 0xFFFFF000,
+  // so the end address is 0x17FFFF000, not 0x100000000).
+  {"High DRAM 1",        0x100001000, 0x7FFFE000, AddMem, SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK_XN},
+
+  // Gaps that the vendor map leaves between reservations; no vendor DT node
+  // covers them, and each starts exactly where a reservation ends:
+  //   CP Memory ends at 0x8DF00000, IQ Memory starts at 0x90000000;
+  //   Display Reserved ends at 0x9E9E4000, Darwin E starts at 0xA0000000.
+  {"Free gap CP-IQ",     0x8DF00000, 0x02100000, AddMem,  SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK_XN},
+  {"Free gap Display",   0x9E9E4000, 0x0161C000, AddMem,  SYS_MEM, SYS_MEM_CAP, Conv,   WRITE_BACK_XN},
 
   {"Display Reserved",   0x9E000000, 0x009E4000, AddMem,  MEM_RES, SYS_MEM_CAP,   Reserv, WRITE_THROUGH_XN},
 

@@ -1002,12 +1002,12 @@ bool NativeSdhciBlock::start(IOService *provider)
           static_cast<unsigned>(hostControl), static_cast<unsigned>(hostControl2),
           vendorClock, read32(kPresentState));
 
-    descriptorMemory = IOBufferMemoryDescriptor::inTaskWithOptions(kernel_task,
+    descriptorMemory = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(kernel_task,
         static_cast<IOOptionBits>(kIODirectionInOut) |
-            static_cast<IOOptionBits>(kIOMemoryPhysicallyContiguous), 4096, 4096);
-    transferMemory = IOBufferMemoryDescriptor::inTaskWithOptions(kernel_task,
+            static_cast<IOOptionBits>(kIOMemoryPhysicallyContiguous), 4096, 0xFFFFFFFFULL);
+    transferMemory = IOBufferMemoryDescriptor::inTaskWithPhysicalMask(kernel_task,
         static_cast<IOOptionBits>(kIODirectionInOut) |
-            static_cast<IOOptionBits>(kIOMemoryPhysicallyContiguous), kTransferBytes, 4096);
+            static_cast<IOOptionBits>(kIOMemoryPhysicallyContiguous), kTransferBytes, 0xFFFFFFFFULL);
     if (!descriptorMemory || !transferMemory) {
         IOLog("NativeSdhciBlock: DMA buffer allocation failed\n");
         return false;
@@ -1023,6 +1023,13 @@ bool NativeSdhciBlock::start(IOService *provider)
         IOLog("NativeSdhciBlock: the transfer buffer is not physically contiguous\n");
         return false;
     }
+    if (descriptorPhysical > 0xFFFFFFFFULL - 4095 ||
+        transferPhysical > 0xFFFFFFFFULL - (kTransferBytes - 1)) {
+        IOLog("NativeSdhciBlock: DMA allocation exceeds qualified32-bit aperture\n");
+        return false;
+    }
+    IOLog("M100 dma: descriptor=0x%llx transfer=0x%llx bytes=0x%llx below4G=1\n",
+        descriptorPhysical, transferPhysical, static_cast<uint64_t>(kTransferBytes));
     bzero(descriptorMemory->getBytesNoCopy(), 4096);
     bzero(transferMemory->getBytesNoCopy(), kTransferBytes);
     IOLog("bbk perf: sdhci batch_blocks=%u segment_bytes=%u trace=%u\n",
