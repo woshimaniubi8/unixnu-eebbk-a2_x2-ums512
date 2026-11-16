@@ -24,7 +24,9 @@ int main() {
     assert(pwm.duty(256,true)==SprdBus::Invalid);
     assert(pwm.restore(state)==SprdBus::Ok && !std::memcmp(io.words,baseline,sizeof baseline));
     io.words[0x40/4]=65536;assert(pwm.read(state)==SprdBus::Protocol);io.words[0x40/4]=0x8003;
-    io.refuse=true;assert(pwm.duty(82,true)==SprdBus::Protocol);io.refuse=false;
+    io.refuse=true;assert(pwm.duty(82,true)==SprdBus::Protocol);
+    assert(pwm.diagnostic().phase==3 && pwm.diagnostic().before.duty==81 && pwm.diagnostic().after.duty==81);
+    io.refuse=false;
     io.words[0x44/4]=0;size_t before=io.writes.size();
     assert(pwm.duty(80,true)==SprdBus::Protocol && io.writes.size()==before);
     SprdBus::Pwm<Registers> bad(io,4);assert(bad.read(state)==SprdBus::Invalid);

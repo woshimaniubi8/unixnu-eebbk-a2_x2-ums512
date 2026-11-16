@@ -72,7 +72,13 @@ class NativeSprdBacklight : public IOService {
         unsigned raw=power?SprdBus::backlightDuty(desired):0;
         SprdBus::Result r=pwm.duty(raw,power && raw!=0);
         if(r!=SprdBus::Ok) {
-            if(errors++<8)IOLog("M104 backlight: PWM2 readback failed result=%d level=%u\n",r,desired);
+            if(errors++<8) {
+                IOLog("M104 backlight: PWM2 readback failed result=%d level=%u\n",r,desired);
+                const auto &t=pwm.diagnostic();
+                IOLog("M110 backlight: phase=%u requested=%u raw=%u enabled=%u before=%x/%x/%x/%x after=%x/%x/%x/%x gate=%x mux=%x\n",
+                    t.phase,desired,raw,power,t.before.prescale,t.before.mod,t.before.duty,t.before.enable,
+                    t.after.prescale,t.after.mod,t.after.duty,t.after.enable,regs[1].read32(8),regs[2].read32(0x240));
+            }
             setProperty("HardwareWriteError",(unsigned)r,32);return false;
         }
         level=desired;publishLevel();
