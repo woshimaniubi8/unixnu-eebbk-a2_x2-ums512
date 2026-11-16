@@ -24,9 +24,9 @@ struct AdiModel {
     }
 };
 struct Hardware {
-    uint32_t control=0x80;bool busy=false,held=false;unsigned unlocks=0,reads=0;uint64_t delayed=0;
+    uint32_t control=0x80;bool busy=false,held=false,zeroRecordRead=false;unsigned unlocks=0,reads=0;uint64_t delayed=0;
     uint32_t read32(unsigned off) {
-        if(off==4)return control;
+        if(off==4)return zeroRecordRead?0:control;
         assert(off==0x830);reads++;if(busy)return 1;
         assert(!held);held=true;return 0;
     }
@@ -70,5 +70,8 @@ int main() {
     }
     AdiModel adi;Hardware hw;Gate gate;gate.refuse=true;FuelGaugeCalibration reader(adi,hw,gate);FuelCalibration c;
     assert(reader.read(c)==Protocol && hw.reads==0 && adi.calls==0);
+    AdiModel readable;Hardware recordOnly;Gate powered;recordOnly.control=0;recordOnly.zeroRecordRead=true;
+    FuelGaugeCalibration actual(readable,recordOnly,powered);FuelCalibration qualified;
+    assert(actual.read(qualified)==Ok && qualified.efuse==125 && recordOnly.unlocks==1 && !recordOnly.held);
     std::puts("PASS: SC2730 read-only efuse, hardware lock12, exact board coefficients, signed current, fault cleanup and no programming commands");
 }

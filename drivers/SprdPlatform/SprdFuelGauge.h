@@ -63,8 +63,10 @@ public:
         trace.control=hw.read32(4);trace.phase=2;
         Result result=Timeout;bool acquired=false,moduleSaved=false,indexSaved=false,started=false;
         uint16_t module=0,index=0,mode=0,value=0;
-        if(trace.control&1)trace.phase=3;
-        for(unsigned n=0;(trace.control&1) && n<5000;n++) {
+        // RECCTRL(+4) records the lock's subsystem owner; it does not enable
+        // TOKEN reads and stock never gates trylock on its readback value.
+        trace.phase=3;
+        for(unsigned n=0;n<5000;n++) {
             trace.token=hw.read32(0x830);
             if(trace.token==0){acquired=true;break;}
             hw.delay(10);
