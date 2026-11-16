@@ -127,20 +127,25 @@ bool NativeSprdPlatform::publishInput() {
         // device. The generic iOS DriverKit personality otherwise matches it
         // and leaves IOHIDInterface busy waiting for a missing user driver.
         // Match scope is Vendor1782/Product1902, not all HID interfaces.
-        touchPersonality=OSDictionary::withCapacity(8);OSDictionary *properties=OSDictionary::withCapacity(2);
+        touchPersonality=OSDictionary::withCapacity(9);
         OSArray *drivers=OSArray::withCapacity(1);OSNumber *vendor=OSNumber::withNumber(0x1782ULL,32);
         OSNumber *product=OSNumber::withNumber(0x1902ULL,32),*score=OSNumber::withNumber(100000ULL,32);
-        bool ok=touchPersonality && properties && drivers && vendor && product && score;
-        if(ok)ok=properties->setObject("VendorID",vendor) && properties->setObject("ProductID",product) &&
+        bool ok=touchPersonality && drivers && vendor && product && score;
+        // IOHIDInterface2031 delegates family matching to IOHIDDevice when
+        // MultipleInterfaceEnabled is absent. VendorID/ProductID are already
+        // on that physical device, but its default newVendorIDNumber() is
+        // NULL, so an IOPropertyMatch on the child interface cannot succeed.
+        // Use the original HID family's top-level keys and score instead.
+        if(ok)ok=touchPersonality->setObject("VendorID",vendor) && touchPersonality->setObject("ProductID",product) &&
             stringProperty(touchPersonality,"CFBundleIdentifier","com.apple.iokit.IOHIDFamily") &&
             stringProperty(touchPersonality,"IOClass","IOHIDEventDriver") &&
             stringProperty(touchPersonality,"IOProviderClass","IOHIDInterface") &&
             stringProperty(touchPersonality,"IOMatchCategory","IODefaultMatchCategory") &&
-            touchPersonality->setObject("IOPropertyMatch",properties) && touchPersonality->setObject("IOProbeScore",score) &&
+            touchPersonality->setObject("IOProbeScore",score) &&
             touchPersonality->setObject("NativeSprdPhysicalTouch",kOSBooleanTrue) && drivers->setObject(touchPersonality);
         if(ok)ok=gIOCatalogue->addDrivers(drivers,true);
-        OSSafeReleaseNULL(properties);OSSafeReleaseNULL(drivers);OSSafeReleaseNULL(vendor);OSSafeReleaseNULL(product);OSSafeReleaseNULL(score);
-        IOLog("M107 touch: original kernel event-driver personality installed=%u vendor=1782 product=1902\n",ok);
+        OSSafeReleaseNULL(drivers);OSSafeReleaseNULL(vendor);OSSafeReleaseNULL(product);OSSafeReleaseNULL(score);
+        IOLog("M109 touch: original HID family matching installed=%u vendor=1782 product=1902\n",ok);
         if(!ok)return false;
     }
     void *handle=OSMetaClass::preModLoad(g_kernel_kmod_info.name);if(!handle)return false;
