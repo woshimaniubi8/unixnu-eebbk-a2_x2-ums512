@@ -33,7 +33,9 @@ inline FuelCalibration fuelCalibration(uint16_t efuse) {
 }
 
 inline Result fuelMeasurements(unsigned voltage,unsigned current,const FuelCalibration &c,int &mv,int &ma) {
-    if(voltage>8191 || current>16383 || c.voltageAdcPerVolt<622 || c.voltageAdcPerVolt>744 ||
+    // ADI returns the whole16-bit current register. The shipped driver does
+    // not truncate it to14bits (high charging current crosses that boundary).
+    if(voltage>8191 || current>65535 || c.voltageAdcPerVolt<622 || c.voltageAdcPerVolt>744 ||
        c.currentAdcPerAmp!=c.voltageAdcPerVolt*8)return Invalid;
     mv=(int)((voltage*1000+c.voltageAdcPerVolt/2)/c.voltageAdcPerVolt);
     int delta=(int)current-8192;
@@ -51,7 +53,7 @@ inline Result fuelSavedDeciPercent(uint16_t userArea,int &deciPercent) {
 
 inline Result fuelBootOcv(unsigned pocvAdc,unsigned qmaxAdc,const FuelCalibration &c,
                           unsigned internalResistanceMicroOhms,int &ocvMicrovolts,int &openCurrentMilliamps) {
-    if(qmaxAdc>8191 || internalResistanceMicroOhms>1000000)return Invalid;
+    if(qmaxAdc>32767 || internalResistanceMicroOhms>1000000)return Invalid;
     const unsigned firstCurrentAdc=qmaxAdc*2;
     int voltageMillivolts=0;
     Result r=fuelMeasurements(pocvAdc,firstCurrentAdc,c,voltageMillivolts,openCurrentMilliamps);

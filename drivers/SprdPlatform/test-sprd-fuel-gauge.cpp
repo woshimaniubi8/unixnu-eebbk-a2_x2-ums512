@@ -99,6 +99,14 @@ int main() {
     FuelGaugeCalibration actual(readable,recordOnly,powered);FuelCalibration qualified;
     assert(actual.read(qualified)==Ok && qualified.efuse==125 && recordOnly.unlocks==1 && !recordOnly.held);
     auto cal=fuelCalibration(0x775d);
+    for(unsigned raw=0;raw<65536;raw++) {
+        int readMv=0,readMa=0;assert(fuelMeasurements(2939,raw,cal,readMv,readMa)==Ok);
+        int delta=(int)raw-8192;
+        int expected=delta<0?-(int)((-delta*1000+cal.currentAdcPerAmp/2)/cal.currentAdcPerAmp):
+                              (int)((delta*1000+cal.currentAdcPerAmp/2)/cal.currentAdcPerAmp);
+        assert(readMa==expected);
+    }
+    assert(fuelMeasurements(2939,65536,cal,mv,ma)==Invalid);
     assert(fuelBootOcv(2939,4096,cal,134000,ocvUv,openMa)==Ok && ocvUv>4100000 && ocvUv<4200000);
     assert(fuelBootOcv(2939,0xffff,cal,134000,ocvUv,openMa)==Invalid);
     assert(fuelBootOcv(1000,4096,cal,134000,ocvUv,openMa)==Invalid);
