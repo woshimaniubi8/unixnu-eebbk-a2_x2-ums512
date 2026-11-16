@@ -39,6 +39,7 @@ class NativeHidInput : public IOHIDDevice {
     IOBufferMemoryDescriptor *report=nullptr;
     bool touchOnly=false,matched=false,sentKeys=false;
     uint8_t lastKeys=0;
+    uint32_t attempts=0,notReady=0;IOReturn lastResult=kIOReturnNotReady;
     SprdBus::Frame previous={};
     bool hasDriver(IORegistryEntry *p,unsigned depth) {
         if(!depth)return false;
@@ -85,12 +86,29 @@ public:
     void stop(IOService *p) override {IOHIDDevice::stop(p);}
     void free() override {OSSafeReleaseNULL(report);OSSafeReleaseNULL(loop);IOHIDDevice::free();}
     IOReturn buttons(uint8_t keys) {
-        if(touchOnly || !ready())return kIOReturnNotReady;
+        if(touchOnly || !ready()){notReady++;return kIOReturnNotReady;}
         keys&=14; // Physical board has Power/Vol+/Vol-, no Home GPIO.
         if(sentKeys && keys==lastKeys)return kIOReturnSuccess;
-        uint8_t bytes[]={2,keys};IOReturn r=send(bytes,sizeof(bytes));
+        uint8_t bytes[]={2,keys};IOReturn r=send(bytes,sizeof(bytes));attempts++;lastResult=r;
         if(r==kIOReturnSuccess){sentKeys=true;lastKeys=keys;IOLog("bbk input: keys mask=0x%x report=0x%x\n",keys,r);}
         return r;
+    }
+    void describeTree(IORegistryEntry *entry,unsigned depth,unsigned &budget) {
+        if(!depth || !budget)return;
+        OSIterator *it=entry->getChildIterator(gIOServicePlane);if(!it)return;
+        while(OSObject *o=it->getNextObject()) {
+            auto *child=OSDynamicCast(IORegistryEntry,o);if(!child)continue;
+            IOLog("M102 hid-child: depth=%u name=%s class=%s id=0x%llx\n",depth,child->getName(),child->getMetaClass()->getClassName(),child->getRegistryEntryID());
+            if(!--budget)break;describeTree(child,depth-1,budget);
+            if(!budget)break;
+        }
+        it->release();
+    }
+    void diagnostics() {
+        bool found=ready();
+        IOLog("M102 hid: kind=%s id=0x%llx eventDriver=%u attempts=%u notReady=%u last=0x%x keys=0x%x\n",
+            touchOnly?"touch":"keys",getRegistryEntryID(),found,attempts,notReady,lastResult,lastKeys);
+        unsigned budget=12;describeTree(this,4,budget);
     }
     IOReturn contacts(const SprdBus::Frame &frame,unsigned width,unsigned height) {
         if(!touchOnly || !ready())return kIOReturnNotReady;
@@ -134,6 +152,7 @@ public:
 OSDefineMetaClassAndStructors(NativeHidInput,IOHIDDevice)
 extern "C" IOService *sprd_hid_allocate(bool touch) {auto *d=new NativeHidInput;if(d)d->configure(touch);return d;}
 extern "C" IOReturn sprd_hid_buttons(IOService *d,uint8_t mask) {return static_cast<NativeHidInput *>(d)->buttons(mask);}
+extern "C" void sprd_hid_diagnostics(IOService *d) {static_cast<NativeHidInput *>(d)->diagnostics();}
 extern "C" IOReturn sprd_hid_contacts(IOService *d,const SprdBus::Frame *f,unsigned w,unsigned h) {
     return f?static_cast<NativeHidInput *>(d)->contacts(*f,w,h):kIOReturnBadArgument;
 }
