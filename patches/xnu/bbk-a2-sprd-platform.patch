@@ -1,10 +1,10 @@
 diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
 --- a/iokit/KernelConfigTables.cpp
 +++ b/iokit/KernelConfigTables.cpp
-@@ -3,6 +3,13 @@
-     "     'IOClass'         = NativeSprdThermal;"
-     "     'IOProviderClass' = IOPlatformDevice;"
-     "     'IOProbeScore'    = 2000:32;"
+@@ -133,6 +133,13 @@
+     "     'IOProviderClass' = ArmDTPlatform;"
+     "     'IOMatchCategory' = A2KeyStoreState;"
+     "     'IOProbeScore'    = 1000:32;"
      "   }"
  #endif
 +#if defined(XNU_NATIVE_SPRD_PLATFORM) && XNU_NATIVE_SPRD_PLATFORM
