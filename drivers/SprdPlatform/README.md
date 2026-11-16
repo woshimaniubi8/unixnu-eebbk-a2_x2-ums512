@@ -41,3 +41,24 @@ interrupt and power-management integration, and is not claimed here.
 The host test compiles the same `SprdBus.h` used on-device. It exercises real
 command construction and fault handling against deterministic register models;
 this is not evidence that an untested physical controller already works.
+
+## PWM2 backlight
+
+`SprdBacklight.h` adapts the CoreBrightness property/fade frontend from the
+pinned UniXNU-sheng `package/AppleARMBacklight.cpp`, whose copyright and BSD
+2-Clause-Patent license apply to the reused interface design. Its UMS512
+backend follows the GPL Spreadtrum `pwm-sprd.c` register contract and the
+shipped `sprd_pwm_*` implementation. The exact factory 1h190 256-entry curve,
+scale 880, is preserved in `FactoryBacklight.h`.
+
+PWM2 uses `0x32260000 + 2*0x20`, AON gate `0x327d0008` bit27 and the existing
+clock mux `0x32080240`. Takeover requires a valid firmware waveform (MOD255,
+bounded duty/prescaler); it preserves the source, period and sibling channels.
+Every brightness write is read back. Stop restores the saved waveform and only
+the clock gate owned by this service. IOKit power states control the backlight,
+not DSI panel rails or SoC deep sleep.
+
+The CoreBrightness conformance bridge copies exactly 168 verified IOService
+slots and qualifies the original AppleARMBacklight metaclass extent `0x370`.
+Publishing a backlight service alone is not end-to-end brightness evidence;
+record CoreBrightness requests, PWM readback and physical display observation.

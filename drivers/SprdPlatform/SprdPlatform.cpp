@@ -14,6 +14,7 @@
 #include <libkern/libkern.h>
 #include <mach/kmod.h>
 #include "SprdBus.h"
+#include "SprdBacklight.h"
 extern "C" kmod_info_t g_kernel_kmod_info;
 extern "C" void sprd_hid_static_init() __asm__("__GLOBAL__sub_I_NativeHidInput.cpp");
 extern "C" IOService *sprd_hid_allocate(bool);
@@ -43,7 +44,7 @@ class NativeSprdPlatform : public IOService {
     OSDeclareDefaultStructors(NativeSprdPlatform)
     IOMemoryMap *maps[7]={}; Registers mmio[7];
     IOWorkLoop *loop=nullptr;IOTimerEventSource *timer=nullptr;
-    IOService *keys=nullptr,*touch=nullptr;
+    IOService *keys=nullptr,*touch=nullptr,*backlight=nullptr;
     bool keysStarted=false,touchStarted=false;
     uint32_t aonAdded[2]={},apAdded=0,clockSaved[2]={};bool clockChanged=false;
     uint32_t gpioSaved[3]={};bool gpioChanged=false,pmicChanged=false,pmicReady=false;
@@ -191,7 +192,10 @@ bool NativeSprdPlatform::start(IOService *p) {
     if(!publishInput()){IOLog("bbk platform: HID publication failed\n");stop(p);return false;}
     timer=IOTimerEventSource::timerEventSource(this,tick);
     if(!timer || loop->addEventSource(timer)!=kIOReturnSuccess){stop(p);return false;}
-    registerService();poll();IOLog("bbk platform: ready ADI/GPIO/I2C3/4, keys polled at 10ms\n");return true;
+    registerService();poll();
+    backlight=sprdBacklightCreate(this);
+    IOLog("M104 backlight: service=%p; failure does not change existing framebuffer ownership\n",backlight);
+    IOLog("bbk platform: ready ADI/GPIO/I2C3/4, keys polled at 10ms\n");return true;
 }
 void NativeSprdPlatform::restore() {
     if(pmicChanged && mmio[0].base)adi.update(0x284,0x1a,pmicMask);pmicChanged=false;
@@ -202,6 +206,7 @@ void NativeSprdPlatform::restore() {
     aonAdded[0]=aonAdded[1]=0;
 }
 void NativeSprdPlatform::stop(IOService *p) {
+    if(backlight){backlight->stop(this);backlight->detach(this);backlight->release();backlight=nullptr;}
     if(timer){timer->cancelTimeout();if(loop)loop->removeEventSource(timer);OSSafeReleaseNULL(timer);}
     IOService **devices[]={&touch,&keys};bool started[]={touchStarted,keysStarted};
     for(unsigned i=0;i<2;i++){IOService **d=devices[i];if(*d){if((*d)->getProvider()==this){if(started[i])(*d)->stop(this);(*d)->detach(this);}(*d)->release();*d=nullptr;}}

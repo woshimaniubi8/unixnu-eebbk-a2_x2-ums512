@@ -155,3 +155,6 @@ bbk-a2-physical-memory-map.patch
 
 # Factory 1h190 ADI/PMIC, GPIO, I2C and physical HID input backend.
 bbk-a2-sprd-platform.patch
+
+# CoreBrightness brightness/fade access restricted to the real PWM2 service.
+bbk-a2-backlight-properties.patch
