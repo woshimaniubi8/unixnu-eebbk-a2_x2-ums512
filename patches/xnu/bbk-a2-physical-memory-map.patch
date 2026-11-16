@@ -203,10 +203,11 @@
  
  	/*
  	 * KTRR support means we will be mucking with these pages and trying to
-@@ -1816,6 +1854,58 @@
- 
- #define ARM64_PHYSMAP_SLIDE_RANGE (1ULL << 30) // 1 GB
- #define ARM64_PHYSMAP_SLIDE_MASK  (ARM64_PHYSMAP_SLIDE_RANGE - 1)
+@@ -1827,6 +1865,58 @@
+  * ARM_LARGE_MEMORY configuration used by the non-PPL kernel.
+  */
+ #define ARM64_PHYSMAP_ALIGNMENT_PADDING (PTOV_TABLE_SIZE * ARM_TT_TWIG_SIZE)
++#endif
 +
 +#if XNU_NATIVE_BBK_MEMORY
 +BbkMemoryMap bbk_boot_memory;
@@ -258,11 +259,10 @@
 +            (unsigned long long)bbk_boot_memory.ranges[i].end);
 +    }
 +}
-+#endif
+ #endif
  
  void
- arm_vm_init(uint64_t memory_size, boot_args * args)
-@@ -1835,6 +1925,10 @@
+@@ -1847,6 +1937,10 @@
  	 */
  	gVirtBase = args->virtBase;
  	gPhysBase = args->physBase;
@@ -273,7 +273,7 @@
  #if KASAN
  	real_phys_size = args->memSize + (shadow_ptop - shadow_pbase);
  #else
-@@ -2209,8 +2303,14 @@
+@@ -2221,8 +2315,14 @@
  		flush_mmu_tlb();
  	}
  
