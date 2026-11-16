@@ -18,6 +18,9 @@ tree=a.core/'scripts/unixnu/devicetree.py';s=tree.read_text()
 anchor="        chosen.append(('darwinboot-memory-size', struct.pack('<Q', size)))"
 if "'unixnu,physical-memory-map'" not in s:
     assert s.count(anchor)==1
-    s=s.replace(anchor,anchor+"\n    if payload.get('physical_memory_map', False):\n        chosen.append(('unixnu,physical-memory-map', bytes(576)))",1)
+    s=s.replace(anchor,anchor+"\n    if options.get('physical_memory_map', False):\n        chosen.append(('unixnu,physical-memory-map', bytes(576)))",1)
+    tree.write_text(s,newline='\n')
+elif "if payload.get('physical_memory_map', False):" in s:
+    s=s.replace("if payload.get('physical_memory_map', False):", "if options.get('physical_memory_map', False):", 1)
     tree.write_text(s,newline='\n')
 print('Installed version1 physical-memory ownership ABI and exact board loader')
