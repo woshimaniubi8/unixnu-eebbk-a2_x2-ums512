@@ -279,6 +279,11 @@ jobs:
           mformat --version 2>/dev/null | head -n 1 || true
           dtc --version
 
+      - name: Qualify component warnings for the selected compiler
+        run: |
+          set -euxo pipefail
+          python3 device/scripts/qualify-compiler-warnings.py UniXNU | tee compiler-qualification.json
+
       - name: defconfig + status
         working-directory: UniXNU
         run: |
