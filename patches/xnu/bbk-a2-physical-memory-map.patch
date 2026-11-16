@@ -203,7 +203,7 @@
  
  	/*
  	 * KTRR support means we will be mucking with these pages and trying to
-@@ -1827,6 +1865,58 @@
+@@ -1827,6 +1865,63 @@
   * ARM_LARGE_MEMORY configuration used by the non-PPL kernel.
   */
  #define ARM64_PHYSMAP_ALIGNMENT_PADDING (PTOV_TABLE_SIZE * ARM_TT_TWIG_SIZE)
@@ -242,11 +242,16 @@
 +    }
 +    memcpy(&bbk_boot_memory, data, sizeof(bbk_boot_memory));
 +    if (PAGE_SIZE != BBK_MEMORY_PAGE || !bbkMemoryValidate(&bbk_boot_memory) ||
-+        args->physBase != bbk_boot_memory.physical_start ||
-+        args->memSize != bbk_boot_memory.physical_end - bbk_boot_memory.physical_start ||
++        args->physBase != bbk_boot_memory.staging_start ||
++        args->memSize != bbk_boot_memory.staging_end - bbk_boot_memory.staging_start ||
 +        args->topOfKernelData != bbk_boot_memory.used_end) {
 +        panic("M100 memory: invalid physical memory ownership");
 +    }
++    // The assembly bootstrap never maps/reserves the whole physical span.
++    // Preserve its kernel VA/PA relation while exposing owned intervals here.
++    args->virtBase -= bbk_boot_memory.staging_start - bbk_boot_memory.physical_start;
++    args->physBase = bbk_boot_memory.physical_start;
++    args->memSize = bbk_boot_memory.physical_end - bbk_boot_memory.physical_start;
 +    printf("M100 memory: physical=%llx..%llx managed=%llx reserved=%llx ranges=%u page=%lu\n",
 +        (unsigned long long)bbk_boot_memory.physical_start,
 +        (unsigned long long)bbk_boot_memory.physical_end,
@@ -262,18 +267,18 @@
  #endif
  
  void
-@@ -1847,6 +1937,10 @@
+@@ -1845,6 +1940,10 @@
+ 	/*
+ 	 * Get the virtual and physical kernel-managed memory base from boot_args.
  	 */
++#if XNU_NATIVE_BBK_MEMORY
++    bbk_memory_init(args);
++    if (memory_size != 0) panic("M100 memory: maxmem conflicts with explicit ownership");
++#endif
  	gVirtBase = args->virtBase;
  	gPhysBase = args->physBase;
-+#if XNU_NATIVE_BBK_MEMORY
-+	bbk_memory_init(args);
-+	if (memory_size != 0) panic("M100 memory: maxmem conflicts with explicit ownership");
-+#endif
  #if KASAN
- 	real_phys_size = args->memSize + (shadow_ptop - shadow_pbase);
- #else
-@@ -2221,8 +2315,14 @@
+@@ -2221,8 +2320,14 @@
  		flush_mmu_tlb();
  	}
  

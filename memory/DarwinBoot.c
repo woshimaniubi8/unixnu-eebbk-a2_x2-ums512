@@ -670,10 +670,9 @@ Boot (
     PhysicalMemory.staging_start = Address;
     PhysicalMemory.staging_end = Address + WindowSize;
     PhysicalMemory.used_end = Address + Used;
-    Args->VirtualBase = Kernel.Base - (Address - PhysicalMemory.physical_start);
-    Args->PhysicalBase = PhysicalMemory.physical_start;
-    Args->MemorySize = PhysicalMemory.physical_end - PhysicalMemory.physical_start;
-    Args->MemorySizeActual = Args->MemorySize;
+    // start.s maps only the qualified staging area. arm_vm_init consumes the
+    // ownership map and expands the VM span after bootstrap translation works.
+    Args->MemorySizeActual = PhysicalMemory.physical_end - PhysicalMemory.physical_start;
   }
   Args->TopOfKernelData = Address + Used;
   CopyMem (Args->Video, Video, sizeof (Video));
