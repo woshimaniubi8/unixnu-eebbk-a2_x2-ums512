@@ -1,6 +1,6 @@
 {
   "kernelcache_sha256": "f18b4df865405f2a287b84977d7aca745e056d656d9fc9df1662970ce2969de7",
-  "prelinked_kernel_sha256": "ed0975ca5cd7ab9d0f41e31f88647765f4ef044f347a8a441664c21015f98d7a",
+  "prelinked_kernel_sha256": "c78de47c21c955b413c0d2cc297311955a51b3af1864e806cc42095010393623",
   "prelink_slide": "-0x1000000",
   "provenance": "re-derived from a kernel that already contains this driver, so the kernel-bound dispatch slots are correct for this driver's link layout (the first table came from a prelink without the driver); pinned by the kernelcache sha256",
   "vtable": "0xfffffff005cb44c0",

@@ -651,6 +651,10 @@ Boot (
     Status = EFI_BAD_BUFFER_SIZE;
     goto Fail;
   }
+  if (MemoryMapOffset != MAX_UINTN) {
+    DEBUG ((DEBUG_ERROR, "M100 loader: previous kernel stage=0x%lx at=0x%lx\n",
+      ReadUnaligned64 ((CONST UINT64 *)(UINTN)(ArgsAddress + 0x600)), ArgsAddress + 0x600));
+  }
   ZeroMem ((VOID *)(UINTN)Address, (UINTN)Used);
   for (Index = 0; Index < Kernel.Count; Index++) {
     CopyMem ((VOID *)(UINTN)(Address + Kernel.Segments[Index].Address - Kernel.Base),

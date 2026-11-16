@@ -20,7 +20,7 @@
  	memset((char *)phystokv(pmap_struct_start), 0, avail_start - pmap_struct_start);
  
  	vm_first_phys = gPhysBase;
-@@ -2694,7 +2700,11 @@
+@@ -2694,8 +2700,25 @@
  	assert(first <= end);
  	assert(first == (first & ~PAGE_MASK));
  	assert(end == (end & ~PAGE_MASK));
@@ -28,11 +28,26 @@
 +    avail_page_count = (unsigned int)atop(bbkMemoryCount(&bbk_boot_memory, first, end));
 +#else
  	avail_page_count = atop(end - first);
+-
 +#endif
- 
++
++#if XNU_NATIVE_BBK_MEMORY
++    printf("M100 memory: physical=%llx..%llx managed=%llx reserved=%llx ranges=%u page=%lu\n",
++        (unsigned long long)bbk_boot_memory.physical_start,
++        (unsigned long long)bbk_boot_memory.physical_end,
++        (unsigned long long)bbk_boot_memory.managed_bytes,
++        (unsigned long long)(bbk_boot_memory.physical_end - bbk_boot_memory.physical_start - bbk_boot_memory.managed_bytes),
++        bbk_boot_memory.count, (unsigned long)PAGE_SIZE);
++    for (unsigned int i = 0; i < bbk_boot_memory.count; ++i) {
++        printf("M100 memory: usable[%u]=%llx..%llx\n", i,
++            (unsigned long long)bbk_boot_memory.ranges[i].start,
++            (unsigned long long)bbk_boot_memory.ranges[i].end);
++    }
++#endif
  	need_ram_ranges_init = false;
  }
-@@ -2738,6 +2748,9 @@
+ 
+@@ -2738,6 +2761,9 @@
  	}
  
  
@@ -42,7 +57,7 @@
  	if (first_avail != avail_end) {
  		*pnum = (ppnum_t)atop(first_avail);
  		first_avail += PAGE_SIZE;
-@@ -2749,6 +2762,27 @@
+@@ -2749,6 +2775,27 @@
  	return FALSE;
  }
  
@@ -203,7 +218,7 @@
  
  	/*
  	 * KTRR support means we will be mucking with these pages and trying to
-@@ -1827,6 +1865,63 @@
+@@ -1827,6 +1865,59 @@
   * ARM_LARGE_MEMORY configuration used by the non-PPL kernel.
   */
  #define ARM64_PHYSMAP_ALIGNMENT_PADDING (PTOV_TABLE_SIZE * ARM_TT_TWIG_SIZE)
@@ -211,6 +226,12 @@
 +
 +#if XNU_NATIVE_BBK_MEMORY
 +BbkMemoryMap bbk_boot_memory;
++static volatile uint64_t *bbk_boot_journal;
++static void bbk_memory_stage(uint64_t phase) {
++    *bbk_boot_journal = 0x4D31303000000000ULL | phase;
++    __asm__ volatile("dsb sy" ::: "memory");
++}
++
 +
 +int
 +bbk_memory_managed(uint64_t pa)
@@ -252,33 +273,48 @@
 +    args->virtBase -= bbk_boot_memory.staging_start - bbk_boot_memory.physical_start;
 +    args->physBase = bbk_boot_memory.physical_start;
 +    args->memSize = bbk_boot_memory.physical_end - bbk_boot_memory.physical_start;
-+    printf("M100 memory: physical=%llx..%llx managed=%llx reserved=%llx ranges=%u page=%lu\n",
-+        (unsigned long long)bbk_boot_memory.physical_start,
-+        (unsigned long long)bbk_boot_memory.physical_end,
-+        (unsigned long long)bbk_boot_memory.managed_bytes,
-+        (unsigned long long)(args->memSize - bbk_boot_memory.managed_bytes),
-+        bbk_boot_memory.count, (unsigned long)PAGE_SIZE);
-+    for (unsigned int i = 0; i < bbk_boot_memory.count; ++i) {
-+        printf("M100 memory: usable[%u]=%llx..%llx\n", i,
-+            (unsigned long long)bbk_boot_memory.ranges[i].start,
-+            (unsigned long long)bbk_boot_memory.ranges[i].end);
-+    }
++
 +}
  #endif
  
  void
-@@ -1845,6 +1940,10 @@
+@@ -1845,6 +1936,15 @@
  	/*
  	 * Get the virtual and physical kernel-managed memory base from boot_args.
  	 */
 +#if XNU_NATIVE_BBK_MEMORY
++    // The loader reserves a4KiB boot-args page; bytes0x600..0x607
++    // are outside the0x480 ABI structure and survive const_boot_args copying.
++    bbk_boot_journal = (volatile uint64_t *)((uintptr_t)args->deviceTreeP - 4096 + 0x600);
++    bbk_memory_stage(1);
 +    bbk_memory_init(args);
++    bbk_memory_stage(2);
 +    if (memory_size != 0) panic("M100 memory: maxmem conflicts with explicit ownership");
 +#endif
  	gVirtBase = args->virtBase;
  	gPhysBase = args->physBase;
  #if KASAN
-@@ -2221,8 +2320,14 @@
+@@ -2113,6 +2213,9 @@
+ 	vm_prelink_sdata = segPRELINKDATAB;
+ 	vm_prelink_edata = segPRELINKDATAB + segSizePRELINKDATA;
+ 
++#if XNU_NATIVE_BBK_MEMORY
++    bbk_memory_stage(0x11);
++#endif
+ 	arm_vm_prot_init(args);
+ 
+ 	/*
+@@ -2159,6 +2262,9 @@
+ 
+ 	arm_set_user_tbi();
+ 
++#if XNU_NATIVE_BBK_MEMORY
++    bbk_memory_stage(0x12);
++#endif
+ 	arm_vm_physmap_init(args);
+ 	set_mmu_ttb_alternate(cpu_ttep & TTBR_BADDR_MASK);
+ 
+@@ -2221,8 +2327,14 @@
  		flush_mmu_tlb();
  	}
  
@@ -293,6 +329,31 @@
  	vm_kernel_slid_base = segLOWESTTEXT;
  	// vm_kernel_slide is set by arm_init()->arm_slide_rebase_and_sign_image()
  	vm_kernel_stext = segTEXTB;
+@@ -2264,6 +2376,9 @@
+         arm_vm_map(cpu_tte, cur, ARM_PTE_EMPTY);
+     }
+ #endif
++#endif
++#if XNU_NATIVE_BBK_MEMORY
++    bbk_memory_stage(0x13);
+ #endif
+ 	pmap_bootstrap(dynamic_memory_begin);
+ 
+@@ -2389,8 +2504,14 @@
+ #if XNU_MONITOR
+ 	pmap_static_allocations_done();
+ #endif
++#if XNU_NATIVE_BBK_MEMORY
++    bbk_memory_stage(0x14);
++#endif
+ 	first_avail = avail_start;
+ 	patch_low_glo_static_region(args->topOfKernelData, avail_start - args->topOfKernelData);
++#if XNU_NATIVE_BBK_MEMORY
++    bbk_memory_stage(0x15);
++#endif
+ 	enable_preemption();
+ }
+ 
 --- /dev/null
 +++ b/osfmk/arm64/bbk_memory.h
 @@ -0,0 +1,14 @@
