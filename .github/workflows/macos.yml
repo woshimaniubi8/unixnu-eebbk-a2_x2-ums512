@@ -21,11 +21,13 @@ on:
           - kernel payload
         default: kernel payload
       runner:
-        description: GitHub-hosted macOS runner image (macos-26 carries Xcode 26.6 / LLVM 21, macos-15 maxes at Xcode 26.3 / LLVM 17)
+        description: Official GitHub macOS runner pool; all kernels/components explicitly target ARM64 regardless of host CPU
         type: choice
         options:
           - macos-26
           - macos-15
+          - macos-26-intel
+          - macos-15-intel
         default: macos-26
       xcode:
         description: Xcode version on the selected runner (/Applications/Xcode_<version>.app; Xcode 16.x rejects -Wno-unnecessary-virtual-specifier under -Werror)

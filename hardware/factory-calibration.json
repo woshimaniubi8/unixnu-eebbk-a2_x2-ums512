@@ -1,0 +1,89 @@
+{
+  "kernel_sha256": "70a55f276551f0fedbbc3c36ad1950d85eab19352b6b0d4eb6e69ae737c98104",
+  "relocation_offset": "0xffb998",
+  "relative_relocations": 82101,
+  "fgu_variants": [
+    {
+      "name": "sc2731",
+      "of_match": "0xffffff8008c4f130",
+      "data": "0xffffff8008c4f6a8",
+      "module": "0xc08",
+      "clock": "0xc18",
+      "efuse_mask": "0x1ff",
+      "efuse_shift": 0
+    },
+    {
+      "name": "sc2730",
+      "of_match": "0xffffff8008c4f1f8",
+      "data": "0xffffff8008c4f6b8",
+      "module": "0x1808",
+      "clock": "0x1810",
+      "efuse_mask": "0x1ff",
+      "efuse_shift": 0
+    },
+    {
+      "name": "sc2720",
+      "of_match": "0xffffff8008c4f2c0",
+      "data": "0xffffff8008c4f6c8",
+      "module": "0xc08",
+      "clock": "0xc10",
+      "efuse_mask": "0x1ff",
+      "efuse_shift": 0
+    },
+    {
+      "name": "ump9620",
+      "of_match": "0xffffff8008c4f388",
+      "data": "0xffffff8008c4f6d8",
+      "module": "0x2008",
+      "clock": "0x2010",
+      "efuse_mask": "0xff80",
+      "efuse_shift": 7
+    }
+  ],
+  "touch_pins": [
+    {
+      "name": "EXTINT0",
+      "number": 224,
+      "common_offset": "0x2b8"
+    },
+    {
+      "name": "EXTINT1",
+      "number": 225,
+      "common_offset": "0x2bc"
+    },
+    {
+      "name": "SDA3",
+      "number": 226,
+      "common_offset": "0x2c0"
+    },
+    {
+      "name": "SCL3",
+      "number": 227,
+      "common_offset": "0x2c4"
+    }
+  ],
+  "efuse_hardware_lock": {
+    "clock_index": 25,
+    "clk_hw": "0xffffff80092e77c0",
+    "name": "splk-eb",
+    "gate_register": "0x327d0004",
+    "mask": "0x400",
+    "set_clear_offset": "0x1000",
+    "lock_id": 12,
+    "token_register": "0x327f0830",
+    "unlock_value": "0x55aa10c5"
+  },
+  "sc2730_fgu_calibration": {
+    "efuse_byte_offset": 6,
+    "efuse_block": 3,
+    "pmic_module_register": "0x1808",
+    "mask": "0x1ff",
+    "shift": 0,
+    "adc_4200mv_offset": 2611,
+    "resistance_spec_uohm": 20000,
+    "resistance_real_uohm": 10000,
+    "voltage_formula": "round(((efuse & 0x1ff) + 2611) * 10 / 42)",
+    "current_formula": "round(voltage_adc_per_volt * 4 * 20000 / 10000)"
+  },
+  "conclusion": "Raw zero pointers in Image tables are not runtime NULL. Apply R_AARCH64_RELATIVE addends before interpreting variants."
+}
