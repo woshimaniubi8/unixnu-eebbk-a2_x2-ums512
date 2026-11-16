@@ -114,9 +114,14 @@ as hardware sleep support.
 Through M113, the device reports efuse `775d` (voltage ADC705/current ADC5640),
 POCV2940, QMAX4097 and compensated boot OCV4170000uV. The exact factory table
 maps that to80%; `USER_AREA=afff` is first-power-on with invalid saved capacity,
-not100%. M113 leaves that estimate unpublished. The M114 battery frontend is
-new source pending its own runtime qualification; a successful compile is not
-evidence that powerd consumed it.
+not100%. M113 leaves that estimate unpublished. M114 publishes the original
+IOPMPowerSource with80% starting capacity, voltage4169..4170mV and a live counter
+progressing `fffff0da -> fffff149 -> fffff1b4`. External power and charger
+termination are observed, so IsCharging remains false; termination does not
+force100%. This verifies the acquired service, not a physical screen observation
+or a full discharge-cycle qualification. Current watchdog fault80 reappears
+after the initial latched/current80/00 pair; charge watchdog/control ownership
+remains unfinished and is not described as a healthy charging policy.
 
 `SprdBattery.h` adapts the IOPMPowerSource setters/notification frontend from
 the pinned UniXNU-sheng `ShengBattery.cpp` under BSD-2-Clause-Patent. The backend

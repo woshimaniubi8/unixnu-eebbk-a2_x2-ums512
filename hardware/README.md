@@ -14,7 +14,7 @@ read-only partition extraction; firmware binaries remain local.
 | Camera | Factory I2C sensor candidates, CSI/DCAM/ISP | Actual sensor IDs/power sequence, capture buffers, ISP pipeline and iOS camera interface |
 | Sensors | SharkL5Pro CM4 sensorhub, SIPC/mailbox | Firmware/shared-memory handshake, frame CRC/timestamps/calibration and CoreMotion/HID delivery |
 | Brightness | PWM2, 256-entry factory curve | M112 CoreBrightness dim/off/on and strict PWM readback verified; physical appearance and panel-rail lifecycle remain |
-| Power | SC2730 ADI, FGU, regulators, CPU PSCI | M113 calibrated voltage/current and original boot OCV verified; M114 IOPMPowerSource is pending runtime qualification; temperature/aging/charge control and system suspend/resume remain |
+| Power | SC2730 ADI, FGU, regulators, CPU PSCI | M114 IOPMPowerSource publishes calibrated voltage/current and factory OCV plus live coulomb count; temperature/aging/charge watchdog control and system suspend/resume remain |
 
 ## Inputs and reusable implementations
 
