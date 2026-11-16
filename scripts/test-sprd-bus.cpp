@@ -22,7 +22,7 @@ struct I2cModel {
     uint8_t memory[65536]={};uint16_t pointer=0;unsigned addr=0,width=2,remaining=0;
     bool nack=false,timeout=false;std::vector<uint8_t> tx;
     std::vector<std::pair<unsigned,unsigned>> messages;
-    uint32_t read32(unsigned off){if(off==0x14 && started && !timeout && remaining){if(++elapsed>3)return 4|(nack?2:0);}return regs[off/4];}
+    uint32_t read32(unsigned off){if(off==0x14 && started && !timeout && remaining && (regs[0]&2)){if(++elapsed>3)return 4|(nack?2:0);}return regs[off/4];}
     void write32(unsigned off,uint32_t v) {
         if(off==0x2c){tx.clear();regs[off/4]=v;return;}
         regs[off/4]=v;
@@ -50,7 +50,7 @@ int main() {
     m.full=true;assert(adi.write(0x284,1)==Timeout);m.full=false;
     m.draining=true;assert(adi.write(0x284,1)==Timeout);m.draining=false;
     I2cModel i;I2c<I2cModel> bus(i);bus.configure26000kHz400kHz();
-    assert(i.regs[8]==((12u<<16)|18u) && i.regs[10]==15);
+    assert(i.regs[8]==((12u<<16)|18u) && i.regs[10]==15 && (i.regs[0]&6)==6);
     for(unsigned n=0;n<80;n++)i.memory[0x8140+n]=(uint8_t)(n+1);
     uint8_t result[80]={};assert(bus.readRegister(0x14,0x8140,2,result,sizeof(result))==Ok);
     assert(i.messages.size()==20);
@@ -59,6 +59,11 @@ int main() {
     uint8_t zero=0;assert(bus.writeRegister(0x14,0x814e,2,&zero,1)==Ok && i.memory[0x814e]==0);
     i.nack=true;assert(bus.readRegister(0x14,0x8140,2,result,1)==Nack);i.nack=false;
     i.timeout=true;unsigned before=i.delayCalls;assert(bus.readRegister(0x14,0x8140,2,result,1)==Timeout && i.delayCalls-before==5000);i.timeout=false;
+    // Replay the M102 register state: EN without INT_EN cannot complete.
+    i.regs[0]&=~2u;before=i.delayCalls;
+    assert(bus.readRegister(0x14,0x8140,2,result,1)==Timeout && i.delayCalls-before==5000);
+    bus.configure26000kHz400kHz();
+    assert(bus.readRegister(0x14,0x8140,2,result,1)==Ok);
     size_t messages=i.messages.size();
     assert(bus.readRegister(0x14,255,1,result,2)==Invalid && i.messages.size()==messages);
     assert(bus.writeRegister(0x14,0,1,&zero,(size_t)-1)==Invalid);

@@ -66,9 +66,10 @@ public:
         io.write32(0x24,0); io.write32(0x28,15);
         io.write32(0x2c,1);
         io.write32(0x14,io.read32(0x14)&~6u);
-        // Interrupt delivery is not enabled: no CPU interrupt source owns the
-        // bus yet. The status latch is polled just as in the stock ISR.
-        io.write32(0,io.read32(0)|4u);
+        // Stock sprd_i2c_enable() sets both EN and INT_EN. INT_EN gates the
+        // completion indication polled below, even with the GIC line masked.
+        // Enabling the peripheral latch does not install a CPU IRQ handler.
+        io.write32(0,io.read32(0)|6u);
     }
     Result message(uint8_t address,uint8_t *data,size_t size,bool read,bool stop) {
         if(address<8 || address>0x77 || !data || !size || size>12) return Invalid;
