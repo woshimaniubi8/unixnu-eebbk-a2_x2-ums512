@@ -20,7 +20,10 @@ public:
         // source clock when boot firmware has left no usable configuration.
         // The shipped 4.14 get_state masks PRESCALE with0xffff. Firmware
         // leaves0x8003 here; the newer mainline8-bit mask is not this ABI.
-        // Preserve the whole configured divider, including its upper bits.
+        // M110 actual hardware: disabling at raw0 changes8003->0003 while
+        // MOD/DUTY/ENABLE match exactly. Bit15 is a transient readback bit,
+        // not stable period identity. Retain all lower15 bits; do not use
+        // the newer BSP's8-bit mask or waive other register comparisons.
         return s.prescale<=65535 && s.mod==255 && s.duty<=255 && !(s.enable&~1u)?Ok:Protocol;
     }
     Result duty(uint32_t value,bool enabled) {
@@ -35,17 +38,17 @@ public:
         if(enabled)io.write32(base+0x18,1);
         trace.phase=2;r=read(trace.after);if(r!=Ok)return r;
         trace.phase=3;const PwmState &after=trace.after;
-        if(after.prescale!=before.prescale || after.mod!=before.mod ||
+        if(((after.prescale^before.prescale)&0x7fffu) || after.mod!=before.mod ||
            after.duty!=value || after.enable!=(enabled?1u:0u))return Protocol;
         trace.phase=4;return Ok;
     }
     Result restore(const PwmState &s) {
         if(base>=4*0x20 || s.prescale>65535 || s.mod!=255 || s.duty>255 || s.enable>1)return Invalid;
         io.write32(base+0x18,0);
-        io.write32(base,s.prescale);io.write32(base+4,s.mod);
+        io.write32(base,s.prescale&0x7fffu);io.write32(base+4,s.mod);
         io.write32(base+8,s.duty);io.write32(base+0x18,s.enable);
         PwmState actual;Result r=read(actual);
-        return r==Ok && actual.prescale==s.prescale && actual.mod==s.mod &&
+        return r==Ok && !((actual.prescale^s.prescale)&0x7fffu) && actual.mod==s.mod &&
             actual.duty==s.duty && actual.enable==s.enable?Ok:Protocol;
     }
 };
