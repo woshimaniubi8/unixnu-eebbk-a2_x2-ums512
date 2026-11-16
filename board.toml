@@ -18,7 +18,7 @@ description = "BBK(EEBBK) A2/X2/A2P"
 # payload/prelink tooling + the SDHCI eMMC transport that publishes the
 # userdata partition (drivers/SdhciBlock, device-owned component registered by
 # .github/workflows/macos.yml through components/SdhciBlock.toml).
-include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "XnuPrelink", "DarwinBoot", "SdhciBlock", "RamBlock", "SprdWatchdog", "SprdThermal", "A2KeyStoreState", "GopFramebuffer"]
+include = ["ArmDTPlatform", "ArmCpu", "SoftwareAES", "XnuPrelink", "DarwinBoot", "SdhciBlock", "RamBlock", "SprdWatchdog", "SprdThermal", "SprdInput", "SprdPlatform", "A2KeyStoreState", "GopFramebuffer"]
 
 [kernel]
 defconfig = "bbk-a2_defconfig"
@@ -45,6 +45,8 @@ archives = [
   "component:SdhciBlock",
   "component:SprdWatchdog",
   "component:SprdThermal",
+  "component:SprdInput",
+  "component:SprdPlatform",
   "component:RamBlock",
   "component:A2KeyStoreState",
   "build-a2-gop-display.py",

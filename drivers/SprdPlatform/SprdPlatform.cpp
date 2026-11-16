@@ -1,0 +1,181 @@
+// SPDX-License-Identifier: GPL-2.0-only
+// EEBBK 1h190 hardware acquisition. No Apple register addresses or emulated
+// battery values. Register protocol provenance is recorded in README.md.
+#include <IOKit/IOService.h>
+#include <IOKit/IODeviceMemory.h>
+#include <IOKit/IOLib.h>
+#include <IOKit/IOWorkLoop.h>
+#include <IOKit/IOTimerEventSource.h>
+#include <libkern/OSKextLib.h>
+#include <libkern/c++/OSMetaClass.h>
+#include <libkern/c++/OSData.h>
+#include <libkern/c++/OSSymbol.h>
+#include <libkern/libkern.h>
+#include <mach/kmod.h>
+#include "SprdBus.h"
+extern "C" kmod_info_t g_kernel_kmod_info;
+extern "C" void sprd_hid_static_init() __asm__("__GLOBAL__sub_I_NativeHidInput.cpp");
+extern "C" IOService *sprd_hid_allocate(bool);
+extern "C" IOReturn sprd_hid_buttons(IOService *,uint8_t);
+extern "C" IOReturn sprd_hid_contacts(IOService *,const SprdBus::Frame *,unsigned,unsigned);
+using namespace SprdBus;
+namespace {
+struct Registers {
+    volatile uint8_t *base=nullptr;
+    uint32_t read32(unsigned off) {uint32_t v=*(volatile uint32_t *)(base+off);__asm__ volatile("dsb ld":::"memory");return v;}
+    void write32(unsigned off,uint32_t v) {__asm__ volatile("dsb st":::"memory");*(volatile uint32_t *)(base+off)=v;__asm__ volatile("dsb sy":::"memory");}
+    uint8_t read8(unsigned off) {uint8_t v=base[off];__asm__ volatile("dsb ld":::"memory");return v;}
+    void write8(unsigned off,uint8_t v) {__asm__ volatile("dsb st":::"memory");base[off]=v;}
+    void delay(unsigned us) {IODelay(us);}
+};
+bool compatible(IOService *p) {
+    OSData *d=p?OSDynamicCast(OSData,p->getProperty("compatible")):nullptr;
+    if(!d)return false;
+    const char *s=(const char *)d->getBytesNoCopy();unsigned n=d->getLength(),at=0;
+    while(at<n) {size_t z=strnlen(s+at,n-at);if(z==n-at)break;
+        if(!strcmp(s+at,"eebbk,1h190-platform"))return true;at+=(unsigned)z+1;}
+    return false;
+}
+}
+class NativeSprdPlatform : public IOService {
+    OSDeclareDefaultStructors(NativeSprdPlatform)
+    IOMemoryMap *maps[7]={}; Registers mmio[7];
+    IOWorkLoop *loop=nullptr;IOTimerEventSource *timer=nullptr;
+    IOService *keys=nullptr,*touch=nullptr;
+    bool keysStarted=false,touchStarted=false;
+    uint32_t aonAdded[2]={},apAdded=0,clockSaved[2]={};bool clockChanged=false;
+    uint32_t gpioSaved[3]={};bool gpioChanged=false,pmicChanged=false,pmicReady=false;
+    uint16_t pmicMask=0;unsigned touchKind=0,touchW=0,touchH=0,ticks=0,touchErrors=0,touchReports=0,keyErrors=0;
+    Frame lastFrame={};Debounce debounce;
+    Adi<Registers> adi{mmio[0]};I2c<Registers> bus3{mmio[4]},bus4{mmio[5]};
+    static void tick(OSObject *o,IOTimerEventSource *) {static_cast<NativeSprdPlatform *>(o)->poll();}
+    bool prepare();bool publishInput();void identifyTouch();void poll();void readTouch();void restore();
+public:
+    IOService *probe(IOService *p,SInt32 *score) override {if(!compatible(p))return nullptr;if(score)*score=2200;return this;}
+    IOWorkLoop *getWorkLoop() const override {return loop;}
+    bool start(IOService *) override;void stop(IOService *) override;
+};
+OSDefineMetaClassAndStructors(NativeSprdPlatform,IOService)
+
+bool NativeSprdPlatform::prepare() {
+    // GPIO gate AON+4 bit1, ADI gate AON+8 bit9; AP_APB I2C3/4 bits12/13.
+    // Set/clear aliases preserve concurrent thermal/watchdog clocks.
+    for(unsigned i=0;i<2;i++) {
+        unsigned off=i?8:4;uint32_t mask=i?(1u<<9):(1u<<1);
+        aonAdded[i]=(~mmio[2].read32(off))&mask;
+        if(aonAdded[i])mmio[2].write32(0x1000+off,aonAdded[i]);
+        if((mmio[2].read32(off)&mask)!=mask)return false;
+    }
+    apAdded=(~mmio[3].read32(0))&0x3000;if(apAdded)mmio[3].write32(0x1000,apAdded);
+    if((mmio[3].read32(0)&0x3000)!=0x3000)return false;
+    // Select the factory ext-26m parent, divide by one, before programming SCL.
+    for(unsigned i=0;i<2;i++) {unsigned off=0x40+4*i;clockSaved[i]=mmio[6].read32(off);mmio[6].write32(off,clockSaved[i]&~0x703u);}
+    clockChanged=true;bus3.configure26000kHz400kHz();bus4.configure26000kHz400kHz();
+    const unsigned bank=7*0x80,mask=1u<<12; // Factory volume-down GPIO124.
+    gpioSaved[0]=mmio[1].read32(bank+4);gpioSaved[1]=mmio[1].read32(bank+8);gpioSaved[2]=mmio[1].read32(bank+0x28);
+    mmio[1].write32(bank+4,gpioSaved[0]|mask);mmio[1].write32(bank+8,gpioSaved[1]&~mask);mmio[1].write32(bank+0x28,gpioSaved[2]|mask);gpioChanged=true;
+    Result r=adi.read(0x284,pmicMask);
+    if(r==Ok) {pmicChanged=true;r=adi.update(0x284,0x1a,0x1a);pmicReady=r==Ok;}
+    uint16_t level=0;r=pmicReady?adi.read(0x280,level):r;
+    IOLog("bbk platform: ADIv3 pmic_eic status=%d mask=0x%x data=0x%x gpio124=%u\n",r,pmicMask,level,(mmio[1].read32(bank)>>12)&1);
+    if(!pmicReady)return false;
+    uint16_t chipLo=0,chipHi=0;Result lo=adi.read(0x1800,chipLo),hi=adi.read(0x1804,chipHi);
+    IOLog("bbk platform: PMIC chip lo=0x%x hi=0x%x status=%d/%d\n",chipLo,chipHi,lo,hi);
+    uint8_t charger=0;Result cr=bus4.readRegister(0x6b,0x0b,1,&charger,1);
+    IOLog("bbk platform: bq2560x id register=0x%x status=%d (read only)\n",charger,cr);
+    return true;
+}
+bool NativeSprdPlatform::publishInput() {
+    kern_return_t r=OSKextLoadKextWithIdentifier("com.apple.iokit.IOHIDFamily");
+    if(r){IOLog("bbk input: IOHIDFamily load failed 0x%x\n",r);return false;}
+    const OSSymbol *n=OSSymbol::withCString("IOHIDDevice");
+    const OSMetaClass *meta=n?OSMetaClass::getMetaClassWithName(n):nullptr;
+    if(n)n->release();
+    if(!meta || meta->getClassSize()!=0xd0){IOLog("bbk input: original IOHIDDevice extent mismatch\n");return false;}
+    void *handle=OSMetaClass::preModLoad(g_kernel_kmod_info.name);if(!handle)return false;
+    sprd_hid_static_init();OSReturn status=OSMetaClass::postModLoad(handle);
+    if(status){IOLog("bbk input: own metaclass registration status=0x%x\n",status);return false;}
+    keys=sprd_hid_allocate(false);
+    if(!keys || !keys->init() || !keys->attach(this))return false;
+    keysStarted=keys->start(this);if(!keysStarted)return false;
+    IOLog("bbk input: physical keys HID published (power/vol+/vol-)\n");
+    if(touchKind) {
+        touch=sprd_hid_allocate(true);
+        if(!touch || !touch->init() || !touch->attach(this))return false;
+        touchStarted=touch->start(this);if(!touchStarted)return false;
+        IOLog("bbk input: touch HID published kind=%u dimensions=%ux%u\n",touchKind,touchW,touchH);
+    }
+    return true;
+}
+void NativeSprdPlatform::identifyTouch() {
+    uint8_t id[6]={},config[5]={};Result r=bus3.readRegister(0x14,0x8140,2,id,sizeof(id));
+    bool numeric=true;for(unsigned i=0;i<3;i++)numeric&=id[i]>='0' && id[i]<='9';
+    IOLog("bbk touch: Goodix@14 status=%d id=%02x %02x %02x %02x version=%02x%02x\n",r,id[0],id[1],id[2],id[3],id[5],id[4]);
+    if(r==Ok && numeric) {
+        r=bus3.readRegister(0x14,0x8047,2,config,sizeof(config));
+        unsigned w=config[1]|((unsigned)config[2]<<8),h=config[3]|((unsigned)config[4]<<8);
+        if(r==Ok && w>=64 && h>=64 && w<=4096 && h<=4096){touchKind=1;touchW=w;touchH=h;return;}
+        IOLog("bbk touch: Goodix config invalid status=%d size=%ux%u\n",r,w,h);return;
+    }
+    uint8_t fts[3]={};Result a=bus3.readRegister(0x38,0xa3,1,&fts[0],1);
+    Result b=bus3.readRegister(0x38,0xa8,1,&fts[1],1),c=bus3.readRegister(0x38,0xa6,1,&fts[2],1);
+    IOLog("bbk touch: FocalTech@38 status=%d/%d/%d chip=%02x vendor=%02x fw=%02x\n",a,b,c,fts[0],fts[1],fts[2]);
+    // An address ACK or all-zero register is not a supported chip identity.
+    // The board's FTS driver supports multiple IC generations; qualify one
+    // from real ID evidence before enabling its generation-specific parser.
+    setProperty("TouchControllerIdentified",false);
+}
+void NativeSprdPlatform::readTouch() {
+    if(!touch || touchKind!=1)return;
+    uint8_t status=0,raw[80]={};Result r=bus3.readRegister(0x14,0x814e,2,&status,1);
+    if(r!=Ok){if(touchErrors++<8)IOLog("bbk touch: status read failed %d\n",r);return;}
+    if(!(status&0x80))return;
+    Frame frame={};unsigned count=status&15;
+    if(count<=10 && count)r=bus3.readRegister(0x14,0x814f,2,raw,count*8);
+    if(r==Ok)r=goodixFrame(raw,sizeof(raw),count,touchW,touchH,frame);
+    const uint8_t clear=0;Result ack=bus3.writeRegister(0x14,0x814e,2,&clear,1);
+    if(r!=Ok || ack!=Ok){if(touchErrors++<8)IOLog("bbk touch: frame/ack error=%d/%d status=0x%x\n",r,ack,status);return;}
+    IOReturn sent=sprd_hid_contacts(touch,&frame,touchW,touchH);
+    if(frame.count!=lastFrame.count || touchReports<6)IOLog("bbk touch: frame contacts=%u first=%u,%u hid=0x%x\n",frame.count,frame.contacts[0].x,frame.contacts[0].y,sent);
+    lastFrame=frame;touchReports++;
+}
+void NativeSprdPlatform::poll() {
+    uint16_t raw=0;Result r=adi.read(0x280,raw);
+    if(r==Ok) {
+        uint32_t mask=(!(raw&(1u<<1))?2:0)|((raw&(1u<<4))?4:0)|(!(mmio[1].read32(7*0x80)&(1u<<12))?8:0);
+        debounce.sample(mask);if(keys)sprd_hid_buttons(keys,(uint8_t)debounce.stable);
+    } else if(keyErrors++<8)IOLog("bbk input: PMIC read failed %d; no fabricated key state\n",r);
+    if(!(ticks%2))readTouch();
+    if(!(ticks%6000)) {
+        uint16_t voltage=0,current=0,area=0;
+        Result v=adi.read(0xc20,voltage),c=adi.read(0xc2c,current),a=adi.read(0xca8,area);
+        IOLog("bbk battery: raw voltage=%u current=%u user=0x%x status=%d/%d/%d (uncalibrated, not published as percent)\n",voltage,current,area,v,c,a);
+    }
+    ticks++;if(timer)timer->setTimeoutMS(10);
+}
+bool NativeSprdPlatform::start(IOService *p) {
+    if(!IOService::start(p))return false;
+    loop=IOWorkLoop::workLoop();if(!loop){stop(p);return false;}
+    for(unsigned i=0;i<7;i++){maps[i]=p->mapDeviceMemoryWithIndex(i);if(!maps[i]){IOLog("bbk platform: MMIO map failed index=%u\n",i);stop(p);return false;}mmio[i].base=(volatile uint8_t *)maps[i]->getVirtualAddress();}
+    if(!prepare()){IOLog("bbk platform: hardware prepare failed\n");stop(p);return false;}
+    identifyTouch();
+    if(!publishInput()){IOLog("bbk platform: HID publication failed\n");stop(p);return false;}
+    timer=IOTimerEventSource::timerEventSource(this,tick);
+    if(!timer || loop->addEventSource(timer)!=kIOReturnSuccess){stop(p);return false;}
+    registerService();poll();IOLog("bbk platform: ready ADI/GPIO/I2C3/4, keys polled at 10ms\n");return true;
+}
+void NativeSprdPlatform::restore() {
+    if(pmicChanged && mmio[0].base)adi.update(0x284,0x1a,pmicMask);pmicChanged=false;
+    if(gpioChanged)for(unsigned i=0;i<3;i++){unsigned off=7*0x80+(i==0?4:i==1?8:0x28);mmio[1].write32(off,(mmio[1].read32(off)&~(1u<<12))|(gpioSaved[i]&(1u<<12)));}gpioChanged=false;
+    if(clockChanged)for(unsigned i=0;i<2;i++){mmio[4+i].write32(0,0);mmio[6].write32(0x40+4*i,clockSaved[i]);}clockChanged=false;
+    if(mmio[3].base && apAdded)mmio[3].write32(0x2000,apAdded);apAdded=0;
+    if(mmio[2].base)for(unsigned i=0;i<2;i++)if(aonAdded[i])mmio[2].write32(0x2000+(i?8:4),aonAdded[i]);
+    aonAdded[0]=aonAdded[1]=0;
+}
+void NativeSprdPlatform::stop(IOService *p) {
+    if(timer){timer->cancelTimeout();if(loop)loop->removeEventSource(timer);OSSafeReleaseNULL(timer);}
+    IOService **devices[]={&touch,&keys};bool started[]={touchStarted,keysStarted};
+    for(unsigned i=0;i<2;i++){IOService **d=devices[i];if(*d){if((*d)->getProvider()==this){if(started[i])(*d)->stop(this);(*d)->detach(this);}(*d)->release();*d=nullptr;}}
+    touchStarted=keysStarted=false;
+    restore();for(auto &m:maps)OSSafeReleaseNULL(m);OSSafeReleaseNULL(loop);IOService::stop(p);
+}

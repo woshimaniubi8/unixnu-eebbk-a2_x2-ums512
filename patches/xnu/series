@@ -152,3 +152,6 @@ bbk-a2-late-snapshot-stats.patch
 
 # Explicit native16K physical ownership, bootstrap bounds and reserved-page holes.
 bbk-a2-physical-memory-map.patch
+
+# Factory 1h190 ADI/PMIC, GPIO, I2C and physical HID input backend.
+bbk-a2-sprd-platform.patch

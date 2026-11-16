@@ -82,10 +82,27 @@
 		};
 	};
 
-	/* Display: vendor DPU/DSI + 1200x1920 portrait MIPI panel, Goodix touch.
+	/* Display: vendor DPU/DSI + 1200x1920 portrait MIPI panel.
 	 * Not exported to the ADT yet (status disabled) - first bring-up relies on
 	 * the framebuffer left by the stock bootloader. */
 	soc {
+		/* Factory base + DTBO #3 (1h190). Touch chip identity is read from
+		 * I2C3, not inferred from two mutually enabled candidate nodes. */
+		platform@32100000 {
+			compatible = "eebbk,1h190-platform";
+			unixnu,adt-name = "platform";
+			reg = <0 0x32100000 0 0x100000>,
+			      <0 0x32070000 0 0x10000>,
+			      <0 0x327d0000 0 0x3000>,
+			      <0 0x71000000 0 0x3000>,
+			      <0 0x70600000 0 0x1000>,
+			      <0 0x70700000 0 0x1000>,
+			      <0 0x20200000 0 0x1000>;
+			reg-names = "adi", "gpio", "aon-apb", "ap-apb",
+			            "i2c3", "i2c4", "ap-clock";
+			status = "okay";
+		};
+
 		dpu@20300000 {
 			status = "disabled";
 		};
