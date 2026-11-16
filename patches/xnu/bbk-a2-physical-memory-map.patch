@@ -20,7 +20,38 @@
  	memset((char *)phystokv(pmap_struct_start), 0, avail_start - pmap_struct_start);
  
  	vm_first_phys = gPhysBase;
-@@ -2694,8 +2700,25 @@
+@@ -2565,6 +2571,22 @@
+ 	vm_map_size_t *size
+ 	)
+ {
++#if XNU_NATIVE_BBK_MEMORY
++	/* With a physical base below the staging allocation, the static aperture
++	 * crosses LOW_GLOBAL_BASE_ADDRESS. Reserve its union with the low-global
++	 * prefix once; overlapping permanent entries are rejected by kmem_init. */
++	if (region_select == 0) {
++		*startp = VM_MIN_KERNEL_ADDRESS;
++		*size = ((virtual_space_start + ARM_TT_L2_OFFMASK) & ~ARM_TT_L2_OFFMASK) - *startp;
++		return TRUE;
++	}
++	if (region_select == 1) {
++		*startp = VREGION1_START;
++		*size = VREGION1_SIZE;
++		return TRUE;
++	}
++	return FALSE;
++#else
+ 	boolean_t       ret = FALSE;
+ #if defined(KERNEL_INTEGRITY_KTRR) || defined(KERNEL_INTEGRITY_CTRR)
+ 	if (region_select == 0) {
+@@ -2650,6 +2672,7 @@
+ #endif /* defined(ARM_LARGE_MEMORY) */
+ #endif /* defined(KERNEL_INTEGRITY_KTRR) || defined(KERNEL_INTEGRITY_CTRR) */
+ 	return ret;
++#endif /* XNU_NATIVE_BBK_MEMORY */
+ }
+ 
+ /*
+@@ -2694,8 +2717,25 @@
  	assert(first <= end);
  	assert(first == (first & ~PAGE_MASK));
  	assert(end == (end & ~PAGE_MASK));
@@ -47,7 +78,7 @@
  	need_ram_ranges_init = false;
  }
  
-@@ -2738,6 +2761,9 @@
+@@ -2738,6 +2778,9 @@
  	}
  
  
@@ -57,7 +88,7 @@
  	if (first_avail != avail_end) {
  		*pnum = (ppnum_t)atop(first_avail);
  		first_avail += PAGE_SIZE;
-@@ -2749,6 +2775,27 @@
+@@ -2749,6 +2792,27 @@
  	return FALSE;
  }
  
