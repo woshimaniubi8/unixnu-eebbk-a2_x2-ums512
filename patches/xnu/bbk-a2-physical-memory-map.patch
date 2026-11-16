@@ -218,7 +218,18 @@
  
  	/*
  	 * KTRR support means we will be mucking with these pages and trying to
-@@ -1827,6 +1865,59 @@
+@@ -1794,6 +1832,10 @@
+ 	tt_entry_t *l1_tte;
+ 	vm_offset_t ptpage_vaddr;
+ 
++	/* Walk L1 slots, rather than preserving the first address's offset.
++	 * An expanded physical base may place gVirtBase in the previous slot;
++	 * an unaligned increment can otherwise skip the final partial slot. */
++	start &= ~ARM_TT_L1_OFFMASK;
+ 	l1_tte = tt + ((start & ARM_TT_L1_INDEX_MASK) >> ARM_TT_L1_SHIFT);
+ 
+ 	while (start < end) {
+@@ -1827,6 +1869,59 @@
   * ARM_LARGE_MEMORY configuration used by the non-PPL kernel.
   */
  #define ARM64_PHYSMAP_ALIGNMENT_PADDING (PTOV_TABLE_SIZE * ARM_TT_TWIG_SIZE)
@@ -229,7 +240,7 @@
 +static volatile uint64_t *bbk_boot_journal;
 +static void bbk_memory_stage(uint64_t phase) {
 +    *bbk_boot_journal = 0x4D31303000000000ULL | phase;
-+    __asm__ volatile("dsb sy" ::: "memory");
++    __asm__ volatile("dc cvac, %0; dsb sy" :: "r"(bbk_boot_journal) : "memory");
 +}
 +
 +
@@ -278,7 +289,7 @@
  #endif
  
  void
-@@ -1845,6 +1936,15 @@
+@@ -1845,6 +1940,15 @@
  	/*
  	 * Get the virtual and physical kernel-managed memory base from boot_args.
  	 */
@@ -294,7 +305,7 @@
  	gVirtBase = args->virtBase;
  	gPhysBase = args->physBase;
  #if KASAN
-@@ -2113,6 +2213,9 @@
+@@ -2113,6 +2217,9 @@
  	vm_prelink_sdata = segPRELINKDATAB;
  	vm_prelink_edata = segPRELINKDATAB + segSizePRELINKDATA;
  
@@ -304,7 +315,7 @@
  	arm_vm_prot_init(args);
  
  	/*
-@@ -2159,6 +2262,9 @@
+@@ -2159,6 +2266,9 @@
  
  	arm_set_user_tbi();
  
@@ -314,7 +325,7 @@
  	arm_vm_physmap_init(args);
  	set_mmu_ttb_alternate(cpu_ttep & TTBR_BADDR_MASK);
  
-@@ -2221,8 +2327,14 @@
+@@ -2221,8 +2331,14 @@
  		flush_mmu_tlb();
  	}
  
@@ -329,7 +340,7 @@
  	vm_kernel_slid_base = segLOWESTTEXT;
  	// vm_kernel_slide is set by arm_init()->arm_slide_rebase_and_sign_image()
  	vm_kernel_stext = segTEXTB;
-@@ -2264,6 +2376,9 @@
+@@ -2264,6 +2380,9 @@
          arm_vm_map(cpu_tte, cur, ARM_PTE_EMPTY);
      }
  #endif
@@ -339,7 +350,7 @@
  #endif
  	pmap_bootstrap(dynamic_memory_begin);
  
-@@ -2389,8 +2504,14 @@
+@@ -2389,8 +2508,14 @@
  #if XNU_MONITOR
  	pmap_static_allocations_done();
  #endif

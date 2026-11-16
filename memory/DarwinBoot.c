@@ -654,6 +654,12 @@ Boot (
   if (MemoryMapOffset != MAX_UINTN) {
     DEBUG ((DEBUG_ERROR, "M100 loader: previous kernel stage=0x%lx at=0x%lx\n",
       ReadUnaligned64 ((CONST UINT64 *)(UINTN)(ArgsAddress + 0x600)), ArgsAddress + 0x600));
+    DEBUG ((DEBUG_ERROR, "M100 loader: previous panic fmt=0x%lx x1=0x%lx x2=0x%lx x3=0x%lx lr=0x%lx\n",
+      ReadUnaligned64 ((CONST UINT64 *)(UINTN)(ArgsAddress + 0x608)),
+      ReadUnaligned64 ((CONST UINT64 *)(UINTN)(ArgsAddress + 0x610)),
+      ReadUnaligned64 ((CONST UINT64 *)(UINTN)(ArgsAddress + 0x618)),
+      ReadUnaligned64 ((CONST UINT64 *)(UINTN)(ArgsAddress + 0x620)),
+      ReadUnaligned64 ((CONST UINT64 *)(UINTN)(ArgsAddress + 0x628))));
   }
   ZeroMem ((VOID *)(UINTN)Address, (UINTN)Used);
   for (Index = 0; Index < Kernel.Count; Index++) {
