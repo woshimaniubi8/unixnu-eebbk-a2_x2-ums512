@@ -65,7 +65,9 @@ public:
         }return kIOReturnNoResources;
     }
     void release(const NativeMaliPage &page) override{
-        for(auto &d:descriptors)if(d && d->getBytesNoCopy()==page.cpu){d->complete();d->release();d=nullptr;return;}
+        for(auto &d:descriptors){
+            if(d && d->getBytesNoCopy()==page.cpu){d->complete();d->release();d=nullptr;return;}
+        }
     }
 };
 struct Resources {
