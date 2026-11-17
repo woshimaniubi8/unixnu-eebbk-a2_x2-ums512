@@ -20,6 +20,14 @@ result, never a successful association or fabricated network/rate/noise.
 Only the three tested channels are currently reported. No SSID, BSSID,
 MAC address, private packet contents or keys are printed.
 
-Firmware scan acceptance does not establish Apple80211 discovery or system
-scan operation. Those require a successful source-kernel build and on-device
-frontend/runtime logs from this revision.
+M131's guarded source-kernel build passed. Boot 5a5004ae retained the original
+station through Bluetooth initialization and published en0 and the runtime
+frontend; the initial scan returned 13 frames and nine BSS with no malformed
+frames. No system Apple80211 scan call was observed in the first two minutes.
+
+The exact iPadOS 17.7.11 (21H461) com.apple.wifid launch job has
+_LimitLoadToDeviceTree = [wlan, marconi-wifi]. M131's actual ADT contained
+neither node. M132 exports the real SC2355 WLAN function as arm-io/wlan;
+SprdPlatform retains sole ownership of SDIO1 and radio power. This is a
+device-tree-only change; daemon launch and system scanning still require
+on-device evidence from M132.

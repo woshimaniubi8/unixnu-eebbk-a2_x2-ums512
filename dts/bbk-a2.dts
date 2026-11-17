@@ -160,6 +160,16 @@
 			status = "okay";
 		};
 
+		/* SC2355 WLAN function on SDIO1. SprdPlatform owns the shared
+		 * controller, CP firmware and power; this function has no second
+		 * MMIO mapping or bus driver. iPadOS 21H461's wifid launch job
+		 * requires a device-tree node named wlan or marconi-wifi. */
+		wlan {
+			compatible = "unixnu,sc2355-wlan";
+			unixnu,adt-name = "wlan";
+			status = "okay";
+		};
+
 		watchdog: watchdog@322f0000 {
 			compatible = "sprd,wdt-r2p0-fiq";
 			unixnu,adt-name = "watchdog";
