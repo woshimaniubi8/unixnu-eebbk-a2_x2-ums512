@@ -174,6 +174,18 @@ and physical power-key off/on writes pass readback. The user then confirmed
 that visible flicker stopped. This qualifies the observed M115 display result;
 the programmed14.6kHz estimate has not been measured with an oscilloscope.
 
+M116 on-device Mali reset passes: GPU_ID74021000, shader mask3, tiler1, L2 mask1,
+AS maskff and JS mask7. This identifies the GPU hardware path; a GPU job, PanVK
+and Metal presentation have not yet been run. WCN power returns Protocol before
+SDIO commands. M117 restores the omitted original regulator prerequisite:
+shipped sc2730_regulator_probe atffffff800852c49c sets1bd0/6e7f before calling
+regmap_write. The matching4.14 BSP names it SC2730_PWR_WR_PROT; its status bit15
+is read-only and its key field is15bits. Each changed regulator field is read
+back, and the previous key is restored only after rail/GPIO/clock cleanup.
+Failed initialization retains the actual stage/register/mask/wanted/read value.
+The header test exercises initially locked and already unlocked PMICs and
+failure during unlock/each supply operation, with exact state restoration.
+
 ## Battery source and runtime evidence
 
 Through M113, the device reports efuse `775d` (voltage ADC705/current ADC5640),

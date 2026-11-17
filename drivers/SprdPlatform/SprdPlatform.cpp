@@ -105,6 +105,7 @@ void NativeSprdPlatform::identifyRadioGpu() {
     if(mapped){
         SprdWcn::Power<Registers,Adi<Registers>> power(mmio[1],mmio[2],mmio[3],r[1],mmio[6],adi);
         Result p=power.enable();IOLog("M116 wcn: shared power=%d host=0x71200000 aux0=0x%x apclk=0x%x\n",p,r[1].read32(0x228),mmio[6].read32(0x88));
+        IOLog("M117 wcn: stage=%u reg=0x%x mask=0x%x want=0x%x got=0x%x result=%d protection=0x%x->0x%x\n",power.stage,power.lastReg,power.lastMask,power.lastWant,power.lastGot,power.lastResult,power.protectionBefore,power.protectionAfter);
         SprdSdio::Host<Registers> host(r[0]);SprdSdio::Identity id;
         Result h=p==Ok?host.initialize():Invalid,e=h==Ok?host.enumerate(id):Invalid;
         IOLog("M116 wcn: host=%d enumerate=%d ocr=0x%x funcs=%u rca=0x%x cccr=0x%x ready=0x%x manfid=0x%x/0x%x chip=0x%x strap=0x%x\n",h,e,id.ocr,id.functions,id.rca,id.cccr,id.ready,id.vendor,id.device,id.chip,id.strap);

@@ -17,7 +17,13 @@ struct Io {
 struct Pmic {
     std::map<unsigned,uint16_t> regs;unsigned fail=0;bool failed=false;
     Result read(unsigned a,uint16_t &v){v=regs[a];return Ok;}
-    Result update(unsigned a,uint16_t m,uint16_t v){if(a==fail && !failed){failed=true;return Protocol;}regs[a]=(uint16_t)((regs[a]&~m)|(v&m));return Ok;}
+    Result write(unsigned a,uint16_t v){
+        if(a==fail && !failed){failed=true;return Protocol;}
+        if(a==0x1bd0){regs[a]=(uint16_t)((v&0x7fff)|((v&0x7fff)==0x6e7f?0x8000:0));return Ok;}
+        if((regs[0x1bd0]&0x7fff)==0x6e7f)regs[a]=v;
+        return Ok;
+    }
+    Result update(unsigned a,uint16_t m,uint16_t v){return write(a,(uint16_t)((regs[a]&~m)|(v&m)));}
 };
 struct SdioIo {
     std::map<unsigned,uint8_t> bytes,card;
@@ -99,11 +105,15 @@ int main(){
         io.injectError=true;uint8_t value=0;assert(host.byte(0,0,value)==Protocol);
         io.injectError=false;io.timeout=true;assert(host.byte(0,0,value)==Timeout);assert(io.delays>=200000);host.restore();
     }
-    for(unsigned failure: {0u,0x1998u,0x191cu,0x19d4u,0x1accu}){
+    // A transport-successful ADI write may be ignored while PMIC is locked.
+    { Pmic locked;locked.regs[0x1bd0]=0;locked.regs[0x1998]=0;
+      assert(locked.update(0x1998,0xff,60)==Ok && locked.regs[0x1998]==0); }
+    for(unsigned protection:{0u,0xee7fu})for(unsigned failure: {0u,0x1bd0u,0x1998u,0x191cu,0x19d4u,0x1accu}){
         Io gpio,aon,ap,clk,apclk;aon.aliases=ap.aliases=true;Pmic pmic;pmic.fail=failure;
         for(unsigned pin:{97u,143u})for(unsigned off:{0u,4u,8u,0x28u})gpio.regs[(pin/16)*0x80+off]=0x55aa55aa;
         aon.regs[0]=0x80000000;ap.regs[0]=0x123;clk.regs[0x228]=0x8855;apclk.regs[0x88]=0xa50003;
         for(unsigned a:{0x1998u,0x1994u,0x1920u,0x191cu,0x19d4u,0x19d0u,0x1ac8u,0x1accu})pmic.regs[a]=0xa001;
+        pmic.regs[0x1bd0]=(uint16_t)protection;
         auto gp=gpio.regs,ao=aon.regs,ap0=ap.regs,ck=clk.regs,ac=apclk.regs;auto pm=pmic.regs;
         SprdWcn::Power<Io,Pmic> power(gpio,aon,ap,clk,apclk,pmic);Result r=power.enable();
         assert(r==(failure?Protocol:Ok));assert(power.restore()==Ok);
