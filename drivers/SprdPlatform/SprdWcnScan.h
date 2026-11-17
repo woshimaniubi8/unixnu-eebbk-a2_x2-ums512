@@ -177,10 +177,11 @@ inline Result decodeWifiScanAggregate(const uint8_t *data,size_t bytes,uint32_t 
 
 template<class Host,class Gpio> Result wifiScan(Host &host,Gpio &gpio,uint8_t context,
                                                 uint32_t transaction,uint32_t channels,
-                                                WifiScanReport &report){
-    uint8_t body[16]={},tx[kTransmitBytes]={},rx[kReceiveBytes]={};
+                                                WifiScanReport &report,
+                                                const uint8_t *ssid=nullptr,size_t ssidLength=0){
+    uint8_t body[44]={},tx[kTransmitBytes]={},rx[kReceiveBytes]={};
     size_t bodyBytes=0,txBytes=0;
-    Result r=encodeWifiScanRequest(body,sizeof(body),channels,nullptr,0,nullptr,0,bodyBytes);
+    Result r=encodeWifiScanRequest(body,sizeof(body),channels,ssid,ssidLength,nullptr,0,bodyBytes);
     if(r!=Ok)return r;
     r=encodeWifiCommand(tx,sizeof(tx),kWifiCmdScan,transaction,body,bodyBytes,txBytes,context);
     if(r!=Ok)return r;

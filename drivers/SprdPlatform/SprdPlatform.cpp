@@ -34,6 +34,7 @@
 #include "SprdWcnSession.h"
 #include "SprdWcnPower.h"
 #include "SprdWcnScan.h"
+#include "SprdWifiRuntime.h"
 #include "SprdMali.h"
 extern "C" kmod_info_t g_kernel_kmod_info;
 extern "C" void sprd_hid_static_init() __asm__("__GLOBAL__sub_I_NativeHidInput.cpp");
@@ -112,6 +113,86 @@ Result bootWcnFirmware(SprdSdio::Host<Registers> &host,const SprdSdio::Identity 
     return ready?Ok:Timeout;
 }
 
+
+class RadioResources final:public SprdWifiHardware {
+    Registers &gpio;
+public:
+    Registers registers[2];
+    IOMemoryMap *maps[2]={};
+    SprdWcn::Power<Registers,Adi<Registers>> powerOwner;
+    SprdSdioDma dma;
+    SprdSdio::Host<Registers> host;
+    SprdWcn::Session<SprdSdio::Host<Registers>> session;
+    SprdWcn::WifiScanReport *initial=nullptr;
+    uint8_t address[6]={},context=0,savedIrq=0;
+    uint32_t savedGpio[3]={},transaction=1;
+    bool packetSaved=false,stationOpen=false,scanQualified=false,firmwareStarted=false;
+    RadioResources(Registers &g,Registers &a,Registers &p,Registers &ac,Adi<Registers> &adi):
+        gpio(g),powerOwner(g,a,p,registers[1],ac,adi),host(registers[0],dma),session(host) {}
+    ~RadioResources() override {
+        if(initial)IOFree(initial,sizeof(*initial));
+        for(auto &map:maps)OSSafeReleaseNULL(map);
+    }
+    Result power(bool on) override {
+        if(stationOpen==on)return Ok;
+        Result result=session.wake();if(result!=Ok)return result;
+        SprdWcn::WifiReply reply;
+        if(on) {
+            uint8_t body[8]={};
+            result=SprdWcn::encodeWifiOpen(body,sizeof(body),address,sizeof(address));
+            if(result==Ok)result=SprdWcn::wifiCommand(host,gpio,3,transaction++,body,sizeof(body),reply);
+            if(result==Ok && reply.length)result=Protocol;
+            if(result==Ok){context=reply.context;stationOpen=true;}
+        } else {
+            uint8_t mode=1;
+            result=SprdWcn::wifiCommand(host,gpio,4,transaction++,&mode,1,reply,context);
+            if(result==Ok)stationOpen=false;
+        }
+        return result;
+    }
+    Result scan(const uint8_t *ssid,size_t length,SprdWcn::WifiScanReport &out) override {
+        if(!stationOpen)return Invalid;
+        Result result=session.wake();
+        if(result==Ok)result=SprdWcn::wifiScan(host,gpio,context,transaction++,0x421,out,ssid,length);
+        return result;
+    }
+    Result drain(unsigned &packets) override {
+        packets=0;uint8_t bytes[SprdWcn::kReceiveBytes]={};
+        // This worker is the sole FIFO owner. Limit work per turn to allow
+        // queued system commands to run, without treating traffic as failure.
+        while((gpio.read32(6*0x80)&1u) && packets<8) {
+            Result result=host.packets(false,bytes,sizeof(bytes));
+            if(result!=Ok)return result;
+            if(SprdWcn::le32(bytes+sizeof(bytes)-8)>SprdWcn::kReceivePacketBytes)return Protocol;
+            packets++;
+        }
+        return Ok;
+    }
+    void restorePacket() {
+        if(!packetSaved)return;
+        Result result=host.put(0,0x1ca,savedIrq);
+        const unsigned bank=6*0x80,offsets[]={4,8,0x28};
+        for(unsigned i=0;i<3;i++)gpio.write32(bank+offsets[i],
+            (gpio.read32(bank+offsets[i])&~1u)|(savedGpio[i]&1u));
+        packetSaved=false;
+        IOLog("M130 wifi: IRQ/GPIO restore=%d\n",result);
+    }
+    void shutdown() {
+        if(stationOpen) {
+            Result closed=power(false);IOLog("M130 wifi: shutdown CLOSE=%d\n",closed);
+        }
+        if(firmwareStarted) {
+            uint32_t reset=0;Result result=session.wake();
+            if(result==Ok)result=host.readCp(kWcnResetRegister,reset);
+            reset|=1u;
+            if(result==Ok)result=host.writeCpBytes(kWcnResetRegister,(uint8_t *)&reset,sizeof(reset));
+            IOLog("M130 wifi: shutdown CP reset=%d\n",result);
+        }
+        restorePacket();session.restore();host.restore();
+        Result result=powerOwner.restore();IOLog("M130 wifi: shutdown power restore=%d\n",result);
+    }
+};
+
 bool compatible(IOService *p) {
     OSData *d=p?OSDynamicCast(OSData,p->getProperty("compatible")):nullptr;
     if(!d)return false;
@@ -128,6 +209,7 @@ bool stringProperty(OSDictionary *d,const char *key,const char *text) {
 class NativeSprdPlatform : public IOService {
     OSDeclareDefaultStructors(NativeSprdPlatform)
     IOMemoryMap *maps[7]={}; Registers mmio[7];
+    RadioResources *radio=nullptr;
     IOMemoryMap *touchPinMap=nullptr;Registers touchPinRegisters;
     IOMemoryMap *fuelLockMap=nullptr;Registers fuelLockRegisters;
     FuelCalibration fuelCal;Result fuelCalibrationResult=Invalid;
@@ -171,17 +253,20 @@ void NativeSprdPlatform::identifyRadioGpu() {
         r[i].base=(volatile uint8_t *)m[i]->getVirtualAddress();
     }
     if(mapped){
-        SprdWcn::Power<Registers,Adi<Registers>> power(mmio[1],mmio[2],mmio[3],r[1],mmio[6],adi);
+        auto *resources=new RadioResources(mmio[1],mmio[2],mmio[3],mmio[6],adi);
+        if(resources) {
+        for(unsigned i=0;i<2;i++){resources->maps[i]=m[i];m[i]->retain();resources->registers[i]=r[i];}
+        auto &power=resources->powerOwner;bool persistent=false;
         Result p=power.enable();IOLog("M116 wcn: shared power=%d host=0x71200000 aux0=0x%x apclk=0x%x\n",p,r[1].read32(0x228),mmio[6].read32(0x88));
         IOLog("M117 wcn: stage=%u reg=0x%x mask=0x%x want=0x%x got=0x%x result=%d protection=0x%x->0x%x\n",power.stage,power.lastReg,power.lastMask,power.lastWant,power.lastGot,power.lastResult,power.protectionBefore,power.protectionAfter);
         IOLog("M118 wcn: gpio=%u high=%u data=0x%x dir=0x%x inen=0x%x dmsk=0x%x\n",power.lastPin,power.lastHigh,power.lastData,power.lastDirection,power.lastInput,power.lastDataMask);
-        SprdSdioDma dma;bool dmaReady=p==Ok && dma.initialize();
-        SprdSdio::Host<Registers> host(r[0],dma);SprdSdio::Identity id;
+        auto &dma=resources->dma;bool dmaReady=p==Ok && dma.initialize();
+        auto &host=resources->host;SprdSdio::Identity id;
         Result h=dmaReady?host.initialize():Invalid,e=h==Ok?host.enumerate(id):Invalid;
         IOLog("M116 wcn: host=%d enumerate=%d ocr=0x%x funcs=%u rca=0x%x cccr=0x%x ready=0x%x manfid=0x%x/0x%x chip=0x%x strap=0x%x\n",h,e,id.ocr,id.functions,id.rca,id.cccr,id.ready,id.vendor,id.device,id.chip,id.strap);
         IOLog("M116 wcn: command=%u arg=0x%x status=0x%x present=0x%x resp=0x%x copied=%llu\n",host.last.index,host.last.argument,host.last.status,host.last.present,host.last.response,(unsigned long long)host.last.transferred);
         if(h==Ok && e==Ok){
-            SprdWcn::Session<SprdSdio::Host<Registers>> session(host);
+            auto &session=resources->session;
             uint8_t *btSnapshot=nullptr;
             Result fw=session.enable();
             uint32_t fastClock=0;
@@ -193,6 +278,7 @@ void NativeSprdPlatform::identifyRadioGpu() {
             }
             if(fw==Ok)fw=bootWcnFirmware(host,id);
             IOLog("M121 wcn: firmware boot result=%d\n",fw);
+            resources->firmwareStarted=fw==Ok;
             if(fw==Ok){
                 fw=session.query();
                 IOLog("M123 wcn: session query=%d stage=%u pub=0x%x sleep=0x%x wifi=0x%x+0x%x bt=0x%x+0x%x\n",fw,session.stage,session.lastPublic,session.lastSleep,session.wifi.address,session.wifi.bytes,session.bt.address,session.bt.bytes);
@@ -212,6 +298,8 @@ void NativeSprdPlatform::identifyRadioGpu() {
                 const unsigned bank=6*0x80;uint32_t mask=mmio[1].read32(bank+4),dir=mmio[1].read32(bank+8),in=mmio[1].read32(bank+0x28);
                 mmio[1].write32(bank+4,mask|1u);mmio[1].write32(bank+8,dir&~1u);mmio[1].write32(bank+0x28,in|1u);
                 uint8_t irqEnable=0;Result packet=host.byte(0,0x1ca,irqEnable);bool irqSaved=packet==Ok;
+                resources->packetSaved=irqSaved;resources->savedIrq=irqEnable;
+                resources->savedGpio[0]=mask;resources->savedGpio[1]=dir;resources->savedGpio[2]=in;
                 if(packet==Ok)packet=host.put(0,0x1ca,(uint8_t)(irqEnable|3));
                 IOLog("M122 wcn: packet setup=%d deint=0x%x gpio96=%u rx_base=12\n",packet,irqEnable,(mmio[1].read32(bank)&1u)!=0);
                 uint8_t api[260]={};SprdWcn::put32(api,1);memcpy(api+4,SprdWcn::kFactoryWifiApi,256);
@@ -237,7 +325,9 @@ void NativeSprdPlatform::identifyRadioGpu() {
                     OSData *factoryMac=chosen?OSDynamicCast(OSData,chosen->getProperty("mac-address-wifi0")):nullptr;
                     uint8_t body[8]={};
                     packet=SprdWcn::encodeWifiOpen(body,sizeof(body),factoryMac?(const uint8_t *)factoryMac->getBytesNoCopy():nullptr,factoryMac?factoryMac->getLength():0);
-                    const bool identityValid=packet==Ok;OSSafeReleaseNULL(chosen);
+                    const bool identityValid=packet==Ok;
+                    if(identityValid)memcpy(resources->address,factoryMac->getBytesNoCopy(),6);
+                    OSSafeReleaseNULL(chosen);
                     SprdWcn::WifiReply opened;
                     if(packet==Ok)packet=SprdWcn::wifiCommand(host,mmio[1],3,transaction++,body,sizeof(body),opened);
                     if(packet==Ok && opened.length!=0)packet=Protocol;
@@ -250,7 +340,8 @@ void NativeSprdPlatform::identifyRadioGpu() {
                             IOLog("M128 wifi: scan result=%d response=%u status=%d code=0x%x done=%u done_type=%u events=%u aggregates=%u frames=%u bss=%u dropped=%u invalid=%u channels=0x421\n",
                                   scanned,(unsigned)scan->responseSeen,scan->responseStatus,scan->responseCode,(unsigned)scan->doneSeen,scan->doneType,
                                   scan->events,scan->aggregates,scan->scanFrames,scan->uniqueNetworks,scan->droppedNetworks,scan->invalidFrames);
-                            IOFree(scan,sizeof(*scan));
+                            if(scanned==Ok){resources->initial=scan;resources->scanQualified=true;}
+                            else IOFree(scan,sizeof(*scan));
                         }else IOLog("M128 wifi: scan allocation failed\n");
                         uint8_t mode=1;SprdWcn::WifiReply closed;
                         packet=SprdWcn::wifiCommand(host,mmio[1],4,transaction++,&mode,sizeof(mode),closed,opened.context);
@@ -302,10 +393,20 @@ void NativeSprdPlatform::identifyRadioGpu() {
                     IOLog("M126 bt: HCI transaction result=%d factory_identity=%u\n",bluetooth,identityValid);
                     if(packet==Ok)packet=bluetooth;
                 }
+                resources->transaction=transaction;
+                if(packet==Ok && resources->scanQualified) {
+                    Result reopened=resources->power(true);
+                    persistent=reopened==Ok;
+                    IOLog("M130 wifi: persistent OPEN=%d ctx=%u\n",reopened,resources->context);
+                }
+                if(!persistent) {
                 Result irqRestored=irqSaved?host.put(0,0x1ca,irqEnable):Invalid;
                 mmio[1].write32(bank+0x28,in);mmio[1].write32(bank+8,dir);mmio[1].write32(bank+4,mask);
                 IOLog("M122 wcn: packet cleanup irq=%d gpio_restored=1 final=%d\n",irqRestored,packet);
+                resources->packetSaved=false;
+                } else IOLog("M130 wifi: packet transport retained by sole runtime owner\n");
             }
+            if(!persistent) {
             uint32_t reset=0,held=0;
             Result stopped=session.wake();
             if(stopped==Ok)stopped=host.readCp(kWcnResetRegister,reset);
@@ -317,9 +418,16 @@ void NativeSprdPlatform::identifyRadioGpu() {
             IOLog("M121 wcn: firmware test quiesce result=%d reset=0x%x held=%u\n",stopped,held,(held&1)!=0);
             Result publicRestored=session.restore();
             IOLog("M123 wcn: public interrupt enable restored=%d\n",publicRestored);
+            }
             if(btSnapshot)IOFree(btSnapshot,session.bt.bytes);
         }
-        host.restore();Result restored=power.restore();IOLog("M116 wcn: power restored=%d; firmware test ended, Wi-Fi/BT frontend not yet published\n",restored);
+        if(persistent)radio=resources;
+        else {
+            host.restore();Result restored=power.restore();
+            IOLog("M116 wcn: power restored=%d; firmware test ended, Wi-Fi/BT frontend not yet published\n",restored);
+            delete resources;
+        }
+        } else IOLog("M130 wifi: runtime resource allocation failed\n");
         uint16_t pd=0,vsel=0;Result a=adi.read(0x181c,pd),b=adi.read(0x1854,vsel);
         IOLog("M116 mali: DCDC_GPU reads=%d/%d pd=0x%x selector=%u (3125uV/step)\n",a,b,pd,vsel&0x1ff);
         if(a==Ok && b==Ok && SprdMali::factorySupplyReady(pd,vsel)){
@@ -628,6 +736,11 @@ bool NativeSprdPlatform::start(IOService *p) {
     timer=IOTimerEventSource::timerEventSource(this,tick);
     if(!timer || loop->addEventSource(timer)!=kIOReturnSuccess){stop(p);return false;}
     registerService();poll();
+    if(radio) {
+        bool started=sprdWifiRuntimeStart(this,radio,radio->address,radio->initial);
+        IOLog("M130 wifi: frontend start=%u\n",started);
+        if(!started){radio->shutdown();delete radio;radio=nullptr;}
+    }
     backlight=sprdBacklightCreate(this);
     IOLog("M104 backlight: service=%p; failure does not change existing framebuffer ownership\n",backlight);
     IOLog("bbk platform: ready ADI/GPIO/I2C3/4, keys polled at 10ms\n");return true;
@@ -645,6 +758,7 @@ void NativeSprdPlatform::restore() {
 void NativeSprdPlatform::stop(IOService *p) {
     if(backlight){backlight->stop(this);backlight->detach(this);backlight->release();backlight=nullptr;}
     if(timer){timer->cancelTimeout();if(loop)loop->removeEventSource(timer);OSSafeReleaseNULL(timer);}
+    if(radio){sprdWifiRuntimeStop();radio->shutdown();delete radio;radio=nullptr;}
     if(battery){battery->terminate(kIOServiceSynchronous);if(batteryStarted)battery->stop(this);battery->detach(this);battery->release();battery=nullptr;batteryStarted=false;}
     if(pollingAssertion && sleepRoot){sleepRoot->releasePMAssertion(pollingAssertion);pollingAssertion=kIOPMUndefinedDriverAssertionID;sleepRoot=nullptr;}
     IOService **devices[]={&touch,&keys};bool started[]={touchStarted,keysStarted};

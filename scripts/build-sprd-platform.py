@@ -7,7 +7,7 @@ subprocess.run([sys.executable,ROOT/'scripts/build-arm-driver.py','SprdPlatform'
 OUT=ROOT/'build/sprdplatform';SOURCE=ROOT/'drivers/SprdPlatform'
 record=json.loads((ROOT/'build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/iokit/DEVELOPMENT/IOPlatformExpert.cpo.json').read_text().strip().rstrip(','))
 names=['NativeMaliGpu','NativeMaliGpuCore','NativeMaliVm','NativeMaliMmu','NativeMaliFault','NativeMaliJob','NativeMaliJobSlot']
-sources=[SOURCE/'SprdMaliTest.cpp']+[SOURCE/'mali'/(name+'.cpp') for name in names]
+sources=[SOURCE/'SprdMaliTest.cpp',SOURCE/'SprdWifiRuntime.cpp',SOURCE/'SprdWifiNet.cpp']+[SOURCE/'mali'/(name+'.cpp') for name in names]
 objects=[]
 for source in sources:
     obj=OUT/(source.stem+'.o');args=record['arguments'];command=[];i=0
@@ -23,7 +23,15 @@ for source in sources:
     r=subprocess.run(command,cwd=record['directory'],capture_output=True,text=True)
     (OUT/(source.stem+'.log')).write_text(r.stdout+r.stderr)
     if r.returncode:raise SystemExit((r.stdout+r.stderr)[-7000:])
-    objects.append(str(obj))
+    if source.name=='SprdWifiNet.cpp':
+        llvm=Path(subprocess.check_output(['brew','--prefix','llvm'],text=True).strip())/'bin'
+        late=OUT/'SprdWifiNet.late.o'
+        subprocess.run([llvm/'llvm-objcopy','--remove-section=__DATA,__mod_init_func',
+                        '--globalize-symbol=__GLOBAL__sub_I_SprdWifiNet.cpp',obj,late],check=True)
+        symbols=subprocess.check_output(['xcrun','nm',late],text=True)
+        assert ' T __GLOBAL__sub_I_SprdWifiNet.cpp' in symbols
+        objects.append(str(late))
+    else:objects.append(str(obj))
 firmware=SOURCE/'firmware/wcnmodem-1h190-sc2355.bin'
 raw=firmware.read_bytes()
 assert len(raw)==0xe7400 and hashlib.sha256(raw).hexdigest()=='59e177b4cb195c63a0021164d286c13c5c4fc9be9d430457451db40dc8caf554'
