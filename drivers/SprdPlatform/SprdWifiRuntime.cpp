@@ -140,7 +140,7 @@ extern "C" int nw_wifi_power(int on) {
     if(!state.lock)return ENETDOWN;
     IOLockLock(state.lock);int result=0;
     if(!state.ready)result=ENETDOWN;
-    else if(state.pendingPower || state.scanning)result=EBUSY;
+    else if(state.pendingPower || state.pendingScan || state.scanning)result=EBUSY;
     else {state.pendingPower=true;state.powerRequested=on!=0;}
     IOLockUnlock(state.lock);return result;
 }

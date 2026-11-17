@@ -198,7 +198,7 @@ int apple80211(bool set, apple80211req &rq) {
   uint32_t *w = reinterpret_cast<uint32_t *>(out.raw);
   if (set) {
     switch (type) {
-    case kPower: { uint32_t in[6]; if (copy_in(rq, in, sizeof in)) return EFAULT; gUserJoin = true; bool requested = in[2] != 0; int result = nw_wifi_power(requested); if (result) return EIO; gPower = requested; log(6, "wifi-net: power requested %u", in[2]); return 0; }
+    case kPower: { uint32_t in[6]; if (copy_in(rq, in, sizeof in)) return EFAULT; gUserJoin = true; bool requested = in[2] != 0; int result = nw_wifi_power(requested); if (result) return result; log(6, "wifi-net: power queued %u", in[2]); return 0; }
     case kScanReq: case kScanReqMultiple: {
       uint8_t buf[0x80]; if (copy_in(rq, buf, sizeof buf)) return EFAULT;
       uint32_t ssidLength; memcpy(&ssidLength, buf + 16, 4); const uint8_t *ssid = buf + 20;
