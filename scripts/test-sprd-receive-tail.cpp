@@ -3,7 +3,7 @@
 #include <cstdio>
 #include <cstring>
 using namespace SprdWcn;
-struct Gpio {uint32_t value=1;uint32_t read32(unsigned){return value;}};
+struct Gpio {uint32_t value=1;uint32_t read32(unsigned address){return address==2*0x80?value:1;}};
 struct Packet {uint32_t valid,remaining;};
 struct Host {
     Packet entries[10]={};unsigned count=0,reads=0;

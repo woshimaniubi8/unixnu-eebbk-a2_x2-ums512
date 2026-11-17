@@ -82,7 +82,7 @@ template<class Host,class Gpio> Result hciCommand(Host &host,Gpio &gpio,uint16_t
     // The FIFO carries Wi-Fi and BT traffic together. Unrelated valid frames
     // consume time, not a protocol-error budget; the loop remains bounded.
     for(unsigned elapsed=0;elapsed<10000;elapsed++){
-        if(gpio.read32(6*0x80)&1u){
+        if(gpio.read32(kPacketGpioBank)&1u){
             r=host.packets(false,rx,sizeof(rx));if(r!=Ok)return r;
             r=decodeHciAggregate(rx,sizeof(rx),opcode,events,reply);
             if(r!=Ok || reply.complete)return r;

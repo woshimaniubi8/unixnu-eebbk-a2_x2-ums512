@@ -188,7 +188,7 @@ template<class Host,class Gpio> Result wifiScan(Host &host,Gpio &gpio,uint8_t co
     r=host.packets(true,tx,txBytes);
     if(r!=Ok)return r;
     for(unsigned elapsed=0;elapsed<25000;elapsed++){
-        if(gpio.read32(6*0x80)&1u){
+        if(gpio.read32(kPacketGpioBank)&1u){
             r=host.packets(false,rx,sizeof(rx));
             if(r!=Ok)return r;
             r=decodeWifiScanAggregate(rx,sizeof(rx),transaction,context,report);

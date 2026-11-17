@@ -142,7 +142,7 @@ struct PacketHost {
         SprdWcn::put32(data+20,1u<<23);SprdWcn::put32(data+2512,16);return Ok;
     }
 };
-struct PacketGpio {bool high=true;unsigned delays=0;uint32_t read32(unsigned a){assert(a==0x300);return high?1:0;}void delay(unsigned n){assert(n==1000);delays++;}};
+struct PacketGpio {bool high=true;unsigned delays=0;uint32_t read32(unsigned a){assert(a==0x100);return high?1:0;}void delay(unsigned n){assert(n==1000);delays++;}};
 struct SessionHost {
     std::map<uint32_t,uint32_t> cp={{0x405e73b4,0x100000},{0x405e73b8,0x108000},{0x405e73bc,0x110000},{0x405e73c0,0x120000}};
     std::map<unsigned,uint8_t> aon={{0x1c0,0x80},{0x148,0x80},{0x1f0,1}};

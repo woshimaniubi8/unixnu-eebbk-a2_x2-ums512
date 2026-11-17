@@ -40,3 +40,13 @@ Both M131 and M132 later hit a 320-second userspace watchdog timeout involving
 backboardd and other services. Frontend publication is verified, sustained
 OS boot is not. M133 adds sparse worker counters and an existing native
 stackshot at round 4 (before this timeout); it preserves watchdog policy.
+
+M133's native snapshot confirmed wifid was running even without a separate
+exec log name (xpcproxy was the recorded image name). The card-capability
+query succeeded; virtual interface role/parent (96/97) are still unsupported.
+The worker consumed exactly eight aggregate slots on every idle timer turn.
+Original sdiohal_init in factory kernel SHA256 70a55f2765 loads
+m2-wakeup-ap-gpios, which all three factory DTBO overlays set to GPIO32;
+GPIO96 is the separate public interrupt. M135 corrects the packet-ready
+pin in command, scan, HCI and runtime paths and preserves/restores GPIO32's
+configuration. M134's independent DTBS end-of-batch repair is retained.

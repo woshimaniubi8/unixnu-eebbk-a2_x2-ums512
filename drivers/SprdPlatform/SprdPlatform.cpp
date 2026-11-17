@@ -172,7 +172,7 @@ public:
     void restorePacket() {
         if(!packetSaved)return;
         Result result=host.put(0,0x1ca,savedIrq);
-        const unsigned bank=6*0x80,offsets[]={4,8,0x28};
+        const unsigned bank=SprdWcn::kPacketGpioBank,offsets[]={4,8,0x28};
         for(unsigned i=0;i<3;i++)gpio.write32(bank+offsets[i],
             (gpio.read32(bank+offsets[i])&~1u)|(savedGpio[i]&1u));
         packetSaved=false;
@@ -296,13 +296,15 @@ void NativeSprdPlatform::identifyRadioGpu() {
                 if(wifiSnapshot)IOFree(wifiSnapshot,session.wifi.bytes);
             }
             if(fw==Ok){
-                const unsigned bank=6*0x80;uint32_t mask=mmio[1].read32(bank+4),dir=mmio[1].read32(bank+8),in=mmio[1].read32(bank+0x28);
+                const unsigned bank=SprdWcn::kPacketGpioBank;uint32_t mask=mmio[1].read32(bank+4),dir=mmio[1].read32(bank+8),in=mmio[1].read32(bank+0x28);
                 mmio[1].write32(bank+4,mask|1u);mmio[1].write32(bank+8,dir&~1u);mmio[1].write32(bank+0x28,in|1u);
                 uint8_t irqEnable=0;Result packet=host.byte(0,0x1ca,irqEnable);bool irqSaved=packet==Ok;
                 resources->packetSaved=irqSaved;resources->savedIrq=irqEnable;
                 resources->savedGpio[0]=mask;resources->savedGpio[1]=dir;resources->savedGpio[2]=in;
                 if(packet==Ok)packet=host.put(0,0x1ca,(uint8_t)(irqEnable|3));
-                IOLog("M122 wcn: packet setup=%d deint=0x%x gpio96=%u rx_base=12\n",packet,irqEnable,(mmio[1].read32(bank)&1u)!=0);
+                IOLog("M122 wcn: packet setup=%d deint=0x%x gpio32=%u rx_base=12\n",packet,irqEnable,(mmio[1].read32(bank)&1u)!=0);
+                IOLog("M135 wcn: packet GPIO32=%u public GPIO96=%u saved direction=0x%x input=0x%x mask=0x%x\n",
+                      (mmio[1].read32(bank)&1u)!=0,(mmio[1].read32(6*0x80)&1u)!=0,dir,in,mask);
                 uint8_t api[260]={};SprdWcn::put32(api,1);memcpy(api+4,SprdWcn::kFactoryWifiApi,256);
                 SprdWcn::WifiReply sync;
                 if(packet==Ok)packet=SprdWcn::wifiCommand(host,mmio[1],9,1,api,sizeof(api),sync);

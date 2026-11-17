@@ -12,7 +12,7 @@ struct ReceiveState {
 template<class Host,class Gpio>
 inline Result receiveSlice(Host &host,Gpio &gpio,ReceiveState &state,unsigned &packets) {
     packets=0;
-    if(!state.pending && !(gpio.read32(6*0x80)&1u))return Ok;
+    if(!state.pending && !(gpio.read32(kPacketGpioBank)&1u))return Ok;
     uint8_t bytes[kReceiveBytes]={};
     for(unsigned i=0;i<8;i++) {
         Result result=host.packets(false,bytes,sizeof(bytes));

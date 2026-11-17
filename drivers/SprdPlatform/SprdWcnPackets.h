@@ -10,6 +10,9 @@
 namespace SprdWcn {
 using namespace SprdBus;
 constexpr size_t kPacketBlock=840,kTransmitBytes=1680,kReceivePacketBytes=1680,kReceiveBytes=2520,kCommandHeader=12;
+// Exact 1h190 DTBO: m2-wakeup-ap-gpios=32 (packet RX), while
+// m2-to-ap-irq-gpios=96 is the independent public/sleep/memory interrupt.
+constexpr unsigned kPacketGpioBank=2*0x80;
 inline uint16_t le16(const uint8_t *p){return (uint16_t)(p[0]|(uint16_t)p[1]<<8);}
 inline uint32_t le32(const uint8_t *p){return p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24;}
 inline void put32(uint8_t *p,uint32_t v){for(unsigned i=0;i<4;i++)p[i]=(uint8_t)(v>>(8*i));}
@@ -83,10 +86,11 @@ template<class Host,class Gpio> Result wifiCommand(Host &host,Gpio &gpio,uint8_t
     Result result=encodeWifiCommand(tx,sizeof(tx),command,transaction,payload,length,used,context);
     if(result!=Ok)return result;
     result=host.packets(true,tx,used);if(result!=Ok)return result;
-    // Factory m2-to-ap-irq-gpios is GPIO96, active high. The caller owns its
+    // Factory packet-ready GPIO32 is active high in sdiohal's IRQ handler.
+    // The caller owns its
     // saved direction/input/mask and the slave's dedicated interrupt enables.
     for(unsigned elapsed=0;elapsed<3000;elapsed++){
-        if(gpio.read32(6*0x80)&1u){
+        if(gpio.read32(kPacketGpioBank)&1u){
             result=host.packets(false,rx,sizeof(rx));if(result!=Ok)return result;
             bool matched=false;result=decodeWifiReply(rx,sizeof(rx),command,transaction,reply,matched);
             if(result!=Ok || matched)return result;
