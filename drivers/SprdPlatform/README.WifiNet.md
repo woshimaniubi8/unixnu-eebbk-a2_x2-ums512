@@ -50,3 +50,14 @@ m2-wakeup-ap-gpios, which all three factory DTBO overlays set to GPIO32;
 GPIO96 is the separate public interrupt. M135 corrects the packet-ready
 pin in command, scan, HCI and runtime paths and preserves/restores GPIO32's
 configuration. M134's independent DTBS end-of-batch repair is retained.
+
+M135 on-device result (boot472decb4, kernel6f349adb, sourcea1c569c1):
+GPIO32 packet-ready and DTBS end-of-batch fixes passed. The original station
+survived through Bluetooth initialization; wifid made real scan requests and
+read the returned BSS results. In a closed 1151-second frontend observation,
+75 consecutive system scans succeeded with no malformed frames, 32 display
+copy markers appeared, and no panic or receive-stop occurred. The earlier
+315-320second userspace watchdog did not recur in that observation window;
+its policy was unchanged. Association/DHCP, OS Bluetooth pairing and Metal
+rendering are still unfinished. See build/diag/m135-wcn-packet-irq/RESULTS.md
+in the local workspace for exact artifacts, evidence and rollback boundaries.
