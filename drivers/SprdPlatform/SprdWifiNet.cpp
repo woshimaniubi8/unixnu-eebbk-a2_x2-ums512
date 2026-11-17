@@ -217,7 +217,12 @@ int apple80211(bool set, apple80211req &rq) {
   case kOpMode: return answer_value(rq, 1);   // station
   case kAuthType: return EOPNOTSUPP;
   case kPowerSave: return EOPNOTSUPP;
-  case kCardCaps: case kPhyMode: return EOPNOTSUPP;
+  // This is a feature query, not a request to perform an unsupported action.
+  // 21H461 requests the 16-byte version/capabilities layout. No cipher,
+  // power-save or QoS offload is exposed by this scan frontend yet; firmware
+  // GET_INFO bits belong to a different namespace and must not be copied here.
+  case kCardCaps: w[0] = 1; return copy_out(rq, w, 16);
+  case kPhyMode: return EOPNOTSUPP;
   case kSsid: if (st.state < NW_STA_ASSOC) return ENOENT; return answer_bytes(rq, st.ssid, st.ssid_len);
   case kBssid: if (st.state < NW_STA_ASSOC) return ENOENT; return answer_bytes(rq, st.bssid, 6);
   case kChannel: if (st.state < NW_STA_AUTH) return ENOENT; w[0] = 1; fill_channel(*reinterpret_cast<channel *>(out.raw + 4), st.freq_mhz); return copy_out(rq, w, 16);

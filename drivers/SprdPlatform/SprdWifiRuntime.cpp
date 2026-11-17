@@ -30,7 +30,7 @@ struct State {
     bool ready=false,pendingScan=false,scanning=false,pendingPower=false,powerRequested=true;
     uint8_t scanSsid[32]={};
     size_t scanSsidLength=0;
-    unsigned scans=0,drained=0;
+    unsigned scans=0,drained=0,ticks=0;
 } state;
 bool metaReady=false;
 bool hasMetaClass(const char *name) {
@@ -86,6 +86,13 @@ void tick(OSObject *,IOTimerEventSource *) {
             sprd_wifi_net_power_done(false);
             return;
         }
+    }
+    if((++state.ticks%250)==0) {
+        IOLockLock(state.lock);
+        unsigned current=state.status.state,scans=state.scans,packets=state.drained;
+        IOLockUnlock(state.lock);
+        IOLog("M133 wifi: worker ticks=%u packets=%u scans=%u state=%u\n",
+              state.ticks,packets,scans,current);
     }
     if(state.timer)state.timer->setTimeoutMS(20);
 }
@@ -181,6 +188,7 @@ bool sprdWifiRuntimeStart(IOService *owner,SprdWifiHardware *hardware,const uint
     bzero(state.cache,sizeof(*state.cache));bzero(state.work,sizeof(*state.work));
     if(initial)memcpy(state.cache,initial,sizeof(*state.cache));
     state.hardware=hardware;state.status={};state.status.state=NW_STA_IDLE;
+    state.scans=state.drained=state.ticks=0;
     state.status.channels=0x421;memcpy(state.status.mac,mac,6);state.ready=true;
     state.gate=IOCommandGate::commandGate(owner);
     state.timer=IOTimerEventSource::timerEventSource(owner,tick);

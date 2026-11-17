@@ -76,7 +76,7 @@
  	unsigned int round = ++bbk_ui_round;
  	/* Three coherent, non-faulting observations; original watchdog policy stays active. */
 -	if (round == 4 || round == 8 || round == 11) bbk_ui_capture_stackshot(round);
-+	if (round == 11 || round == 13 || round == 15) bbk_ui_capture_stackshot(round);
++	if (round == 4 || round == 11 || round == 13 || round == 15) bbk_ui_capture_stackshot(round);
  	for (unsigned int role = 0; role < BBK_UI_ROLES; role++) {
  		unsigned int total = 0, dropped, shown = 0;
  		int pid = os_atomic_load(&bbk_ui_pids[role], acquire);

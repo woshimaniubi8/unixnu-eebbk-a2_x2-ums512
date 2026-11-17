@@ -29,5 +29,14 @@ The exact iPadOS 17.7.11 (21H461) com.apple.wifid launch job has
 _LimitLoadToDeviceTree = [wlan, marconi-wifi]. M131's actual ADT contained
 neither node. M132 exports the real SC2355 WLAN function as arm-io/wlan;
 SprdPlatform retains sole ownership of SDIO1 and radio power. This is a
-device-tree-only change; daemon launch and system scanning still require
-on-device evidence from M132.
+device-tree-only change. M132's hardware log recorded the network stack
+opening and one Apple80211 card-capabilities query (type 12, length 16), which
+the initial adapter rejected with EOPNOTSUPP. M133 returns the versioned,
+empty implemented-feature bitmap; it does not advertise unimplemented crypto
+or QoS offload. The layout is checked against OpenIntelWireless/itlwm's
+apple80211_capability_data and the actual 21H461 request length.
+
+Both M131 and M132 later hit a 320-second userspace watchdog timeout involving
+backboardd and other services. Frontend publication is verified, sustained
+OS boot is not. M133 adds sparse worker counters and an existing native
+stackshot at round 4 (before this timeout); it preserves watchdog policy.
