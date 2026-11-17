@@ -97,8 +97,9 @@ places it at `0x40500000`, holds/releases bit 0 at `0x40088288`, and waits for
 mailbox states at `0x405e73b0`. If the optional factory TSX calibration file
 or AFC flag is missing, the original loader's value is `0xffff`; M121 preserves
 that fallback and records it. Firmware boot is only accepted after the vector
-readback and final mailbox value `0xf0f0f0ff`. On success the WCN rails and
-SDIO host are retained for the later Wi-Fi/BT frontends. M121 firmware boot,
+readback and final mailbox value `0xf0f0f0ff`. This first acceptance transaction
+holds CP again and restores the SDIO host and owned rails before returning;
+it does not leave an unmanaged running radio behind. M121 firmware boot,
 radio calibration, Wi-Fi scan/association/traffic and Bluetooth HCI remain
 separate hardware acceptance stages; no Metal device is published.
 

@@ -37,6 +37,17 @@ extern "C" const uint8_t sprd_wcn_firmware_start[];
 extern "C" const uint8_t sprd_wcn_firmware_end[];
 using namespace SprdBus;
 namespace {
+constexpr FuelOcvPoint kFactoryOcvCapacity[]={{4386000,100},{4329000,95},{4274000,90},{4217000,85},{4160000,80},{4106000,75},{4055000,70},{4008000,65},{3964000,60},{3905000,55},{3866000,50},{3840000,45},{3818000,40},{3800000,35},{3784000,30},{3766000,25},{3744000,20},{3719000,15},{3690000,10},{3679000,5},{3460000,0}};
+struct Registers {
+    volatile uint8_t *base=nullptr;
+    uint32_t read32(unsigned off) {uint32_t v=*(volatile uint32_t *)(base+off);__asm__ volatile("dsb ld":::"memory");return v;}
+    void write32(unsigned off,uint32_t v) {__asm__ volatile("dsb st":::"memory");*(volatile uint32_t *)(base+off)=v;__asm__ volatile("dsb sy":::"memory");}
+    uint8_t read8(unsigned off) {uint8_t v=base[off];__asm__ volatile("dsb ld":::"memory");return v;}
+    void write8(unsigned off,uint8_t v) {__asm__ volatile("dsb st":::"memory");base[off]=v;}
+    uint16_t read16(unsigned off) {uint16_t v=*(volatile uint16_t *)(base+off);__asm__ volatile("dsb ld":::"memory");return v;}
+    void write16(unsigned off,uint16_t v) {__asm__ volatile("dsb st":::"memory");*(volatile uint16_t *)(base+off)=v;__asm__ volatile("dsb sy":::"memory");}
+    void delay(unsigned us) {IODelay(us);}
+};
 constexpr uint32_t kWcnFirmwareBase=0x40500000;
 constexpr uint32_t kWcnResetRegister=0x40088288;
 constexpr uint32_t kWcnMailbox=0x405e73b0;
@@ -74,7 +85,7 @@ Result bootWcnFirmware(SprdSdio::Host<Registers> &host,const SprdSdio::Identity 
         if(mailbox==kWcnMailboxWait){calibratedRequest=true;break;}
         IODelay(5000);
     }
-    if(!calibratedRequest)return Timeout;
+    if(!calibratedRequest){IOLog("M121 wcn: calibration request timeout mailbox=0x%08x\n",mailbox);return Timeout;}
     // The factory loader returns 0xffff when the optional productinfo TSX file
     // or its AFC calibration flag is absent; preserve that exact fallback.
     const uint16_t tsxDac=0xffff;
@@ -92,17 +103,6 @@ Result bootWcnFirmware(SprdSdio::Host<Registers> &host,const SprdSdio::Identity 
     return ready?Ok:Timeout;
 }
 
-constexpr FuelOcvPoint kFactoryOcvCapacity[]={{4386000,100},{4329000,95},{4274000,90},{4217000,85},{4160000,80},{4106000,75},{4055000,70},{4008000,65},{3964000,60},{3905000,55},{3866000,50},{3840000,45},{3818000,40},{3800000,35},{3784000,30},{3766000,25},{3744000,20},{3719000,15},{3690000,10},{3679000,5},{3460000,0}};
-struct Registers {
-    volatile uint8_t *base=nullptr;
-    uint32_t read32(unsigned off) {uint32_t v=*(volatile uint32_t *)(base+off);__asm__ volatile("dsb ld":::"memory");return v;}
-    void write32(unsigned off,uint32_t v) {__asm__ volatile("dsb st":::"memory");*(volatile uint32_t *)(base+off)=v;__asm__ volatile("dsb sy":::"memory");}
-    uint8_t read8(unsigned off) {uint8_t v=base[off];__asm__ volatile("dsb ld":::"memory");return v;}
-    void write8(unsigned off,uint8_t v) {__asm__ volatile("dsb st":::"memory");base[off]=v;}
-    uint16_t read16(unsigned off) {uint16_t v=*(volatile uint16_t *)(base+off);__asm__ volatile("dsb ld":::"memory");return v;}
-    void write16(unsigned off,uint16_t v) {__asm__ volatile("dsb st":::"memory");*(volatile uint16_t *)(base+off)=v;__asm__ volatile("dsb sy":::"memory");}
-    void delay(unsigned us) {IODelay(us);}
-};
 bool compatible(IOService *p) {
     OSData *d=p?OSDynamicCast(OSData,p->getProperty("compatible")):nullptr;
     if(!d)return false;
@@ -171,14 +171,19 @@ void NativeSprdPlatform::identifyRadioGpu() {
         Result h=dmaReady?host.initialize():Invalid,e=h==Ok?host.enumerate(id):Invalid;
         IOLog("M116 wcn: host=%d enumerate=%d ocr=0x%x funcs=%u rca=0x%x cccr=0x%x ready=0x%x manfid=0x%x/0x%x chip=0x%x strap=0x%x\n",h,e,id.ocr,id.functions,id.rca,id.cccr,id.ready,id.vendor,id.device,id.chip,id.strap);
         IOLog("M116 wcn: command=%u arg=0x%x status=0x%x present=0x%x resp=0x%x copied=%llu\n",host.last.index,host.last.argument,host.last.status,host.last.present,host.last.response,(unsigned long long)host.last.transferred);
-        bool wcnRunning=false;
         if(h==Ok && e==Ok){
-            IOReturn fw=bootWcnFirmware(host,id);
-            IOLog("M121 wcn: firmware boot result=0x%x\n",fw);
-            wcnRunning=fw==Ok;
+            Result fw=bootWcnFirmware(host,id);
+            IOLog("M121 wcn: firmware boot result=%d\n",fw);
+            uint32_t reset=0,held=0;
+            Result stopped=host.readCp(kWcnResetRegister,reset);
+            if(stopped==Ok){
+                held=reset|1u;
+                stopped=host.writeCpBytes(kWcnResetRegister,reinterpret_cast<const uint8_t *>(&held),sizeof(held));
+            }
+            if(stopped==Ok)stopped=host.readCp(kWcnResetRegister,held);
+            IOLog("M121 wcn: firmware test quiesce result=%d reset=0x%x held=%u\n",stopped,held,(held&1)!=0);
         }
-        if(wcnRunning)IOLog("M121 wcn: factory firmware running; SDIO host and shared WCN rails retained for Wi-Fi/BT frontend\n");
-        else {host.restore();Result restored=power.restore();IOLog("M116 wcn: power restored=%d; no firmware-ready state\n",restored);}
+        host.restore();Result restored=power.restore();IOLog("M116 wcn: power restored=%d; firmware test ended, Wi-Fi/BT frontend not yet published\n",restored);
         uint16_t pd=0,vsel=0;Result a=adi.read(0x181c,pd),b=adi.read(0x1854,vsel);
         IOLog("M116 mali: DCDC_GPU reads=%d/%d pd=0x%x selector=%u (3125uV/step)\n",a,b,pd,vsel&0x1ff);
         if(a==Ok && b==Ok && SprdMali::factorySupplyReady(pd,vsel)){
