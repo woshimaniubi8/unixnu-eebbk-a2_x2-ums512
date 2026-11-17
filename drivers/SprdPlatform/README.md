@@ -46,6 +46,49 @@ The host test compiles the same `SprdBus.h` used on-device. It exercises real
 command construction and fault handling against deterministic register models;
 this is not evidence that an untested physical controller already works.
 
+## SC2355 and Mali hardware dependencies (M116)
+
+The driver-integration reference is https://unixnu.com/zh/porting/drivers.
+The radio and GPU transport backends in its examples belong to WCN7850 and
+Adreno740. This board uses SC2355 on SDIO1 at0x71200000 and Mali Gondul at
+0x60000000. The eMMC host0x71400000 is excluded from this radio operation.
+
+`SprdWcnPower.h` follows the shipped4.14 `chip_power_on`, not GPIO polarity
+guesses: CHIP_EN GPIO143 goes raw low/high and RESET GPIO97 goes raw high.
+The selected32k clock is actually AUX0 (DT phandle80/index2), offset0x228,
+parent ext32k index0, AON gate bit4. The SC2730 descriptor supplies are
+VDDSIM2=1.8V, VDDWCN=1.2V and VDDWIFIPA=3.3V. Owned rail fields, WBREQ
+binding bits, GPIO bits and clock fields are saved and restored on failure
+and after the identification transaction. PMIC access runs through the
+existing platform owner before its input/battery timer starts.
+
+`SprdSdio.h` implements bounded CMD0/5/3/7/52/53, CCCR/function1/CIS parsing
+and the original direct-memory window. The ROM vendor/device identity0/0
+is deliberate (`sdiohal_ids` in the exact shipped kernel), so a zero ID is
+not discarded. CP memory addresses go through function0 SYSADDR0..3 at
+0x15c..0x15f and incrementing function1 port0x0f; STBBA is a different register
+set. Both copied length and transfer completion are required, including when
+FIFO readiness and completion arrive together. No DMA memory is exposed by
+this initial byte-mode operation. Chip ID and strap reads are real SDIO
+transactions, not CPU dereferences of CP addresses.
+
+`SprdMali.h` controls only the factory GPU domain and owned gate/mux fields,
+using the real ext26m parent for identification. It checks the already-on
+DCDC_GPU supply, waits for the original domain/clock startup intervals,
+reads GPU_ID, issues a standard Bifrost soft reset and requires the reset
+completion bit. Shader/tiler/L2/address-space/job-slot masks are then read
+before restoring the hardware state. It never substitutes the CPU framebuffer
+for successful GPU execution or publishes a Metal device from these reads.
+
+Host verification: `clang++ -std=c++17 -fsanitize=address,undefined
+scripts/test-sprd-radio-gpu.cpp -o /tmp/test-sprd-radio-gpu` and execute the
+result. This covers ROM identity, original memory-window addressing, combined
+PIO/completion, bounded errors, partial-start rollback and GPU reset failures.
+Hardware results belong to the M116 serial receipt. Firmware download, RF
+calibration, Wi-Fi scan/association/traffic, Bluetooth HCI and GPU jobs/Metal
+remain separately verifiable stages; this initial operation does not claim
+those stages have completed.
+
 ## PWM2 backlight
 
 `SprdBacklight.h` adapts the CoreBrightness property/fade frontend from the

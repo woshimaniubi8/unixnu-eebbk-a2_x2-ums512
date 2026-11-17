@@ -22,6 +22,9 @@
 #include "SprdTouchPins.h"
 #include "SprdFuelGauge.h"
 #include "SprdBattery.h"
+#include "SprdSdio.h"
+#include "SprdWcnPower.h"
+#include "SprdMali.h"
 extern "C" kmod_info_t g_kernel_kmod_info;
 extern "C" void sprd_hid_static_init() __asm__("__GLOBAL__sub_I_NativeHidInput.cpp");
 extern "C" IOService *sprd_hid_allocate(bool);
@@ -37,6 +40,8 @@ struct Registers {
     void write32(unsigned off,uint32_t v) {__asm__ volatile("dsb st":::"memory");*(volatile uint32_t *)(base+off)=v;__asm__ volatile("dsb sy":::"memory");}
     uint8_t read8(unsigned off) {uint8_t v=base[off];__asm__ volatile("dsb ld":::"memory");return v;}
     void write8(unsigned off,uint8_t v) {__asm__ volatile("dsb st":::"memory");base[off]=v;}
+    uint16_t read16(unsigned off) {uint16_t v=*(volatile uint16_t *)(base+off);__asm__ volatile("dsb ld":::"memory");return v;}
+    void write16(unsigned off,uint16_t v) {__asm__ volatile("dsb st":::"memory");*(volatile uint16_t *)(base+off)=v;__asm__ volatile("dsb sy":::"memory");}
     void delay(unsigned us) {IODelay(us);}
 };
 bool compatible(IOService *p) {
@@ -77,13 +82,45 @@ class NativeSprdPlatform : public IOService {
     Frame lastFrame={};Debounce debounce;
     Adi<Registers> adi{mmio[0]};I2c<Registers> bus3{mmio[4]},bus4{mmio[5]};
     static void tick(OSObject *o,IOTimerEventSource *) {static_cast<NativeSprdPlatform *>(o)->poll();}
-    bool prepare();bool publishInput();void identifyTouch();void recoverTouchReset();void prepareFuelGauge();void readBattery();void requirePollingPower();void poll();void readTouch();void restore();
+    bool prepare();bool publishInput();void identifyTouch();void recoverTouchReset();void prepareFuelGauge();void readBattery();void requirePollingPower();void poll();void readTouch();void restore();void identifyRadioGpu();
 public:
     IOService *probe(IOService *p,SInt32 *score) override {if(!compatible(p))return nullptr;if(score)*score=2200;return this;}
     IOWorkLoop *getWorkLoop() const override {return loop;}
     bool start(IOService *) override;void stop(IOService *) override;
 };
 OSDefineMetaClassAndStructors(NativeSprdPlatform,IOService)
+
+void NativeSprdPlatform::identifyRadioGpu() {
+    // Run before this service starts its polling timer. ADI transactions share
+    // the platform's existing controller owner; no second ADI worker is added.
+    IOMemoryMap *m[5]={};Registers r[5];
+    const uint64_t physical[5]={0x71200000,0x32080000,0x327e0000,0x60100000,0x60000000};
+    bool mapped=true;
+    for(unsigned i=0;i<5;i++){
+        IODeviceMemory *d=IODeviceMemory::withRange(physical[i],i==4?0x100000:0x1000);
+        m[i]=d?d->map(kIOMapInhibitCache):nullptr;OSSafeReleaseNULL(d);
+        if(!m[i]){mapped=false;IOLog("M116 peripheral: map failed index=%u physical=0x%llx\n",i,(unsigned long long)physical[i]);break;}
+        r[i].base=(volatile uint8_t *)m[i]->getVirtualAddress();
+    }
+    if(mapped){
+        SprdWcn::Power<Registers,Adi<Registers>> power(mmio[1],mmio[2],mmio[3],r[1],mmio[6],adi);
+        Result p=power.enable();IOLog("M116 wcn: shared power=%d host=0x71200000 aux0=0x%x apclk=0x%x\n",p,r[1].read32(0x228),mmio[6].read32(0x88));
+        SprdSdio::Host<Registers> host(r[0]);SprdSdio::Identity id;
+        Result h=p==Ok?host.initialize():Invalid,e=h==Ok?host.enumerate(id):Invalid;
+        IOLog("M116 wcn: host=%d enumerate=%d ocr=0x%x funcs=%u rca=0x%x cccr=0x%x ready=0x%x manfid=0x%x/0x%x chip=0x%x strap=0x%x\n",h,e,id.ocr,id.functions,id.rca,id.cccr,id.ready,id.vendor,id.device,id.chip,id.strap);
+        IOLog("M116 wcn: command=%u arg=0x%x status=0x%x present=0x%x resp=0x%x copied=%llu\n",host.last.index,host.last.argument,host.last.status,host.last.present,host.last.response,(unsigned long long)host.last.transferred);
+        host.restore();Result restored=power.restore();IOLog("M116 wcn: power restored=%d; radio firmware and OS network are subsequent operations\n",restored);
+        uint16_t pd=0,vsel=0;Result a=adi.read(0x181c,pd),b=adi.read(0x1854,vsel);
+        IOLog("M116 mali: DCDC_GPU reads=%d/%d pd=0x%x selector=%u (3125uV/step)\n",a,b,pd,vsel&0x1ff);
+        if(a==Ok && b==Ok && !(pd&8) && (vsel&0x1ff)>=64){
+            SprdMali::Probe<Registers> gpu(r[2],mmio[2],r[3],r[4]);SprdMali::Identity g;
+            Result gr=gpu.run(g);
+            IOLog("M116 mali: result=%d id=0x%x status=0x%x shader=0x%x tiler=0x%x l2=0x%x as=0x%x js=0x%x irq=0x%x reset_polls=%u\n",gr,g.id,g.status,g.shader,g.tiler,g.l2,g.as,g.js,g.irq,g.resetPolls);
+            gpu.restore();IOLog("M116 mali: clock/domain restored; no Metal device published by this identification operation\n");
+        }else IOLog("M116 mali: stopped before GPU register access: factory always-on supply is not qualified\n");
+    }
+    for(auto &v:m)OSSafeReleaseNULL(v);
+}
 
 bool NativeSprdPlatform::prepare() {
     // GPIO gate AON+4 bit1, ADI gate AON+8 bit9; AP_APB I2C3/4 bits12/13.
@@ -369,6 +406,7 @@ bool NativeSprdPlatform::start(IOService *p) {
     for(unsigned i=0;i<7;i++){maps[i]=p->mapDeviceMemoryWithIndex(i);if(!maps[i]){IOLog("bbk platform: MMIO map failed index=%u\n",i);stop(p);return false;}mmio[i].base=(volatile uint8_t *)maps[i]->getVirtualAddress();}
     if(!prepare()){IOLog("bbk platform: hardware prepare failed\n");stop(p);return false;}
     prepareFuelGauge();
+    identifyRadioGpu();
     identifyTouch();recoverTouchReset();
     if(!publishInput()){IOLog("bbk platform: HID publication failed\n");stop(p);return false;}
     timer=IOTimerEventSource::timerEventSource(this,tick);
