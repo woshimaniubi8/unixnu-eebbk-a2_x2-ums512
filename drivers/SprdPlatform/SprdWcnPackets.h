@@ -85,10 +85,8 @@ template<class Host,class Gpio> Result wifiCommand(Host &host,Gpio &gpio,uint8_t
     result=host.packets(true,tx,used);if(result!=Ok)return result;
     // Factory m2-to-ap-irq-gpios is GPIO96, active high. The caller owns its
     // saved direction/input/mask and the slave's dedicated interrupt enables.
-    unsigned aggregates=0;
     for(unsigned elapsed=0;elapsed<3000;elapsed++){
         if(gpio.read32(6*0x80)&1u){
-            if(++aggregates>64)return Protocol;
             result=host.packets(false,rx,sizeof(rx));if(result!=Ok)return result;
             bool matched=false;result=decodeWifiReply(rx,sizeof(rx),command,transaction,reply,matched);
             if(result!=Ok || matched)return result;

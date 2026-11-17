@@ -231,7 +231,7 @@ int main(){
     {
         PacketHost host;PacketGpio gpio;SprdWcn::WifiReply reply;
         assert(SprdWcn::wifiCommand(host,gpio,9,17,nullptr,0,reply)==Ok && reply.length==4 && host.reads==1);
-        host.stale=true;reply={};assert(SprdWcn::wifiCommand(host,gpio,9,17,nullptr,0,reply)==Protocol && reply.unmatched==64);
+        host.stale=true;reply={};assert(SprdWcn::wifiCommand(host,gpio,9,17,nullptr,0,reply)==Timeout && reply.unmatched==3000);
         host.stale=false;gpio.high=false;assert(SprdWcn::wifiCommand(host,gpio,9,17,nullptr,0,reply)==Timeout);
         gpio.high=true;host.fail=true;assert(SprdWcn::wifiCommand(host,gpio,9,17,nullptr,0,reply)==Protocol);
     }
