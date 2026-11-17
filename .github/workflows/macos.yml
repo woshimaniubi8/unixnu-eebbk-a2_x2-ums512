@@ -300,6 +300,9 @@ jobs:
           xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
             -fno-omit-frame-pointer device/scripts/test-sprd-receive-budget.cpp -o receive-budget-host-test
           ./receive-budget-host-test
+          xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            -fno-omit-frame-pointer device/scripts/test-sprd-receive-tail.cpp -o receive-tail-host-test
+          ./receive-tail-host-test
           for unit in bluetooth bt-session; do
             xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
               -fno-omit-frame-pointer "device/scripts/test-sprd-${unit}.cpp" -o "bt-${unit}-host-test"

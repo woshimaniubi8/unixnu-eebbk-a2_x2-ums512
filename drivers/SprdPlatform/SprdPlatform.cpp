@@ -27,6 +27,7 @@
 #include "SprdSdio.h"
 #include "SprdSdioDma.h"
 #include "SprdWcnPackets.h"
+#include "SprdWcnReceive.h"
 #include "SprdWcnCalibration.h"
 #include "SprdWcnBluetooth.h"
 #include "SprdWcnBluetoothData.h"
@@ -127,6 +128,7 @@ public:
     uint8_t address[6]={},context=0,savedIrq=0;
     uint32_t savedGpio[3]={},transaction=1;
     bool packetSaved=false,stationOpen=false,scanQualified=false,firmwareStarted=false;
+    SprdWcn::ReceiveState receiveState;
     RadioResources(Registers &g,Registers &a,Registers &p,Registers &ac,Adi<Registers> &adi):
         gpio(g),powerOwner(g,a,p,registers[1],ac,adi),host(registers[0],dma),session(host) {}
     ~RadioResources() override {
@@ -157,16 +159,15 @@ public:
         return result;
     }
     Result drain(unsigned &packets) override {
-        packets=0;uint8_t bytes[SprdWcn::kReceiveBytes]={};
-        // This worker is the sole FIFO owner. Limit work per turn to allow
-        // queued system commands to run, without treating traffic as failure.
-        while((gpio.read32(6*0x80)&1u) && packets<8) {
-            Result result=host.packets(false,bytes,sizeof(bytes));
-            if(result!=Ok)return result;
-            if(SprdWcn::le32(bytes+sizeof(bytes)-8)>SprdWcn::kReceivePacketBytes)return Protocol;
-            packets++;
+        const unsigned before=receiveState.batches;
+        Result result=SprdWcn::receiveSlice(host,gpio,receiveState,packets);
+        const unsigned count=receiveState.batches;
+        if(count!=before && (count<=4 || (count&255)==0 || result!=Ok)) {
+            IOLog("M134 wifi: RX batch=%u empty=%u valid=%u remaining=%u header=0x%x pending=%u result=%d\n",
+                  count,receiveState.empty,receiveState.valid,receiveState.remaining,
+                  receiveState.header,receiveState.pending,result);
         }
-        return Ok;
+        return result;
     }
     void restorePacket() {
         if(!packetSaved)return;
