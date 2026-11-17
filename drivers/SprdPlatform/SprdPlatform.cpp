@@ -112,7 +112,7 @@ void NativeSprdPlatform::identifyRadioGpu() {
         host.restore();Result restored=power.restore();IOLog("M116 wcn: power restored=%d; radio firmware and OS network are subsequent operations\n",restored);
         uint16_t pd=0,vsel=0;Result a=adi.read(0x181c,pd),b=adi.read(0x1854,vsel);
         IOLog("M116 mali: DCDC_GPU reads=%d/%d pd=0x%x selector=%u (3125uV/step)\n",a,b,pd,vsel&0x1ff);
-        if(a==Ok && b==Ok && !(pd&8) && (vsel&0x1ff)>=64){
+        if(a==Ok && b==Ok && SprdMali::factorySupplyReady(pd,vsel)){
             SprdMali::Probe<Registers> gpu(r[2],mmio[2],r[3],r[4]);SprdMali::Identity g;
             Result gr=gpu.run(g);
             IOLog("M116 mali: result=%d id=0x%x status=0x%x shader=0x%x tiler=0x%x l2=0x%x as=0x%x js=0x%x irq=0x%x reset_polls=%u\n",gr,g.id,g.status,g.shader,g.tiler,g.l2,g.as,g.js,g.irq,g.resetPolls);

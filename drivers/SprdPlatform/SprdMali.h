@@ -6,6 +6,11 @@
 namespace SprdMali {
 using namespace SprdBus;
 struct Identity {uint32_t id=0,status=0,shader=0,tiler=0,l2=0,as=0,js=0,irq=0,resetPolls=0;};
+inline bool factorySupplyReady(uint16_t pd,uint16_t selector){
+    // The original lowest OPP is700mV. A successful PMIC transaction alone
+    // does not qualify a lower, uncharacterized voltage for GPU access.
+    return !(pd&8) && (selector&0x1ff)>=224;
+}
 template<class IO> class Probe {
     IO &pmu,&aon,&clock,&gpu;
     uint32_t oldPower=0,addedGate=0,oldClock[3]={},oldIrq=0;

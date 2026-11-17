@@ -77,6 +77,11 @@ struct GpuIo:Io {
     }
 };
 int main(){
+    assert(SprdMali::factorySupplyReady(0,224));
+    assert(SprdMali::factorySupplyReady(0,256));
+    assert(!SprdMali::factorySupplyReady(8,256));
+    assert(!SprdMali::factorySupplyReady(0,223));
+    assert(!SprdMali::factorySupplyReady(0,64));
     {
         SdioIo io;SprdSdio::Host<SdioIo> host(io);SprdSdio::Identity id;
         assert(host.initialize()==Ok && host.enumerate(id)==Ok);
