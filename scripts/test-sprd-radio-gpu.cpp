@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include "../drivers/SprdPlatform/SprdSdio.h"
 #include "../drivers/SprdPlatform/SprdWcnPackets.h"
+#include "../drivers/SprdPlatform/SprdWcnSession.h"
 #include "../drivers/SprdPlatform/SprdWcnPower.h"
 #include "../drivers/SprdPlatform/SprdMali.h"
 #include <cassert>
@@ -141,7 +142,49 @@ struct PacketHost {
     }
 };
 struct PacketGpio {bool high=true;unsigned delays=0;uint32_t read32(unsigned a){assert(a==0x300);return high?1:0;}void delay(unsigned n){assert(n==1000);delays++;}};
+struct SessionHost {
+    std::map<uint32_t,uint32_t> cp={{0x405e73b4,0x100000},{0x405e73b8,0x108000},{0x405e73bc,0x110000},{0x405e73c0,0x120000}};
+    std::map<unsigned,uint8_t> aon={{0x1c0,0x80},{0x148,0x80},{0x1f0,1}};
+    bool lockStuck=false,failCopy=false;unsigned copies=0,restores=0,pauses=0;
+    Result byte(unsigned fn,unsigned reg,uint8_t &v){assert(fn==0);v=aon[reg];return Ok;}
+    Result put(unsigned fn,unsigned reg,uint8_t v){
+        assert(fn==0);aon[reg]=v;if(reg==0x1d0)aon[0x1f0]&=~v;
+        if(reg==0x1b0 && v==2){assert(restores==1);aon[0x1f0]|=8;}
+        return Ok;
+    }
+    Result readCp(uint32_t a,uint32_t &v){v=a==0x40850800?(lockStuck?1:0):cp[a];return Ok;}
+    Result readCpBytes(uint32_t a,uint8_t *p,size_t n){
+        assert((a==0x40510000 && n==0x10000)||(a==0x40500000 && n==0x8000));
+        copies++;std::fill(p,p+n,0xa5);return failCopy?Protocol:Ok;
+    }
+    Result writeCpBytes(uint32_t a,const uint8_t *p,size_t n){
+        if(a==0x40510000){assert(n==0x10000 && p[0]==0xa5 && copies==2);restores++;return Ok;}
+        assert(n==4);cp[a]=SprdWcn::le32(p);return Ok;
+    }
+    void pause(unsigned us){pauses+=us;}
+};
 int main(){
+    {
+        SessionHost host;SprdWcn::Session<SessionHost> session(host);
+        assert(session.enable()==Ok && host.aon[0x1c0]==0xfd);
+        assert(session.query()==Ok && session.wifi.address==0x40510000 && session.bt.bytes==0x8000);
+        std::vector<uint8_t> wifi(session.wifi.bytes),bt(session.bt.bytes);
+        assert(session.saveAndOpenWifi(wifi.data(),wifi.size(),bt.data(),bt.size())==Ok);
+        assert(session.stage==14 && host.copies==2 && host.restores==1);
+        assert(host.cp[0x4083c10c]==0 && host.cp[0x4083c110]==0xc00);
+        assert(session.restore()==Ok && host.aon[0x1c0]==0x80);
+    }
+    {
+        SessionHost host;SprdWcn::Session<SessionHost> session(host);
+        host.aon[0x1f0]=0;assert(session.query()==Timeout);
+        host.aon[0x1f0]=1;host.cp[0x405e73bc]=0x104000;assert(session.query()==Protocol);
+        host.cp[0x405e73bc]=0x110000;host.aon[0x1f0]=1;assert(session.query()==Ok);
+        std::vector<uint8_t> wifi(session.wifi.bytes),bt(session.bt.bytes);
+        host.lockStuck=true;assert(session.saveAndOpenWifi(wifi.data(),wifi.size(),bt.data(),bt.size())==Timeout && host.restores==0);
+        host.failCopy=true;assert(session.saveAndOpenWifi(wifi.data(),wifi.size(),bt.data(),bt.size())==Protocol && session.stage==5);
+        assert(session.saveAndOpenWifi(wifi.data(),wifi.size()-1,bt.data(),bt.size())==Invalid);
+        host.aon[0x148]=0x30;assert(session.wake()==Timeout);
+    }
     {
         PacketHost host;PacketGpio gpio;SprdWcn::WifiReply reply;
         assert(SprdWcn::wifiCommand(host,gpio,9,17,nullptr,0,reply)==Ok && reply.length==4 && host.reads==1);

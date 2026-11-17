@@ -17,6 +17,7 @@
 #include <libkern/c++/OSSymbol.h>
 #include <libkern/libkern.h>
 #include <mach/kmod.h>
+#include <pexpert/pexpert.h>
 #include "SprdBus.h"
 #include "SprdBacklight.h"
 #include "SprdTouchPins.h"
@@ -26,6 +27,7 @@
 #include "SprdSdioDma.h"
 #include "SprdWcnPackets.h"
 #include "SprdWcnApi.h"
+#include "SprdWcnSession.h"
 #include "SprdWcnPower.h"
 #include "SprdMali.h"
 extern "C" kmod_info_t g_kernel_kmod_info;
@@ -174,8 +176,33 @@ void NativeSprdPlatform::identifyRadioGpu() {
         IOLog("M116 wcn: host=%d enumerate=%d ocr=0x%x funcs=%u rca=0x%x cccr=0x%x ready=0x%x manfid=0x%x/0x%x chip=0x%x strap=0x%x\n",h,e,id.ocr,id.functions,id.rca,id.cccr,id.ready,id.vendor,id.device,id.chip,id.strap);
         IOLog("M116 wcn: command=%u arg=0x%x status=0x%x present=0x%x resp=0x%x copied=%llu\n",host.last.index,host.last.argument,host.last.status,host.last.present,host.last.response,(unsigned long long)host.last.transferred);
         if(h==Ok && e==Ok){
-            Result fw=bootWcnFirmware(host,id);
+            SprdWcn::Session<SprdSdio::Host<Registers>> session(host);
+            Result fw=session.enable();
+            uint32_t fastClock=0;
+            if(fw==Ok && PE_parse_boot_argn("bbk-wcn-fast-clock",&fastClock,sizeof(fastClock)) && fastClock==1){
+                fw=host.clock(0x0400);uint32_t check=0;
+                if(fw==Ok)fw=host.readCp(0x4083c208,check);
+                if(fw==Ok && check!=id.chip)fw=Protocol;
+                IOLog("M123 wcn: fast clock=0x0400 qualification=%d chip=0x%x\n",fw,check);
+            }
+            if(fw==Ok)fw=bootWcnFirmware(host,id);
             IOLog("M121 wcn: firmware boot result=%d\n",fw);
+            if(fw==Ok){
+                fw=session.query();
+                IOLog("M123 wcn: session query=%d stage=%u pub=0x%x sleep=0x%x wifi=0x%x+0x%x bt=0x%x+0x%x\n",fw,session.stage,session.lastPublic,session.lastSleep,session.wifi.address,session.wifi.bytes,session.bt.address,session.bt.bytes);
+                uint8_t *wifiSnapshot=nullptr,*btSnapshot=nullptr;
+                if(fw==Ok){
+                    wifiSnapshot=(uint8_t *)IOMalloc(session.wifi.bytes);btSnapshot=(uint8_t *)IOMalloc(session.bt.bytes);
+                    if(!wifiSnapshot || !btSnapshot)fw=Invalid;
+                    else{
+                        IOLog("M123 wcn: snapshot and restore Wi-Fi memory begin\n");
+                        fw=session.saveAndOpenWifi(wifiSnapshot,session.wifi.bytes,btSnapshot,session.bt.bytes);
+                    }
+                }
+                IOLog("M123 wcn: session open=%d stage=%u pub=0x%x sleep=0x%x cmd=%u arg=0x%x status=0x%x ps=0x%x resp=0x%x\n",fw,session.stage,session.lastPublic,session.lastSleep,host.last.index,host.last.argument,host.last.status,host.last.present,host.last.response);
+                if(wifiSnapshot)IOFree(wifiSnapshot,session.wifi.bytes);
+                if(btSnapshot)IOFree(btSnapshot,session.bt.bytes);
+            }
             if(fw==Ok){
                 const unsigned bank=6*0x80;uint32_t mask=mmio[1].read32(bank+4),dir=mmio[1].read32(bank+8),in=mmio[1].read32(bank+0x28);
                 mmio[1].write32(bank+4,mask|1u);mmio[1].write32(bank+8,dir&~1u);mmio[1].write32(bank+0x28,in|1u);
@@ -196,13 +223,16 @@ void NativeSprdPlatform::identifyRadioGpu() {
                 IOLog("M122 wcn: packet cleanup irq=%d gpio_restored=1 final=%d\n",irqRestored,packet);
             }
             uint32_t reset=0,held=0;
-            Result stopped=host.readCp(kWcnResetRegister,reset);
+            Result stopped=session.wake();
+            if(stopped==Ok)stopped=host.readCp(kWcnResetRegister,reset);
             if(stopped==Ok){
                 held=reset|1u;
                 stopped=host.writeCpBytes(kWcnResetRegister,reinterpret_cast<const uint8_t *>(&held),sizeof(held));
             }
             if(stopped==Ok)stopped=host.readCp(kWcnResetRegister,held);
             IOLog("M121 wcn: firmware test quiesce result=%d reset=0x%x held=%u\n",stopped,held,(held&1)!=0);
+            Result publicRestored=session.restore();
+            IOLog("M123 wcn: public interrupt enable restored=%d\n",publicRestored);
         }
         host.restore();Result restored=power.restore();IOLog("M116 wcn: power restored=%d; firmware test ended, Wi-Fi/BT frontend not yet published\n",restored);
         uint16_t pd=0,vsel=0;Result a=adi.read(0x181c,pd),b=adi.read(0x1854,vsel);

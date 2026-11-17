@@ -32,6 +32,7 @@ template<class IO> class Host {
 public:
     CommandState last;
     explicit Host(IO &registers,Dma &transport):io(registers),dma(transport){}
+    void pause(unsigned us){io.delay(us);}
     Result clock(uint16_t divisor) {
         // The selected source is ext26m. Identification uses /128 or slower
         // on SDHCR11's 2x path; no guessed PLL or tuning value is installed.

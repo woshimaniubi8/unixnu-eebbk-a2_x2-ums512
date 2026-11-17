@@ -290,3 +290,14 @@ original IOHIDEventDriver and its user client. Physical touch contacts and the
 1920x1200-to-1200x1920 transform remain unobserved. M112 verifies CoreBrightness
 dim/off/on requests reaching PWM2 with logical1/duty1, off0/0 and on1/1, with
 strict register readback. Physical display appearance is a separate observation.
+
+M122 hardware: firmware ready and GPU regression passed, but SYNC_VERSION
+timed out with GPIO96 low/no frames; later CP reset access failed. Thus packet
+transport is not hardware-qualified. The original start_marlin is not merely
+firmware boot: mem_pd_save_bin snapshots both regions, powers them down and
+acknowledges SAVE_CP_MEM; mem_pd_mgr then powers/reloads Wi-Fi and waits for
+WIFI_OPEN before the first host command. M123 ports that exact sequence with
+bounded CP hardware-spinlock acquisition, checked CP ranges and original
+UMW2652 memory masks. AON wake precedes metadata reads and final CP reset.
+An explicit bbk-wcn-fast-clock=1 diagnostic may select divisor0400 after
+enumeration and requires a repeated chip-ID read; default remains unchanged.
