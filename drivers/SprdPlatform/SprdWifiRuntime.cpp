@@ -6,6 +6,7 @@
 #include <IOKit/IOTimerEventSource.h>
 #include <IOKit/IOCommandGate.h>
 #include <libkern/c++/OSMetaClass.h>
+#include <libkern/c++/OSSymbol.h>
 #include <libkern/libkern.h>
 #include <mach/kmod.h>
 #include <sys/errno.h>
@@ -32,6 +33,11 @@ struct State {
     unsigned scans=0,drained=0;
 } state;
 bool metaReady=false;
+bool hasMetaClass(const char *name) {
+    const OSSymbol *symbol=OSSymbol::withCString(name);if(!symbol)return true;
+    bool present=OSMetaClass::getMetaClassWithName(symbol)!=nullptr;
+    symbol->release();return present;
+}
 
 void tick(OSObject *,IOTimerEventSource *) {
     if(!state.ready)return;
@@ -158,8 +164,7 @@ bool sprdWifiRuntimeStart(IOService *owner,SprdWifiHardware *hardware,const uint
                          const SprdWcn::WifiScanReport *initial) {
     if(!owner || !hardware || !mac || state.ready || state.hardware || state.loop)return false;
     if(!metaReady) {
-        if(OSMetaClass::getMetaClassWithName("IO80211Controller") ||
-           OSMetaClass::getMetaClassWithName("IONetworkStack")) {
+        if(hasMetaClass("IO80211Controller") || hasMetaClass("IONetworkStack")) {
             IOLog("M130 wifi: original network metaclass already exists; adapter not registered\n");return false;
         }
         void *handle=OSMetaClass::preModLoad(g_kernel_kmod_info.name);if(!handle)return false;
