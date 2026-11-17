@@ -239,6 +239,24 @@ acceptance must come from the exact candidate's M119 log.
 
 ## Battery source and runtime evidence
 
+M121 hardware acceptance: chip2355b001, exact947200-byte factory firmware,
+vector readback and calibration request/ack/ready f0f0f0f1/f2/ff all passed.
+The test then confirmed CP reset and restored its rails. M119's real Mali
+WRITE_VALUE, literal target value and stopped-DMA cleanup passed in that boot.
+This does not publish a Wi-Fi interface, Bluetooth controller or Metal device.
+
+M122 extends that qualified transport with840-byte fixed-FIFO20 CMD53 blocks.
+The actual kernel's sdiohal_hwtype_to_channel adds12 to RX subtype (not16).
+Wi-Fi command TX8 and RX22 consequently use public subtypes8 and10. API main
+version1 and all256 driver command versions are extracted from the shipped
+sprdwl_ng.ko g_api_array, not inferred from a newer donor. A bounded GPIO96
+poller receives1680-byte aggregates, checks public framing and trailer bounds,
+and matches command+transaction before accepting SYNC_VERSION or GET_INFO.
+No OPEN, scan or RF transmission is attempted before board calibration is
+integrated. GPIO96 and slave dedicated interrupt enables are restored before
+the existing CP-reset/power teardown. ASan/UBSan exercises valid/stale/error
+replies, malformed lengths, RX timeout, aggregation limit and block geometry.
+
 Through M113, the device reports efuse `775d` (voltage ADC705/current ADC5640),
 POCV2940, QMAX4097 and compensated boot OCV4170000uV. The exact factory table
 maps that to80%; `USER_AREA=afff` is first-power-on with invalid saved capacity,

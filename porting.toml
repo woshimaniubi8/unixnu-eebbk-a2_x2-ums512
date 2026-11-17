@@ -122,17 +122,17 @@ evidence = [{ kind = "hardware", reference = "build/diag/m120-sdio-adma/COM14-92
 
 [[area]]
 id = "network"
-status = "firmware-boot-in-progress"
+status = "firmware-boot-verified"
 components = ["SprdPlatform"]
-paths = ["drivers/SprdPlatform/SprdSdio.h", "drivers/SprdPlatform/SprdSdioDma.h", "drivers/SprdPlatform/SprdWcnPower.h", "drivers/SprdPlatform/firmware/wcnmodem-1h190-sc2355.bin"]
+paths = ["drivers/SprdPlatform/SprdSdio.h", "drivers/SprdPlatform/SprdSdioDma.h", "drivers/SprdPlatform/SprdWcnPower.h", "drivers/SprdPlatform/SprdWcnPackets.h", "drivers/SprdPlatform/SprdWcnApi.h", "drivers/SprdPlatform/firmware/wcnmodem-1h190-sc2355.bin"]
 inputs = ["SC2355 WCN combo on SDIO1 at 0x71200000, physical CP chip ID observed 0x2355b001 / strap 0; factory power GPIOs 143/97 and factory regulator/clock sequence."]
 configuration = ["M120 selects ADMA64 with private prepared DMA buffers; M121 pins the 0xe7400-byte factory WCN image (SHA-256 59e177b4cb195c63a0021164d286c13c5c4fc9be9d430457451db40dc8caf554), CP load address 0x40500000 and factory mailbox 0x405e73b0. The factory TSX loader fallback is 0xffff if the optional productinfo calibration file/flag is absent."]
 procedure = ["Validate chip/strap and firmware vectors; hold CP_RESET bit 0; transfer firmware through function-0 SYSADDR and function-1 CMD53; verify CP vector readback; release reset; follow the two original mailbox handshakes."]
 findings = ["The Ath12kWifi/MHI components from the Qualcomm port do not apply."]
 completion = ["Scanning, association, address configuration and sustained receive/transmit traffic pass with the selected firmware."]
-limits = ["M120 proved WCN power, SDIO enumeration, CMD53 DMA read, chip ID and strap; firmware boot and mailbox are not yet hardware-tested. Wi-Fi scan/association/traffic and Bluetooth HCI remain unimplemented."]
-next_action = ["Build and flash M121; accept only firmware vector readback plus the final factory mailbox-ready value, then port the SC2355 Wi-Fi command/data frontend and Bluetooth HCI channels 3/17."]
-evidence = [{ kind = "hardware", reference = "build/diag/m120-sdio-adma/COM14-921600.log", result = "M120: SDIO enumeration and chip 0x2355b001, CMD53 returned four bytes; firmware not sent." }, { kind = "source", reference = "build/diag/m116-wcn-gpu/marlin_download_from_partition.S.txt + original UMS512 kernel/c7f66a031fd82a5a60e10eebd8a57e961de5d8df", result = "Factory CP load base, image length, reset and mailbox sequence." }]
+limits = ["M121 firmware download/vector readback and final mailbox 0xf0f0f0ff passed on hardware, followed by confirmed CP reset and power rollback. Wi-Fi scan/association/traffic and Bluetooth HCI remain unimplemented."]
+next_action = ["M122 uses exact factory API version bytes and RX channel base 12 to verify command 9 SYNC_VERSION and command 1 GET_INFO through fixed-FIFO 840-byte blocks. Add factory RF calibration and the SC2355 network/BT frontends after actual response matching passes."]
+evidence = [{ kind = "hardware", reference = "build/diag/m121-wcn-firmware/hardware-verification.json", result = "M121: exact factory firmware boot ready 0xf0f0f0ff, CP reset and power restoration passed; GPU real write job regression passed." }, { kind = "source", reference = "build/diag/m122-wcn-packets/factory-api-version.json + original UMS512 kernel/c7f66a031fd82a5a60e10eebd8a57e961de5d8df", result = "Exact factory g_api_array, RX subtype+12, CP load base, image length, reset and mailbox sequence." }]
 
 [[area]]
 id = "audio"

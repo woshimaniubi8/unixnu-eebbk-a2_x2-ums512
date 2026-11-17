@@ -60,8 +60,10 @@ public:
         }return Timeout;
     }
     Result command(unsigned index,uint32_t argument,uint16_t flags,
-                   uint32_t &response,uint8_t *data=nullptr,size_t length=0,bool write=false) {
-        if(index>63 || (length && (!data || length>512)) || (data && !length))return Invalid;
+                   uint32_t &response,uint8_t *data=nullptr,size_t length=0,bool write=false,size_t blockBytes=0) {
+        if(index>63 || (length && (!data || length>0x4000)) || (data && !length))return Invalid;
+        if(blockBytes ? (!length || blockBytes>0xfff || length%blockBytes || length/blockBytes>511) : length>512)return Invalid;
+        const size_t blocks=blockBytes?length/blockBytes:1;
         last={};last.index=index;last.argument=argument;
         if(!waitClear(0x24,3,100000)){last.present=io.read32(0x24);return Timeout;}
         io.write32(0x30,0xffffffff);
@@ -69,11 +71,13 @@ public:
             uint64_t table=0;Result r=dma.prepare(data,length,write,table);if(r!=Ok)return r;
             io.write8(0x28,(uint8_t)((io.read8(0x28)&~0x18u)|0x10u));
             io.write16(0x3e,(uint16_t)((io.read16(0x3e)&~0x400u)|0x2800u));
-            io.write32(0,1);io.write16(4,(uint16_t)(length|0x7000));flags|=0x20;
+            io.write32(0,(uint32_t)blocks);io.write16(4,(uint16_t)((blockBytes?blockBytes:length)|0x7000));flags|=0x20;
             io.write32(0x58,(uint32_t)table);io.write32(0x5c,(uint32_t)(table>>32));
         }
         io.write32(8,argument);
-        io.write32(0xc,((uint32_t)index<<24)|((uint32_t)flags<<16)|(length?(write?1u:0x11u):0u));
+        uint32_t mode=length?(write?1u:0x11u):0u;
+        if(blockBytes)mode|=2u|(blocks>1?0x20u:0u);
+        io.write32(0xc,((uint32_t)index<<24)|((uint32_t)flags<<16)|mode);
         bool commandDone=false;
         for(unsigned t=0;t<200000;t++){
             uint32_t status=io.read32(0x30);last.status=status;
@@ -114,6 +118,15 @@ public:
         uint8_t bytes[4]={};Result r=readCpBytes(address,bytes,sizeof(bytes));
         if(r==Ok)value=(uint32_t)bytes[0]|(uint32_t)bytes[1]<<8|(uint32_t)bytes[2]<<16|(uint32_t)bytes[3]<<24;
         return r;
+    }
+    Result packets(bool write,uint8_t *data,size_t bytes) {
+        // Exact original sdiohal_sdio_pt_{read,write}: fixed function1 FIFO20,
+        // 840-byte blocks. A packet boundary must never be split into CMD53
+        // byte transfers, which changes the CP's aggregate/trailer contract.
+        if(!data || !bytes || bytes%840 || bytes>0x4000)return Invalid;
+        uint32_t response=0,arg=(write?0x80000000u:0)|0x18004000u|(uint32_t)(bytes/840);
+        Result r=command(53,arg,0x1a,response,data,bytes,write,840);
+        return r!=Ok?r:(response&0xcb00?Protocol:Ok);
     }
     Result readCpBytes(uint32_t address,uint8_t *data,size_t bytes) {
         if(!data || !bytes || bytes>0x100000 || address>UINT32_MAX-bytes)return Invalid;

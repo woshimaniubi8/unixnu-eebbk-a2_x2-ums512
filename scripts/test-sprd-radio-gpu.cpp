@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include "../drivers/SprdPlatform/SprdSdio.h"
+#include "../drivers/SprdPlatform/SprdWcnPackets.h"
 #include "../drivers/SprdPlatform/SprdWcnPower.h"
 #include "../drivers/SprdPlatform/SprdMali.h"
 #include <cassert>
@@ -40,9 +41,10 @@ struct SdioIo {
     std::map<unsigned,uint8_t> bytes,card;
     std::map<uint32_t,uint8_t> cpMemory;
     std::vector<uint32_t> fifo;
+    std::vector<uint8_t> packetTx,packetRx;
     uint32_t status=0,response=0;unsigned portReads=0,commands=0,delays=0;
     bool injectError=false,timeout=false,manfid=true,resetStuck=false;
-    uint32_t currentCp=0;bool currentWrite=false;
+    uint32_t currentCp=0;bool currentWrite=false,currentPacket=false;
     unsigned r16(unsigned a){return bytes[a]|bytes[a+1]<<8;}
     uint32_t r32(unsigned a){return r16(a)|(uint32_t)r16(a+2)<<16;}
     SdioIo(){
@@ -76,10 +78,16 @@ struct SdioIo {
             response=card[at];if(!manfid && at==0x1000)response=0xff;
         }
         if(cmd==53){
-            assert(((arg>>28)&7)==1 && ((arg>>9)&0x1ffff)==0xf && (arg&(1u<<26)));
+            assert(((arg>>28)&7)==1);
+            currentPacket=((arg>>9)&0x1ffff)==0x20;
+            if(currentPacket){
+                assert((arg&(1u<<27)) && !(arg&(1u<<26)));
+                assert((r16(4)&0xfff)==840 && r32(0)==(arg&511));
+                assert((v&0x23)==(r32(0)>1?0x23u:3u));
+            }else assert(((arg>>9)&0x1ffff)==0xf && (arg&(1u<<26)));
             uint32_t cp=card[0x15c]|(uint32_t)card[0x15d]<<8|(uint32_t)card[0x15e]<<16|(uint32_t)card[0x15f]<<24;
             currentCp=cp;currentWrite=(arg>>31)!=0;
-            assert((r16(4)&0xfff)>0 && r32(0)==1 && (v&1));
+            assert((r16(4)&0xfff)>0 && (currentPacket || r32(0)==1) && (v&1));
             assert((read8(0x28)&0x18)==0x10 && (read16(0x3e)&0x2c00)==0x2800);
             assert(r32(0x58)==0x90000000 && r32(0x5c)==0);
             portReads=0;
@@ -92,10 +100,15 @@ struct DmaMock:SprdSdio::Dma {
     SdioIo &io;unsigned prepared=0,completed=0;bool quarantined=false;
     explicit DmaMock(SdioIo &i):io(i){}
     Result prepare(uint8_t *p,size_t n,bool,uint64_t &table) override{
-        assert(p && n>0 && n<=512);prepared++;table=0x90000000;return Ok;
+        assert(p && n>0 && n<=0x4000);prepared++;table=0x90000000;return Ok;
     }
     void complete(uint8_t *p,size_t n,bool write,bool success,bool stopped) override{
-        assert(p && n>0 && n<=512);completed++;if(!stopped)quarantined=true;
+        assert(p && n>0 && n<=0x4000);completed++;if(!stopped)quarantined=true;
+        if(success && io.currentPacket){
+            if(write)io.packetTx.assign(p,p+n);
+            else{assert(io.packetRx.size()==n);std::copy(io.packetRx.begin(),io.packetRx.end(),p);}
+            return;
+        }
         if(success && write)for(size_t i=0;i<n;i++)io.cpMemory[io.currentCp+i]=p[i];
         if(success && !write)for(size_t i=0;i<n;i++)p[i]=io.cpMemory[io.currentCp+i];
         if(success){
@@ -116,7 +129,56 @@ struct GpuIo:Io {
         if(a==0x30)assert(v==1);Io::write32(a,v);
     }
 };
+struct PacketHost {
+    unsigned reads=0,writes=0;bool stale=false,fail=false;
+    Result packets(bool write,uint8_t *data,size_t bytes){
+        if(fail)return Protocol;
+        if(write){writes++;assert(bytes==840 && SprdWcn::le32(data+8)==17);return Ok;}
+        reads++;assert(bytes==1680);std::fill(data,data+bytes,0);
+        SprdWcn::put32(data,(10u<<24)|(16u<<7));data[4]=8;data[5]=9;data[6]=16;
+        SprdWcn::put32(data+8,stale?18:17);SprdWcn::put32(data+16,1);
+        SprdWcn::put32(data+20,1u<<23);SprdWcn::put32(data+1672,16);return Ok;
+    }
+};
+struct PacketGpio {bool high=true;unsigned delays=0;uint32_t read32(unsigned a){assert(a==0x300);return high?1:0;}void delay(unsigned n){assert(n==1000);delays++;}};
 int main(){
+    {
+        PacketHost host;PacketGpio gpio;SprdWcn::WifiReply reply;
+        assert(SprdWcn::wifiCommand(host,gpio,9,17,nullptr,0,reply)==Ok && reply.length==4 && host.reads==1);
+        host.stale=true;reply={};assert(SprdWcn::wifiCommand(host,gpio,9,17,nullptr,0,reply)==Protocol && reply.unmatched==64);
+        host.stale=false;gpio.high=false;assert(SprdWcn::wifiCommand(host,gpio,9,17,nullptr,0,reply)==Timeout);
+        gpio.high=true;host.fail=true;assert(SprdWcn::wifiCommand(host,gpio,9,17,nullptr,0,reply)==Protocol);
+    }
+    {
+        using namespace SprdWcn;
+        uint8_t tx[840]={},rx[1680]={},payload[260]={};size_t bytes=0;
+        put32(payload,1);
+        assert(encodeWifiCommand(tx,sizeof(tx),9,0x12345678,payload,sizeof(payload),bytes)==Ok);
+        assert(bytes==840 && le32(tx)==((8u<<24)|(272u<<7)));
+        assert(tx[4]==0x10 && le16(tx+6)==272 && le32(tx+8)==0x12345678);
+        assert(le32(tx+276)==(1u<<23));
+        assert(encodeWifiCommand(tx,839,9,0,nullptr,0,bytes)==Invalid);
+        std::copy(tx,tx+840,rx);put32(rx,(10u<<24)|(272u<<7));rx[4]=8;
+        put32(rx+1672,272);put32(rx+1676,0);
+        WifiReply reply;bool matched=false;
+        assert(decodeWifiReply(rx,sizeof(rx),9,0x12345678,reply,matched)==Ok && matched);
+        assert(reply.length==260 && le32(reply.payload)==1 && reply.frames==1);
+        WifiReply stale;assert(decodeWifiReply(rx,sizeof(rx),9,2,stale,matched)==Ok && !matched && stale.unmatched==1);
+        rx[12]=0xff;assert(decodeWifiReply(rx,sizeof(rx),9,0x12345678,reply,matched)==Protocol);
+        rx[12]=0;rx[6]=0xff;rx[7]=0xff;
+        assert(decodeWifiReply(rx,sizeof(rx),9,0x12345678,reply,matched)==Protocol);
+        put32(rx+1672,1673);assert(decodeWifiReply(rx,sizeof(rx),9,0,reply,matched)==Protocol);
+        put32(rx+1672,0);assert(decodeWifiReply(rx,sizeof(rx),9,0,reply,matched)==Ok && !matched);
+    }
+    {
+        SdioIo io;DmaMock dma(io);SprdSdio::Host<SdioIo> host(io,dma);
+        assert(host.initialize()==Ok);uint8_t packet[840]={1,2,3},rx[1680]={};
+        assert(host.packets(true,packet,sizeof(packet))==Ok && io.packetTx.size()==840);
+        io.packetRx.assign(1680,0xa5);assert(host.packets(false,rx,sizeof(rx))==Ok && rx[1679]==0xa5);
+        assert(io.portReads==0 && host.last.argument==0x18004002 && host.last.transferred==1680);
+        unsigned old=io.commands;assert(host.packets(true,packet,512)==Invalid && io.commands==old);
+        host.restore();
+    }
     assert(SprdMali::factorySupplyReady(0,224));
     assert(SprdMali::factorySupplyReady(0,256));
     assert(!SprdMali::factorySupplyReady(8,256));

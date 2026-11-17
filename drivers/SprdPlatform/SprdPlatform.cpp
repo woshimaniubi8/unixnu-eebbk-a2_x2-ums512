@@ -24,6 +24,8 @@
 #include "SprdBattery.h"
 #include "SprdSdio.h"
 #include "SprdSdioDma.h"
+#include "SprdWcnPackets.h"
+#include "SprdWcnApi.h"
 #include "SprdWcnPower.h"
 #include "SprdMali.h"
 extern "C" kmod_info_t g_kernel_kmod_info;
@@ -174,6 +176,25 @@ void NativeSprdPlatform::identifyRadioGpu() {
         if(h==Ok && e==Ok){
             Result fw=bootWcnFirmware(host,id);
             IOLog("M121 wcn: firmware boot result=%d\n",fw);
+            if(fw==Ok){
+                const unsigned bank=6*0x80;uint32_t mask=mmio[1].read32(bank+4),dir=mmio[1].read32(bank+8),in=mmio[1].read32(bank+0x28);
+                mmio[1].write32(bank+4,mask|1u);mmio[1].write32(bank+8,dir&~1u);mmio[1].write32(bank+0x28,in|1u);
+                uint8_t irqEnable=0;Result packet=host.byte(0,0x1ca,irqEnable);bool irqSaved=packet==Ok;
+                if(packet==Ok)packet=host.put(0,0x1ca,(uint8_t)(irqEnable|3));
+                IOLog("M122 wcn: packet setup=%d deint=0x%x gpio96=%u rx_base=12\n",packet,irqEnable,(mmio[1].read32(bank)&1u)!=0);
+                uint8_t api[260]={};SprdWcn::put32(api,1);memcpy(api+4,SprdWcn::kFactoryWifiApi,256);
+                SprdWcn::WifiReply sync;
+                if(packet==Ok)packet=SprdWcn::wifiCommand(host,mmio[1],9,1,api,sizeof(api),sync);
+                IOLog("M122 wifi: sync result=%d status=%d bytes=%llu frames=%u unmatched=%u header=0x%x valid=%u remain=%u cmd=%u arg=0x%x irq=%u\n",packet,sync.status,(unsigned long long)sync.length,sync.frames,sync.unmatched,sync.publicHeader,sync.validBytes,sync.remainingBytes,host.last.index,host.last.argument,(mmio[1].read32(bank)&1u)!=0);
+                if(packet==Ok){
+                    SprdWcn::WifiReply info;packet=SprdWcn::wifiCommand(host,mmio[1],1,2,nullptr,0,info);
+                    if(packet==Ok && info.length<24)packet=Protocol;
+                    IOLog("M122 wifi: GET_INFO result=%d status=%d bytes=%llu chip=0x%x revision=0x%x firmware=0x%x standards=0x%x capabilities=0x%x frames=%u unmatched=%u\n",packet,info.status,(unsigned long long)info.length,SprdWcn::le32(info.payload),SprdWcn::le32(info.payload+4),SprdWcn::le32(info.payload+8),SprdWcn::le32(info.payload+12),SprdWcn::le32(info.payload+16),info.frames,info.unmatched);
+                }
+                Result irqRestored=irqSaved?host.put(0,0x1ca,irqEnable):Invalid;
+                mmio[1].write32(bank+0x28,in);mmio[1].write32(bank+8,dir);mmio[1].write32(bank+4,mask);
+                IOLog("M122 wcn: packet cleanup irq=%d gpio_restored=1 final=%d\n",irqRestored,packet);
+            }
             uint32_t reset=0,held=0;
             Result stopped=host.readCp(kWcnResetRegister,reset);
             if(stopped==Ok){

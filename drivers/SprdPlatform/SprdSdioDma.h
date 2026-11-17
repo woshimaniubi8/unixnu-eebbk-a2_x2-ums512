@@ -38,7 +38,7 @@ public:
         return table && buffer;
     }
     SprdBus::Result prepare(uint8_t *data,size_t bytes,bool write,uint64_t &address) override{
-        if(!table || !buffer || quarantined || !data || !bytes || bytes>512)return SprdBus::Invalid;
+        if(!table || !buffer || quarantined || !data || !bytes || bytes>0x4000)return SprdBus::Invalid;
         uint32_t *words=(uint32_t *)table->getBytesNoCopy();
         words[0]=(uint32_t)(bytes<<16)|0x23;words[1]=(uint32_t)bufferPa;words[2]=(uint32_t)(bufferPa>>32);words[3]=0;
         bzero(buffer->getBytesNoCopy(),0x4000);
