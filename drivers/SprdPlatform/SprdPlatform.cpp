@@ -3,6 +3,7 @@
 // battery values. Register protocol provenance is recorded in README.md.
 #include <IOKit/IOService.h>
 #include <IOKit/IODeviceMemory.h>
+#include <IOKit/IODeviceTreeSupport.h>
 #include <IOKit/IOLib.h>
 #include <IOKit/IOWorkLoop.h>
 #include <IOKit/IOTimerEventSource.h>
@@ -26,6 +27,7 @@
 #include "SprdSdio.h"
 #include "SprdSdioDma.h"
 #include "SprdWcnPackets.h"
+#include "SprdWcnCalibration.h"
 #include "SprdWcnApi.h"
 #include "SprdWcnSession.h"
 #include "SprdWcnPower.h"
@@ -214,10 +216,34 @@ void NativeSprdPlatform::identifyRadioGpu() {
                 if(packet==Ok)packet=SprdWcn::wifiCommand(host,mmio[1],9,1,api,sizeof(api),sync);
                 IOLog("M122 wifi: sync result=%d status=%d bytes=%llu frames=%u unmatched=%u header=0x%x valid=%u remain=%u cmd=%u arg=0x%x irq=%u\n",packet,sync.status,(unsigned long long)sync.length,sync.frames,sync.unmatched,sync.publicHeader,sync.validBytes,sync.remainingBytes,host.last.index,host.last.argument,(mmio[1].read32(bank)&1u)!=0);
                 IOLog("M124 wifi: ADMA RX=2520 head=%08x/%08x/%08x/%08x tail=%08x/%08x/%08x/%08x sd_status=0x%x response=0x%x copied=%llu\n",sync.firstWords[0],sync.firstWords[1],sync.firstWords[2],sync.firstWords[3],sync.trailer[0],sync.trailer[1],sync.trailer[2],sync.trailer[3],host.last.status,host.last.response,(unsigned long long)host.last.transferred);
+                uint32_t transaction=2;
+                for(const auto &section:SprdWcn::kFactoryWifiSections){
+                    if(packet!=Ok)break;
+                    uint8_t body[1470]={};size_t length=0;SprdWcn::WifiReply reply;
+                    packet=SprdWcn::encodeWifiIni(body,sizeof(body),section,length);
+                    if(packet==Ok)packet=SprdWcn::wifiCommand(host,mmio[1],76,transaction++,body,length,reply);
+                    IOLog("M125 wifi: INI section=%u bytes=%llu crc=0x%04x result=%d status=%d frames=%u unmatched=%u\n",section.index,(unsigned long long)section.bytes,SprdWcn::wifiCalibrationCrc(section.data,section.bytes),packet,reply.status,reply.frames,reply.unmatched);
+                }
                 if(packet==Ok){
-                    SprdWcn::WifiReply info;packet=SprdWcn::wifiCommand(host,mmio[1],1,2,nullptr,0,info);
+                    SprdWcn::WifiReply info;packet=SprdWcn::wifiCommand(host,mmio[1],1,transaction++,nullptr,0,info);
                     if(packet==Ok && info.length<24)packet=Protocol;
                     IOLog("M122 wifi: GET_INFO result=%d status=%d bytes=%llu chip=0x%x revision=0x%x firmware=0x%x standards=0x%x capabilities=0x%x frames=%u unmatched=%u\n",packet,info.status,(unsigned long long)info.length,SprdWcn::le32(info.payload),SprdWcn::le32(info.payload+4),SprdWcn::le32(info.payload+8),SprdWcn::le32(info.payload+12),SprdWcn::le32(info.payload+16),info.frames,info.unmatched);
+                }
+                if(packet==Ok){
+                    IORegistryEntry *chosen=IORegistryEntry::fromPath("/chosen",gIODTPlane);
+                    OSData *factoryMac=chosen?OSDynamicCast(OSData,chosen->getProperty("mac-address-wifi0")):nullptr;
+                    uint8_t body[8]={};
+                    packet=SprdWcn::encodeWifiOpen(body,sizeof(body),factoryMac?(const uint8_t *)factoryMac->getBytesNoCopy():nullptr,factoryMac?factoryMac->getLength():0);
+                    const bool identityValid=packet==Ok;OSSafeReleaseNULL(chosen);
+                    SprdWcn::WifiReply opened;
+                    if(packet==Ok)packet=SprdWcn::wifiCommand(host,mmio[1],3,transaction++,body,sizeof(body),opened);
+                    if(packet==Ok && (opened.length!=1 || opened.payload[0]>7))packet=Protocol;
+                    IOLog("M125 wifi: OPEN result=%d status=%d bytes=%llu ctx=%u header_ctx=%u factory_mac=%u\n",packet,opened.status,(unsigned long long)opened.length,opened.payload[0],opened.context,identityValid);
+                    if(packet==Ok){
+                        uint8_t mode=1;SprdWcn::WifiReply closed;
+                        packet=SprdWcn::wifiCommand(host,mmio[1],4,transaction++,&mode,sizeof(mode),closed,opened.payload[0]);
+                        IOLog("M125 wifi: CLOSE result=%d status=%d bytes=%llu ctx=%u header_ctx=%u\n",packet,closed.status,(unsigned long long)closed.length,opened.payload[0],closed.context);
+                    }
                 }
                 Result irqRestored=irqSaved?host.put(0,0x1ca,irqEnable):Invalid;
                 mmio[1].write32(bank+0x28,in);mmio[1].write32(bank+8,dir);mmio[1].write32(bank+4,mask);

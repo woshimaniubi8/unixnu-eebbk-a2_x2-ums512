@@ -308,3 +308,24 @@ The remaining command parse failure is independent. M124 corrects the factory
 adma-rx transaction geometry: each1680-byte packet slot is followed by a
 separate840-byte DTBS block; the first receive is therefore2520 bytes/3blocks.
 The original1680 normal-mode aggregate assumption is rejected by host tests.
+
+M124 hardware acceptance now confirms SYNC_VERSION (260-byte reply) and
+GET_INFO (93-byte reply): chip2355, revision0, firmwareaa51, standards7f and
+capabilitiesf7f. The receive transaction is2520 bytes with valid272/remaining1
+in its separate DTBS. CP reset, IRQ/GPIO/power restoration and Mali WRITE_VALUE
+all passed. These are firmware-command results; no OS network interface,
+association, Bluetooth HCI controller or Metal renderer is established.
+
+M125 follows the original module's SYNC_VERSION -> DOWNLOAD_INI -> GET_INFO
+sequence. Chip2355b001 is UMW2652 AB, so it uses the shipped
+wifi_board_config.ini, not the AA variant. Packed wifi_conf_t3300 and section
+offsets/sizes come from the exact shipped sprdwl_ng.ko DWARF and command code.
+The packed input is pinned at5b91206f79606e65780da3a229584bf8c3e2beb19b7a2437345688cfe5621fff.
+Sections1/2/4 contain328/1464/3 bytes, with CRC16/MODBUSffff/a001 and the
+original four-byte section prefix. RF section3 is absent because rf_data_len0.
+Section2 requires two840-byte TX blocks; the EOF and padding stay in the same
+CMD53 transaction. OPEN station uses the privately acquired six-byte address
+from /chosen/mac-address-wifi0; no address is compiled or printed. CLOSE uses
+the firmware-returned context. Failure stops the sequence, then the existing
+CP-reset/resource cleanup runs. Hardware M125 remains unverified until its
+capture confirms every command and cleanup result.

@@ -289,6 +289,8 @@ jobs:
       - name: Check SC2355 and Mali register transactions
         run: |
           set -euxo pipefail
+          python3 device/scripts/generate-sprd-wifi-config.py device/drivers/SprdPlatform/firmware/wifi-conf-1h190.bin calibration-generated.h
+          cmp device/drivers/SprdPlatform/SprdWcnCalibrationData.h calibration-generated.h
           xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
             -fno-omit-frame-pointer device/scripts/test-sprd-radio-gpu.cpp -o radio-gpu-host-test
           ./radio-gpu-host-test

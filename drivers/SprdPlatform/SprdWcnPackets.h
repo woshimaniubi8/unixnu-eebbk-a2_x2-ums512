@@ -9,31 +9,35 @@
 
 namespace SprdWcn {
 using namespace SprdBus;
-constexpr size_t kPacketBlock=840,kReceivePacketBytes=1680,kReceiveBytes=2520,kCommandHeader=12;
+constexpr size_t kPacketBlock=840,kTransmitBytes=1680,kReceivePacketBytes=1680,kReceiveBytes=2520,kCommandHeader=12;
 inline uint16_t le16(const uint8_t *p){return (uint16_t)(p[0]|(uint16_t)p[1]<<8);}
 inline uint32_t le32(const uint8_t *p){return p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24;}
 inline void put32(uint8_t *p,uint32_t v){for(unsigned i=0;i<4;i++)p[i]=(uint8_t)(v>>(8*i));}
 
 struct WifiReply {
     uint8_t payload[320]={};size_t length=0;
-    int8_t status=0;unsigned frames=0,unmatched=0;
+    int8_t status=0;uint8_t context=0;unsigned frames=0,unmatched=0;
     uint32_t publicHeader=0,validBytes=0,remainingBytes=0;
     uint32_t firstWords[4]={},trailer[4]={};
 };
 
 inline Result encodeWifiCommand(uint8_t *out,size_t capacity,uint8_t command,uint32_t transaction,
-                                const uint8_t *payload,size_t bytes,size_t &used){
-    if(!out || capacity<kPacketBlock || bytes>kPacketBlock-20 || (bytes && !payload))return Invalid;
-    for(size_t i=0;i<kPacketBlock;i++)out[i]=0;
+                                const uint8_t *payload,size_t bytes,size_t &used,uint8_t context=0){
+    used=0;
+    if(!out || bytes>kTransmitBytes-20 || (bytes && !payload) || context>7)return Invalid;
     const size_t commandBytes=kCommandHeader+bytes;
+    const size_t eof=4+((commandBytes+3)&~size_t(3));
+    const size_t padded=((eof+4+kPacketBlock-1)/kPacketBlock)*kPacketBlock;
+    if(capacity<padded)return Invalid;
+    for(size_t i=0;i<padded;i++)out[i]=0;
     // TX channel8; original receive channels are subtype+12. Consequently the
     // command response is channel22/subtype10, not subtype6 from other BSPs.
     put32(out,(8u<<24)|(uint32_t)(commandBytes<<7));
-    out[4]=0x10;out[5]=command;out[6]=(uint8_t)commandBytes;out[7]=(uint8_t)(commandBytes>>8);
+    out[4]=(uint8_t)(0x10|(context<<5));out[5]=command;out[6]=(uint8_t)commandBytes;out[7]=(uint8_t)(commandBytes>>8);
     put32(out+8,transaction);
     for(size_t i=0;i<bytes;i++)out[16+i]=payload[i];
-    put32(out+4+((commandBytes+3)&~size_t(3)),1u<<23);
-    used=kPacketBlock;return Ok;
+    put32(out+eof,1u<<23);
+    used=padded;return Ok;
 }
 
 inline Result decodeWifiReply(const uint8_t *data,size_t bytes,uint8_t command,uint32_t transaction,
@@ -62,9 +66,9 @@ inline Result decodeWifiReply(const uint8_t *data,size_t bytes,uint8_t command,u
                (p[0]&7)==0 && p[1]==command && le32(p+4)==transaction){
                 size_t declared=le16(p+2);
                 if(declared<kCommandHeader || declared>length || declared-kCommandHeader>sizeof(reply.payload))return Protocol;
-                reply.status=(int8_t)p[8];reply.length=declared-kCommandHeader;
+                reply.status=(int8_t)p[8];reply.context=p[0]>>5;reply.length=declared-kCommandHeader;
                 for(size_t i=0;i<reply.length;i++)reply.payload[i]=p[kCommandHeader+i];
-                matched=true;return reply.status<0?Protocol:Ok;
+                matched=true;return reply.status!=0?Protocol:Ok;
             }
             reply.unmatched++;
         }
@@ -74,9 +78,9 @@ inline Result decodeWifiReply(const uint8_t *data,size_t bytes,uint8_t command,u
 }
 
 template<class Host,class Gpio> Result wifiCommand(Host &host,Gpio &gpio,uint8_t command,uint32_t transaction,
-                            const uint8_t *payload,size_t length,WifiReply &reply){
-    uint8_t tx[kPacketBlock]={},rx[kReceiveBytes]={};size_t used=0;
-    Result result=encodeWifiCommand(tx,sizeof(tx),command,transaction,payload,length,used);
+                            const uint8_t *payload,size_t length,WifiReply &reply,uint8_t context=0){
+    uint8_t tx[kTransmitBytes]={},rx[kReceiveBytes]={};size_t used=0;
+    Result result=encodeWifiCommand(tx,sizeof(tx),command,transaction,payload,length,used,context);
     if(result!=Ok)return result;
     result=host.packets(true,tx,used);if(result!=Ok)return result;
     // Factory m2-to-ap-irq-gpios is GPIO96, active high. The caller owns its

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include "../drivers/SprdPlatform/SprdSdio.h"
 #include "../drivers/SprdPlatform/SprdWcnPackets.h"
+#include "../drivers/SprdPlatform/SprdWcnCalibration.h"
 #include "../drivers/SprdPlatform/SprdWcnSession.h"
 #include "../drivers/SprdPlatform/SprdWcnPower.h"
 #include "../drivers/SprdPlatform/SprdMali.h"
@@ -165,6 +166,36 @@ struct SessionHost {
 };
 int main(){
     {
+        using namespace SprdWcn;
+        assert(wifiCalibrationCrc((const uint8_t *)"123456789",9)==0x4b37);
+        const uint16_t expected[]={0x84cb,0xa057,0x4653};
+        uint8_t body[1470]={},tx[1680]={};size_t bytes=0,wire=0;unsigned at=0;
+        for(const auto &section:kFactoryWifiSections){
+            assert(wifiCalibrationCrc(section.data,section.bytes)==expected[at++]);
+            assert(encodeWifiIni(body,sizeof(body),section,bytes)==Ok && bytes==section.bytes+6);
+            assert(le32(body)==section.index && le16(body+bytes-2)==expected[at-1]);
+            assert(std::equal(section.data,section.data+section.bytes,body+4));
+            assert(encodeWifiCommand(tx,sizeof(tx),76,at,body,bytes,wire)==Ok);
+            assert(wire==(section.index==2?1680:840));
+            assert(le16(tx+6)==bytes+12 && std::equal(body,body+bytes,tx+16));
+            assert(le32(tx+4+((bytes+15)&~size_t(3)))==(1u<<23));
+        }
+        assert(encodeWifiIni(body,1469,kFactoryWifiSections[1],bytes)==Invalid && bytes==0);
+        uint8_t large[1661]={};std::fill(tx,tx+sizeof(tx),0x5a);
+        assert(encodeWifiCommand(tx,1679,76,1,large,1470,wire)==Invalid && wire==0 && tx[0]==0x5a);
+        assert(encodeWifiCommand(tx,sizeof(tx),76,1,large,1660,wire,7)==Ok && wire==1680 && tx[4]==0xf0);
+        assert(le32(tx+1676)==(1u<<23));
+        assert(encodeWifiCommand(tx,sizeof(tx),76,1,large,1661,wire)==Invalid && wire==0);
+        assert(encodeWifiCommand(tx,sizeof(tx),76,1,nullptr,0,wire,8)==Invalid);
+        const uint8_t unicast[6]={2,1,2,3,4,5},multicast[6]={1,1,2,3,4,5},zero[6]={};
+        assert(encodeWifiOpen(body,sizeof(body),unicast,6)==Ok && body[0]==1 && !body[1]);
+        assert(std::equal(unicast,unicast+6,body+2));
+        assert(encodeWifiOpen(body,sizeof(body),multicast,6)==Invalid);
+        assert(encodeWifiOpen(body,sizeof(body),zero,6)==Invalid);
+        assert(encodeWifiOpen(body,sizeof(body),nullptr,6)==Invalid);
+        assert(encodeWifiOpen(body,sizeof(body),unicast,5)==Invalid);
+    }
+    {
         SessionHost host;SprdWcn::Session<SessionHost> session(host);
         assert(session.enable()==Ok && host.aon[0x1c0]==0xfd);
         assert(session.query()==Ok && session.wifi.address==0x40510000 && session.bt.bytes==0x8000);
@@ -208,6 +239,7 @@ int main(){
         assert(reply.length==260 && le32(reply.payload)==1 && reply.frames==1);
         WifiReply stale;assert(decodeWifiReply(rx,sizeof(rx),9,2,stale,matched)==Ok && !matched && stale.unmatched==1);
         rx[12]=0xff;assert(decodeWifiReply(rx,sizeof(rx),9,0x12345678,reply,matched)==Protocol);
+        rx[12]=1;assert(decodeWifiReply(rx,sizeof(rx),9,0x12345678,reply,matched)==Protocol);
         rx[12]=0;rx[6]=0xff;rx[7]=0xff;
         assert(decodeWifiReply(rx,sizeof(rx),9,0x12345678,reply,matched)==Protocol);
         put32(rx+2512,1681);assert(decodeWifiReply(rx,sizeof(rx),9,0,reply,matched)==Protocol);

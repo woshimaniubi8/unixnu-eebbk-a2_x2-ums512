@@ -1,0 +1,27 @@
+{
+  "factory_module_sha256": "ade3d19a83d5592dcf471d3031a654928cb34c1223c197748d0071010851ade4",
+  "physical_chip": "0x2355b001",
+  "strap": 0,
+  "variant": "wifi_board_config.ini",
+  "selection": "Original UMW2652 B001=AB; get_wifi_config_param selects _aa only for AA/B000.",
+  "factory_ini_sha256": "69dd711ac7fd521347612d3fb46d77199e3c87f34dc6bbcb6db1bc4904367f50",
+  "packed_bytes": 3300,
+  "packed_sha256": "5b91206f79606e65780da3a229584bf8c3e2beb19b7a2437345688cfe5621fff",
+  "sections": [
+    {
+      "index": 1,
+      "bytes": 328
+    },
+    {
+      "index": 2,
+      "bytes": 1464
+    },
+    {
+      "index": 4,
+      "bytes": 3
+    }
+  ],
+  "rf_section3_present": false,
+  "hardware_sent": false,
+  "mac_embedded": false
+}
