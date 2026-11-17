@@ -147,7 +147,7 @@ inline Result decodeWifiScanAggregate(const uint8_t *data,size_t bytes,uint32_t 
             const size_t declared=le16(p+2);
             if(declared<kCommandHeader || declared>length)return Protocol;
             if(messageType==0 && p[1]==kWifiCmdScan && le32(p+4)==transaction){
-                if(!(p[0]&0x10u) || ((p[0]>>5)&7u)!=context)return Protocol;
+                if(((p[0]>>5)&7u)!=context)return Protocol;
                 report.responseSeen=true;report.responseStatus=(int8_t)p[8];
                 report.responseContext=(p[0]>>5)&7u;
                 if(declared>=kCommandHeader+4)report.responseCode=le32(p+kCommandHeader);

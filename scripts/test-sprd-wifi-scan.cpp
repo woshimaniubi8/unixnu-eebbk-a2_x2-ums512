@@ -33,7 +33,8 @@ int main(){
     }
     {
         uint8_t rx[kReceiveBytes]={},response[16]={},mgmt[12+45]={},done[1]={1},frame[45]={};
-        response[0]=0x10;response[1]=kWifiCmdScan;putLe16(response+2,16);put32(response+4,0x1234);put32(response+12,0);
+        // The hardware-qualified command responses clear the request's RSP bit.
+        response[0]=0;response[1]=kWifiCmdScan;putLe16(response+2,16);put32(response+4,0x1234);put32(response+12,0);
         frame[0]=0x80;frame[1]=0;frame[16]=0x02;frame[17]=0x11;frame[18]=0x22;frame[19]=0x33;frame[20]=0x44;frame[21]=0x55;
         putLe16(frame+32,100);putLe16(frame+34,0x431);
         frame[36]=0;frame[37]=4;memcpy(frame+38,"test",4);frame[42]=3;frame[43]=1;frame[44]=6;
