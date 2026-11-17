@@ -111,10 +111,29 @@ public:
     Result readCp(uint32_t address,uint32_t &value) {
         // Shipped sdiohal_dt_set_addr(): function0 SYSADDR0..3, then
         // function1 direct-mode port0x0f. APB/CIS pointers are not CPU MMIO.
-        for(unsigned i=0;i<4;i++){Result r=put(0,0x15c+i,(uint8_t)(address>>(8*i)));if(r!=Ok)return r;}
-        uint8_t bytes[4]={};Result r=extended(false,1,0xf,bytes,4,true);
+        uint8_t bytes[4]={};Result r=readCpBytes(address,bytes,sizeof(bytes));
         if(r==Ok)value=(uint32_t)bytes[0]|(uint32_t)bytes[1]<<8|(uint32_t)bytes[2]<<16|(uint32_t)bytes[3]<<24;
         return r;
+    }
+    Result readCpBytes(uint32_t address,uint8_t *data,size_t bytes) {
+        if(!data || !bytes || bytes>0x100000 || address>UINT32_MAX-bytes)return Invalid;
+        for(unsigned i=0;i<4;i++){Result r=put(0,0x15c+i,(uint8_t)(address>>(8*i)));if(r!=Ok)return r;}
+        for(size_t offset=0;offset<bytes;){
+            size_t count=bytes-offset;if(count>512)count=512;
+            Result r=extended(false,1,0xf,data+offset,count,true);if(r!=Ok)return r;
+            offset+=count;
+        }
+        return Ok;
+    }
+    Result writeCpBytes(uint32_t address,const uint8_t *data,size_t bytes) {
+        if(!data || !bytes || bytes>0x100000 || address>UINT32_MAX-bytes)return Invalid;
+        for(unsigned i=0;i<4;i++){Result r=put(0,0x15c+i,(uint8_t)(address>>(8*i)));if(r!=Ok)return r;}
+        for(size_t offset=0;offset<bytes;){
+            size_t count=bytes-offset;if(count>512)count=512;
+            Result r=extended(true,1,0xf,const_cast<uint8_t *>(data+offset),count,true);if(r!=Ok)return r;
+            offset+=count;
+        }
+        return Ok;
     }
     Result enumerate(Identity &id) {
         uint32_t response=0;Result r=command(0,0,0,response);if(r!=Ok)return r;

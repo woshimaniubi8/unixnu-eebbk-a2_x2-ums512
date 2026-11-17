@@ -82,12 +82,25 @@ for successful GPU execution or publishes a Metal device from these reads.
 
 Host verification: `clang++ -std=c++17 -fsanitize=address,undefined
 scripts/test-sprd-radio-gpu.cpp -o /tmp/test-sprd-radio-gpu` and execute the
-result. This covers ROM identity, original memory-window addressing, combined
-PIO/completion, bounded errors, partial-start rollback and GPU reset failures.
-Hardware results belong to the M116 serial receipt. Firmware download, RF
-calibration, Wi-Fi scan/association/traffic, Bluetooth HCI and GPU jobs/Metal
-remain separately verifiable stages; this initial operation does not claim
-those stages have completed.
+result. This covers ROM identity, original memory-window addressing, CMD53
+read/write through private ADMA buffers, bounded errors, partial-start rollback
+and GPU reset failures. M120 hardware evidence confirms chip `0x2355b001`,
+strap `0`, successful CMD53 data completion, and a Mali `WRITE_VALUE` job whose
+readback matched `0x4750554d313139`; it does not establish Wi-Fi or Bluetooth
+services.
+
+The M121 firmware loader embeds exactly the factory 1h190 image prefix:
+`wcnmodem` partition bytes `[0, 0xe7400)`, SHA-256
+`59e177b4cb195c63a0021164d286c13c5c4fc9be9d430457451db40dc8caf554`. Its
+vector words are SP `0x001a0aa0` and reset `0x00100319`; the shipped loader
+places it at `0x40500000`, holds/releases bit 0 at `0x40088288`, and waits for
+mailbox states at `0x405e73b0`. If the optional factory TSX calibration file
+or AFC flag is missing, the original loader's value is `0xffff`; M121 preserves
+that fallback and records it. Firmware boot is only accepted after the vector
+readback and final mailbox value `0xf0f0f0ff`. On success the WCN rails and
+SDIO host are retained for the later Wi-Fi/BT frontends. M121 firmware boot,
+radio calibration, Wi-Fi scan/association/traffic and Bluetooth HCI remain
+separate hardware acceptance stages; no Metal device is published.
 
 ## PWM2 backlight
 

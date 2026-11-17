@@ -108,31 +108,31 @@ evidence = []
 
 [[area]]
 id = "gpu"
-status = "planned"
-components = []
-paths = ["package/*Gpu*", "scripts/*gpu*"]
-inputs = ["UMS512 uses a Mali GPU (not Adreno); no Mali/Metal component exists in the UniXNU catalog for this SoC."]
-configuration = []
-procedure = []
-findings = ["GPU acceleration is out of scope for the boot milestone; Adreno740/AdrenoMetal components from the SM8550 port do not apply."]
+status = "hardware-probed"
+components = ["SprdPlatform"]
+paths = ["drivers/SprdPlatform/SprdMali.h", "drivers/SprdPlatform/SprdMaliTest.cpp", "drivers/SprdPlatform/mali/**", "scripts/build-sprd-platform.py"]
+inputs = ["Factory Mali Gondul/G52 MC2, GPU_ID 0x74021000; I/O memory at 0x60000000, job slots 0x60020000, MMU address spaces and local 4 GiB DRAM."]
+configuration = ["Reuse Dracen-W/Mali-G52 pinned commit 2f279e1c0213c2ec33ec9e0f2f643c04c65565ec for Bifrost v7 register/MMU/job logic; only the factory Sprd power domain and allocated local buffers are board-specific."]
+procedure = ["Use 16 KiB prepared/physically contiguous descriptors; map 8 KiB at GPU IOVA 0x01000000; submit Bifrost v7 WRITE_VALUE; require job completion, exact CPU readback and successful reset/AS teardown."]
+findings = ["M120 hardware log: GPU ID 0x74021000, shader=3, JS=7; WRITE_VALUE completed raw=0x2 and read back 0x4750554d313139 with AS fault=0, then teardown/reset succeeded."]
 completion = ["GPU submissions complete, mapping/fence handling is correct, a known image renders, and the selected Metal client presents it."]
-limits = ["No Mali driver component or firmware path exists yet."]
-next_action = ["Inventory the Mali model and firmware from the vendor DTB/kernel before selecting a component."]
-evidence = []
+limits = ["Only an owned-memory job is hardware-verified. No command submission frontend, renderer, PanVK integration, or Metal device/service has been published; image rendering is unverified."]
+next_action = ["Port the matching Mali-G52 userspace/kernel-facing service contract, then validate a rendered test image before advertising Metal support."]
+evidence = [{ kind = "hardware", reference = "build/diag/m120-sdio-adma/COM14-921600.log", result = "GPU owned-memory WRITE_VALUE and teardown passed on M120." }, { kind = "host", reference = "build/diag/m120-sdio-adma/ci-44039481627-job-133890300911.log", result = "ASan/UBSan Mali VM/job tests passed; storage binding guard 190/190 passed." }]
 
 [[area]]
 id = "network"
-status = "planned"
-components = []
-paths = []
-inputs = ["Vendor DTB has WCN (Unisoc combo Wi-Fi/BT) and SDIO; no PCIe Wi-Fi."]
-configuration = []
-procedure = []
+status = "firmware-boot-in-progress"
+components = ["SprdPlatform"]
+paths = ["drivers/SprdPlatform/SprdSdio.h", "drivers/SprdPlatform/SprdSdioDma.h", "drivers/SprdPlatform/SprdWcnPower.h", "drivers/SprdPlatform/firmware/wcnmodem-1h190-sc2355.bin"]
+inputs = ["SC2355 WCN combo on SDIO1 at 0x71200000, physical CP chip ID observed 0x2355b001 / strap 0; factory power GPIOs 143/97 and factory regulator/clock sequence."]
+configuration = ["M120 selects ADMA64 with private prepared DMA buffers; M121 pins the 0xe7400-byte factory WCN image (SHA-256 59e177b4cb195c63a0021164d286c13c5c4fc9be9d430457451db40dc8caf554), CP load address 0x40500000 and factory mailbox 0x405e73b0. The factory TSX loader fallback is 0xffff if the optional productinfo calibration file/flag is absent."]
+procedure = ["Validate chip/strap and firmware vectors; hold CP_RESET bit 0; transfer firmware through function-0 SYSADDR and function-1 CMD53; verify CP vector readback; release reset; follow the two original mailbox handshakes."]
 findings = ["The Ath12kWifi/MHI components from the Qualcomm port do not apply."]
 completion = ["Scanning, association, address configuration and sustained receive/transmit traffic pass with the selected firmware."]
-limits = ["WCN firmware and SDIO power sequencing are not extracted."]
-next_action = ["Extract the WCN model and firmware files from the vendor super/vendor partitions."]
-evidence = []
+limits = ["M120 proved WCN power, SDIO enumeration, CMD53 DMA read, chip ID and strap; firmware boot and mailbox are not yet hardware-tested. Wi-Fi scan/association/traffic and Bluetooth HCI remain unimplemented."]
+next_action = ["Build and flash M121; accept only firmware vector readback plus the final factory mailbox-ready value, then port the SC2355 Wi-Fi command/data frontend and Bluetooth HCI channels 3/17."]
+evidence = [{ kind = "hardware", reference = "build/diag/m120-sdio-adma/COM14-921600.log", result = "M120: SDIO enumeration and chip 0x2355b001, CMD53 returned four bytes; firmware not sent." }, { kind = "source", reference = "build/diag/m116-wcn-gpu/marlin_download_from_partition.S.txt + original UMS512 kernel/c7f66a031fd82a5a60e10eebd8a57e961de5d8df", result = "Factory CP load base, image length, reset and mailbox sequence." }]
 
 [[area]]
 id = "audio"

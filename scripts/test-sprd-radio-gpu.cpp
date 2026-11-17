@@ -4,6 +4,8 @@
 #include "../drivers/SprdPlatform/SprdMali.h"
 #include <cassert>
 #include <cstdio>
+#include <algorithm>
+#include <iterator>
 #include <map>
 #include <vector>
 using namespace SprdBus;
@@ -36,15 +38,18 @@ struct Pmic {
 };
 struct SdioIo {
     std::map<unsigned,uint8_t> bytes,card;
+    std::map<uint32_t,uint8_t> cpMemory;
     std::vector<uint32_t> fifo;
     uint32_t status=0,response=0;unsigned portReads=0,commands=0,delays=0;
     bool injectError=false,timeout=false,manfid=true,resetStuck=false;
-    uint32_t dmaWord=0;
+    uint32_t currentCp=0;bool currentWrite=false;
     unsigned r16(unsigned a){return bytes[a]|bytes[a+1]<<8;}
     uint32_t r32(unsigned a){return r16(a)|(uint32_t)r16(a+2)<<16;}
     SdioIo(){
         card[0]=0x32;card[3]=2;card[9]=0;card[10]=0x10;card[11]=0;
         card[0x1000]=0x20;card[0x1001]=4;for(unsigned i=2;i<6;i++)card[0x1000+i]=0;card[0x1006]=0xff;
+        const uint32_t chip=0x23550001,strap=0x8000;
+        for(unsigned i=0;i<4;i++){cpMemory[0x4083c208+i]=(uint8_t)(chip>>(i*8));cpMemory[0x408a0000+i]=(uint8_t)(strap>>(i*8));}
     }
     uint8_t read8(unsigned a){return bytes[a];}
     uint16_t read16(unsigned a){return (uint16_t)r16(a);}
@@ -73,11 +78,11 @@ struct SdioIo {
         if(cmd==53){
             assert(((arg>>28)&7)==1 && ((arg>>9)&0x1ffff)==0xf && (arg&(1u<<26)));
             uint32_t cp=card[0x15c]|(uint32_t)card[0x15d]<<8|(uint32_t)card[0x15e]<<16|(uint32_t)card[0x15f]<<24;
-            assert(cp==0x4083c208 || cp==0x408a0000);
-            assert((r16(4)&0xfff)==4 && r32(0)==1 && (v&1));
+            currentCp=cp;currentWrite=(arg>>31)!=0;
+            assert((r16(4)&0xfff)>0 && r32(0)==1 && (v&1));
             assert((read8(0x28)&0x18)==0x10 && (read16(0x3e)&0x2c00)==0x2800);
             assert(r32(0x58)==0x90000000 && r32(0x5c)==0);
-            dmaWord=cp==0x4083c208?0x23550001u:0x8000u;portReads=0;
+            portReads=0;
             status=1|2|8|0x20; // FIFO must remain unread even if ready latched.
         }
     }
@@ -86,12 +91,17 @@ struct SdioIo {
 struct DmaMock:SprdSdio::Dma {
     SdioIo &io;unsigned prepared=0,completed=0;bool quarantined=false;
     explicit DmaMock(SdioIo &i):io(i){}
-    Result prepare(uint8_t *p,size_t n,bool write,uint64_t &table) override{
-        assert(p && n==4 && !write);prepared++;table=0x90000000;return Ok;
+    Result prepare(uint8_t *p,size_t n,bool,uint64_t &table) override{
+        assert(p && n>0 && n<=512);prepared++;table=0x90000000;return Ok;
     }
     void complete(uint8_t *p,size_t n,bool write,bool success,bool stopped) override{
-        assert(p && n==4 && !write);completed++;if(!stopped)quarantined=true;
-        if(success)for(unsigned i=0;i<4;i++)p[i]=(uint8_t)(io.dmaWord>>(i*8));
+        assert(p && n>0 && n<=512);completed++;if(!stopped)quarantined=true;
+        if(success && write)for(size_t i=0;i<n;i++)io.cpMemory[io.currentCp+i]=p[i];
+        if(success && !write)for(size_t i=0;i<n;i++)p[i]=io.cpMemory[io.currentCp+i];
+        if(success){
+            uint32_t next=io.currentCp+static_cast<uint32_t>(n);
+            for(unsigned i=0;i<4;i++)io.card[0x15c+i]=(uint8_t)(next>>(i*8));
+        }
     }
 };
 struct GpuIo:Io {
@@ -117,6 +127,11 @@ int main(){
         assert(host.initialize()==Ok && host.enumerate(id)==Ok);
         assert(id.vendor==0 && id.device==0 && id.chip==0x23550001 && id.strap==0x8000);
         assert(io.portReads==0 && host.last.transferred==4 && dma.prepared==2 && dma.completed==2);
+        const uint8_t firmware[1024]={0xa0,0x0a,0x1a,0x00,0x19,0x03,0x10,0x00};
+        assert(host.writeCpBytes(0x40500000,firmware,sizeof(firmware))==Ok);
+        uint8_t readback[1024]={};assert(host.readCpBytes(0x40500000,readback,sizeof(readback))==Ok);
+        assert(std::equal(std::begin(firmware),std::end(firmware),std::begin(readback)));
+        assert(dma.prepared==6 && dma.completed==6);
         unsigned old=io.commands;uint8_t data[513]={};assert(host.extended(false,1,0xf,data,513,true)==Invalid && io.commands==old);
         host.restore();
     }

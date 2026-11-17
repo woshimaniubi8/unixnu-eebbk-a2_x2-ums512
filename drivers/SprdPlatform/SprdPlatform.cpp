@@ -33,8 +33,65 @@ extern "C" IOReturn sprd_hid_buttons(IOService *,uint8_t);
 extern "C" IOReturn sprd_hid_contacts(IOService *,const SprdBus::Frame *,unsigned,unsigned);
 extern "C" void sprd_hid_diagnostics(IOService *);
 extern "C" IOReturn sprd_mali_owned_write_test(volatile uint8_t *,volatile uint8_t *,volatile uint8_t *,volatile uint8_t *,bool *);
+extern "C" const uint8_t sprd_wcn_firmware_start[];
+extern "C" const uint8_t sprd_wcn_firmware_end[];
 using namespace SprdBus;
 namespace {
+constexpr uint32_t kWcnFirmwareBase=0x40500000;
+constexpr uint32_t kWcnResetRegister=0x40088288;
+constexpr uint32_t kWcnMailbox=0x405e73b0;
+constexpr size_t kWcnFirmwareBytes=0xe7400;
+constexpr uint32_t kWcnMailboxWait=0xf0f0f0f1;
+constexpr uint32_t kWcnMailboxCalibrated=0xf0f0f0f2;
+constexpr uint32_t kWcnMailboxReady=0xf0f0f0ff;
+
+Result bootWcnFirmware(SprdSdio::Host<Registers> &host,const SprdSdio::Identity &id) {
+    const size_t firmwareBytes=static_cast<size_t>(sprd_wcn_firmware_end-sprd_wcn_firmware_start);
+    if(id.chip!=0x2355b001 || id.strap!=0 || firmwareBytes!=kWcnFirmwareBytes)
+        return Invalid;
+    uint32_t vectorSp=0,vectorReset=0,reset=0;
+    memcpy(&vectorSp,sprd_wcn_firmware_start,sizeof(vectorSp));
+    memcpy(&vectorReset,sprd_wcn_firmware_start+4,sizeof(vectorReset));
+    if(vectorSp!=0x001a0aa0 || vectorReset!=0x00100319)return Protocol;
+    Result result=host.readCp(kWcnResetRegister,reset);
+    if(result!=Ok)return result;
+    uint32_t held=reset|1u;
+    result=host.writeCpBytes(kWcnResetRegister,reinterpret_cast<const uint8_t *>(&held),sizeof(held));
+    if(result!=Ok)return result;
+    IOLog("M121 wcn: CPU held reset=0x%x firmware=0x%llx bytes=0x%llx\n",reset,static_cast<unsigned long long>(kWcnFirmwareBase),static_cast<unsigned long long>(firmwareBytes));
+    result=host.writeCpBytes(kWcnFirmwareBase,sprd_wcn_firmware_start,firmwareBytes);
+    if(result!=Ok)return result;
+    uint8_t vectors[8]={};result=host.readCpBytes(kWcnFirmwareBase,vectors,sizeof(vectors));
+    if(result!=Ok || memcmp(vectors,sprd_wcn_firmware_start,sizeof(vectors)))return result==Ok?Protocol:result;
+    IOLog("M121 wcn: firmware written/readback vector sp=0x%08x reset=0x%08x bytes=0x%llx\n",vectorSp,vectorReset,static_cast<unsigned long long>(firmwareBytes));
+    result=host.readCp(kWcnResetRegister,reset);if(result!=Ok)return result;
+    uint32_t released=reset&~1u;
+    result=host.writeCpBytes(kWcnResetRegister,reinterpret_cast<const uint8_t *>(&released),sizeof(released));
+    if(result!=Ok)return result;
+    uint32_t mailbox=0;bool calibratedRequest=false;
+    for(unsigned i=0;i<66;i++){
+        result=host.readCp(kWcnMailbox,mailbox);if(result!=Ok)return result;
+        if(mailbox==kWcnMailboxWait){calibratedRequest=true;break;}
+        IODelay(5000);
+    }
+    if(!calibratedRequest)return Timeout;
+    // The factory loader returns 0xffff when the optional productinfo TSX file
+    // or its AFC calibration flag is absent; preserve that exact fallback.
+    const uint16_t tsxDac=0xffff;
+    result=host.writeCpBytes(kWcnMailbox+0x18,reinterpret_cast<const uint8_t *>(&tsxDac),sizeof(tsxDac));
+    if(result!=Ok)return result;
+    result=host.writeCpBytes(kWcnMailbox,reinterpret_cast<const uint8_t *>(&kWcnMailboxCalibrated),sizeof(kWcnMailboxCalibrated));
+    if(result!=Ok)return result;
+    bool ready=false;
+    for(unsigned i=0;i<66;i++){
+        result=host.readCp(kWcnMailbox,mailbox);if(result!=Ok)return result;
+        if(mailbox==kWcnMailboxReady){ready=true;break;}
+        IODelay(5000);
+    }
+    IOLog("M121 wcn: mailbox wait=0x%08x tsx=0x%04x result=%d mailbox=0x%08x\n",kWcnMailboxWait,tsxDac,ready?Ok:Timeout,mailbox);
+    return ready?Ok:Timeout;
+}
+
 constexpr FuelOcvPoint kFactoryOcvCapacity[]={{4386000,100},{4329000,95},{4274000,90},{4217000,85},{4160000,80},{4106000,75},{4055000,70},{4008000,65},{3964000,60},{3905000,55},{3866000,50},{3840000,45},{3818000,40},{3800000,35},{3784000,30},{3766000,25},{3744000,20},{3719000,15},{3690000,10},{3679000,5},{3460000,0}};
 struct Registers {
     volatile uint8_t *base=nullptr;
@@ -114,7 +171,14 @@ void NativeSprdPlatform::identifyRadioGpu() {
         Result h=dmaReady?host.initialize():Invalid,e=h==Ok?host.enumerate(id):Invalid;
         IOLog("M116 wcn: host=%d enumerate=%d ocr=0x%x funcs=%u rca=0x%x cccr=0x%x ready=0x%x manfid=0x%x/0x%x chip=0x%x strap=0x%x\n",h,e,id.ocr,id.functions,id.rca,id.cccr,id.ready,id.vendor,id.device,id.chip,id.strap);
         IOLog("M116 wcn: command=%u arg=0x%x status=0x%x present=0x%x resp=0x%x copied=%llu\n",host.last.index,host.last.argument,host.last.status,host.last.present,host.last.response,(unsigned long long)host.last.transferred);
-        host.restore();Result restored=power.restore();IOLog("M116 wcn: power restored=%d; radio firmware and OS network are subsequent operations\n",restored);
+        bool wcnRunning=false;
+        if(h==Ok && e==Ok){
+            IOReturn fw=bootWcnFirmware(host,id);
+            IOLog("M121 wcn: firmware boot result=0x%x\n",fw);
+            wcnRunning=fw==Ok;
+        }
+        if(wcnRunning)IOLog("M121 wcn: factory firmware running; SDIO host and shared WCN rails retained for Wi-Fi/BT frontend\n");
+        else {host.restore();Result restored=power.restore();IOLog("M116 wcn: power restored=%d; no firmware-ready state\n",restored);}
         uint16_t pd=0,vsel=0;Result a=adi.read(0x181c,pd),b=adi.read(0x1854,vsel);
         IOLog("M116 mali: DCDC_GPU reads=%d/%d pd=0x%x selector=%u (3125uV/step)\n",a,b,pd,vsel&0x1ff);
         if(a==Ok && b==Ok && SprdMali::factorySupplyReady(pd,vsel)){
