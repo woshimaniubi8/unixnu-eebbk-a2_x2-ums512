@@ -10,7 +10,8 @@ struct ReceiveState {
     uint32_t valid=0,remaining=0,header=0;
 };
 template<class Host,class Gpio>
-inline Result receiveSlice(Host &host,Gpio &gpio,ReceiveState &state,unsigned &packets) {
+inline Result receiveSlice(Host &host,Gpio &gpio,ReceiveState &state,unsigned &packets,
+                           PacketObserver observer={}) {
     packets=0;
     if(!state.pending && !(gpio.read32(kPacketGpioBank)&1u))return Ok;
     uint8_t bytes[kReceiveBytes]={};
@@ -24,6 +25,7 @@ inline Result receiveSlice(Host &host,Gpio &gpio,ReceiveState &state,unsigned &p
         if(!state.valid) {
             state.empty++;state.pending=false;return Ok;
         }
+        if(observer.packet){result=observeAggregate(bytes,sizeof(bytes),observer);if(result!=Ok)return result;}
         packets++;state.pending=state.remaining!=0;
         if(!state.pending)return Ok;
     }

@@ -129,11 +129,17 @@ public:
     uint32_t savedGpio[3]={},transaction=1;
     bool packetSaved=false,stationOpen=false,scanQualified=false,firmwareStarted=false;
     SprdWcn::ReceiveState receiveState;
+    SprdWcn::WifiStation station;
     RadioResources(Registers &g,Registers &a,Registers &p,Registers &ac,Adi<Registers> &adi):
         gpio(g),powerOwner(g,a,p,registers[1],ac,adi),host(registers[0],dma),session(host) {}
     ~RadioResources() override {
         if(initial)IOFree(initial,sizeof(*initial));
         for(auto &map:maps)OSSafeReleaseNULL(map);
+    }
+    void callbacks(SprdWcn::StationCallbacks cb) override {station.callbacks=cb;station.context=context;}
+    Result command(uint8_t cmd,const uint8_t *body,size_t bytes,SprdWcn::WifiReply &reply,uint8_t ctx) {
+        return SprdWcn::wifiCommand(host,gpio,cmd,transaction++,body,bytes,reply,ctx,
+                                    station.observer(),&receiveState.pending);
     }
     Result power(bool on) override {
         if(stationOpen==on)return Ok;
@@ -142,25 +148,66 @@ public:
         if(on) {
             uint8_t body[8]={};
             result=SprdWcn::encodeWifiOpen(body,sizeof(body),address,sizeof(address));
-            if(result==Ok)result=SprdWcn::wifiCommand(host,gpio,3,transaction++,body,sizeof(body),reply);
+            if(result==Ok)result=command(3,body,sizeof(body),reply,0);
             if(result==Ok && reply.length)result=Protocol;
-            if(result==Ok){context=reply.context;stationOpen=true;}
+            if(result==Ok){context=reply.context;station.context=context;stationOpen=true;}
         } else {
             uint8_t mode=1;
-            result=SprdWcn::wifiCommand(host,gpio,4,transaction++,&mode,1,reply,context);
-            if(result==Ok)stationOpen=false;
+            result=command(4,&mode,1,reply,context);
+            if(result==Ok){stationOpen=false;station.clearPeers();}
         }
         return result;
     }
     Result scan(const uint8_t *ssid,size_t length,SprdWcn::WifiScanReport &out) override {
         if(!stationOpen)return Invalid;
         Result result=session.wake();
-        if(result==Ok)result=SprdWcn::wifiScan(host,gpio,context,transaction++,0x421,out,ssid,length);
+        if(result==Ok)result=SprdWcn::wifiScan(host,gpio,context,transaction++,0x421,out,ssid,length,
+                                            station.observer(),&receiveState.pending);
+        return result;
+    }
+    Result connect(const SprdWcn::StationJoin &join) override {
+        if(!stationOpen)return Invalid;
+        uint8_t body[82]={},ie[22]={};size_t length=0;
+        Result result=SprdWcn::encodeStationConnect(join,body,ie,length);
+        if(result==Ok)result=session.wake();
+        SprdWcn::WifiReply reply;
+        // Explicitly clear stale association IEs when switching to an open AP.
+        uint8_t setIe[25]={3};SprdWcn::putLe16(setIe+1,(uint16_t)length);
+        memcpy(setIe+3,ie,length);
+        if(result==Ok)result=command(25,setIe,length+3,reply,context);
+        if(result==Ok){station.clearPeers();result=command(10,body,sizeof(body),reply,context);}
+        // PMK and command staging buffers never enter diagnostic output.
+        volatile uint8_t *secret=body;for(size_t i=0;i<sizeof(body);i++)secret[i]=0;
+        return result;
+    }
+    Result disconnect(unsigned reason) override {
+        if(!stationOpen)return Invalid;
+        uint8_t body[2];SprdWcn::putLe16(body,(uint16_t)reason);SprdWcn::WifiReply reply;
+        Result result=session.wake();
+        if(result==Ok)result=command(13,body,sizeof(body),reply,context);
+        return result;
+    }
+    Result key(const uint8_t *body,size_t length) override {
+        if(!stationOpen || !body || length!=43)return Invalid;
+        SprdWcn::WifiReply reply;Result result=session.wake();
+        if(result==Ok)result=command(14,body,length,reply,context);
+        return result;
+    }
+    Result transmit(const uint8_t *frame,size_t bytes) override {
+        uint8_t tx[SprdWcn::kTransmitBytes]={};size_t used=0;int color=-1;bool eapol=false;
+        Result result=SprdWcn::encodeStationEthernet(station,frame,bytes,tx,sizeof(tx),used,color,eapol);
+        if(result==Timeout)return Busy;
+        if(result==Ok)result=session.wake();
+        if(result==Ok) {
+            if(eapol)SprdWcn::put32(tx+8,transaction++);
+            result=host.packets(true,tx,used);
+            if(result==Ok){station.sequence++;if(!eapol && station.creditRequired)station.credits[color]--;}
+        }
         return result;
     }
     Result drain(unsigned &packets) override {
         const unsigned before=receiveState.batches;
-        Result result=SprdWcn::receiveSlice(host,gpio,receiveState,packets);
+        Result result=SprdWcn::receiveSlice(host,gpio,receiveState,packets,station.observer());
         const unsigned count=receiveState.batches;
         if(count!=before && (count<=4 || (count&255)==0 || result!=Ok)) {
             IOLog("M134 wifi: RX batch=%u empty=%u valid=%u remaining=%u header=0x%x pending=%u result=%d\n",
@@ -307,7 +354,7 @@ void NativeSprdPlatform::identifyRadioGpu() {
                       (mmio[1].read32(bank)&1u)!=0,(mmio[1].read32(6*0x80)&1u)!=0,dir,in,mask);
                 uint8_t api[260]={};SprdWcn::put32(api,1);memcpy(api+4,SprdWcn::kFactoryWifiApi,256);
                 SprdWcn::WifiReply sync;
-                if(packet==Ok)packet=SprdWcn::wifiCommand(host,mmio[1],9,1,api,sizeof(api),sync);
+                if(packet==Ok)packet=SprdWcn::wifiCommand(host,mmio[1],9,1,api,sizeof(api),sync,0,resources->station.observer(),&resources->receiveState.pending);
                 IOLog("M122 wifi: sync result=%d status=%d bytes=%llu frames=%u unmatched=%u header=0x%x valid=%u remain=%u cmd=%u arg=0x%x irq=%u\n",packet,sync.status,(unsigned long long)sync.length,sync.frames,sync.unmatched,sync.publicHeader,sync.validBytes,sync.remainingBytes,host.last.index,host.last.argument,(mmio[1].read32(bank)&1u)!=0);
                 IOLog("M124 wifi: ADMA RX=2520 head=%08x/%08x/%08x/%08x tail=%08x/%08x/%08x/%08x sd_status=0x%x response=0x%x copied=%llu\n",sync.firstWords[0],sync.firstWords[1],sync.firstWords[2],sync.firstWords[3],sync.trailer[0],sync.trailer[1],sync.trailer[2],sync.trailer[3],host.last.status,host.last.response,(unsigned long long)host.last.transferred);
                 uint32_t transaction=2;
@@ -315,12 +362,14 @@ void NativeSprdPlatform::identifyRadioGpu() {
                     if(packet!=Ok)break;
                     uint8_t body[1470]={};size_t length=0;SprdWcn::WifiReply reply;
                     packet=SprdWcn::encodeWifiIni(body,sizeof(body),section,length);
-                    if(packet==Ok)packet=SprdWcn::wifiCommand(host,mmio[1],76,transaction++,body,length,reply);
+                    if(packet==Ok)packet=SprdWcn::wifiCommand(host,mmio[1],76,transaction++,body,length,reply,0,resources->station.observer(),&resources->receiveState.pending);
                     IOLog("M125 wifi: INI section=%u bytes=%llu crc=0x%04x result=%d status=%d frames=%u unmatched=%u\n",section.index,(unsigned long long)section.bytes,SprdWcn::wifiCalibrationCrc(section.data,section.bytes),packet,reply.status,reply.frames,reply.unmatched);
                 }
                 if(packet==Ok){
-                    SprdWcn::WifiReply info;packet=SprdWcn::wifiCommand(host,mmio[1],1,transaction++,nullptr,0,info);
-                    if(packet==Ok && info.length<24)packet=Protocol;
+                    SprdWcn::WifiReply info;packet=SprdWcn::wifiCommand(host,mmio[1],1,transaction++,nullptr,0,info,0,resources->station.observer(),&resources->receiveState.pending);
+                    if(packet==Ok && info.length<83)packet=Protocol;
+                    if(packet==Ok)resources->station.creditRequired=info.payload[82]!=1;
+                    IOLog("M136 wifi: original TX10/RX24 credit_required=%u\n",resources->station.creditRequired);
                     IOLog("M122 wifi: GET_INFO result=%d status=%d bytes=%llu chip=0x%x revision=0x%x firmware=0x%x standards=0x%x capabilities=0x%x frames=%u unmatched=%u\n",packet,info.status,(unsigned long long)info.length,SprdWcn::le32(info.payload),SprdWcn::le32(info.payload+4),SprdWcn::le32(info.payload+8),SprdWcn::le32(info.payload+12),SprdWcn::le32(info.payload+16),info.frames,info.unmatched);
                 }
                 if(packet==Ok){
@@ -332,15 +381,15 @@ void NativeSprdPlatform::identifyRadioGpu() {
                     if(identityValid)memcpy(resources->address,factoryMac->getBytesNoCopy(),6);
                     OSSafeReleaseNULL(chosen);
                     SprdWcn::WifiReply opened;
-                    if(packet==Ok)packet=SprdWcn::wifiCommand(host,mmio[1],3,transaction++,body,sizeof(body),opened);
+                    if(packet==Ok)packet=SprdWcn::wifiCommand(host,mmio[1],3,transaction++,body,sizeof(body),opened,0,resources->station.observer(),&resources->receiveState.pending);
                     if(packet==Ok && opened.length!=0)packet=Protocol;
                     IOLog("M127 wifi: OPEN result=%d status=%d bytes=%llu ctx=%u factory_mac=%u\n",packet,opened.status,(unsigned long long)opened.length,opened.context,identityValid);
                     if(packet==Ok){
-                        resources->stationOpen=true;resources->context=opened.context;
+                        resources->stationOpen=true;resources->context=opened.context;resources->station.context=opened.context;
                         auto *scan=(SprdWcn::WifiScanReport *)IOMalloc(sizeof(SprdWcn::WifiScanReport));
                         if(scan){
                             memset(scan,0,sizeof(*scan));
-                            Result scanned=SprdWcn::wifiScan(host,mmio[1],opened.context,transaction++,0x421,*scan);
+                            Result scanned=SprdWcn::wifiScan(host,mmio[1],opened.context,transaction++,0x421,*scan,nullptr,0,resources->station.observer(),&resources->receiveState.pending);
                             IOLog("M128 wifi: scan result=%d response=%u status=%d code=0x%x done=%u done_type=%u events=%u aggregates=%u frames=%u bss=%u dropped=%u invalid=%u channels=0x421\n",
                                   scanned,(unsigned)scan->responseSeen,scan->responseStatus,scan->responseCode,(unsigned)scan->doneSeen,scan->doneType,
                                   scan->events,scan->aggregates,scan->scanFrames,scan->uniqueNetworks,scan->droppedNetworks,scan->invalidFrames);
@@ -349,7 +398,7 @@ void NativeSprdPlatform::identifyRadioGpu() {
                         }else IOLog("M128 wifi: scan allocation failed\n");
                         if(!resources->scanQualified) {
                             uint8_t mode=1;SprdWcn::WifiReply closed;
-                            packet=SprdWcn::wifiCommand(host,mmio[1],4,transaction++,&mode,sizeof(mode),closed,opened.context);
+                            packet=SprdWcn::wifiCommand(host,mmio[1],4,transaction++,&mode,sizeof(mode),closed,opened.context,resources->station.observer(),&resources->receiveState.pending);
                             if(packet==Ok)resources->stationOpen=false;
                             IOLog("M127 wifi: CLOSE result=%d status=%d bytes=%llu ctx=%u\n",packet,closed.status,(unsigned long long)closed.length,opened.context);
                         }else IOLog("M131 wifi: qualified station kept open ctx=%u; no CLOSE/reopen cycle\n",opened.context);
@@ -376,24 +425,24 @@ void NativeSprdPlatform::identifyRadioGpu() {
                     bool enabled=false;
                     for(unsigned step=0;step<4 && bluetooth==Ok;step++){
                         SprdWcn::HciReply reply;
-                        bluetooth=SprdWcn::hciCommand(host,mmio[1],opcode[step],parameters[step],lengths[step],reply);
+                        bluetooth=SprdWcn::hciCommand(host,mmio[1],opcode[step],parameters[step],lengths[step],reply,resources->station.observer(),&resources->receiveState.pending);
                         if(step==2 && bluetooth==Ok)enabled=true;
                         IOLog("M126 bt: init opcode=0x%04x bytes=%llu result=%d status=0x%x complete=%u events=%u unmatched=%u aggregates=%u header=0x%x valid=%u remain=%u\n",opcode[step],(unsigned long long)lengths[step],bluetooth,reply.status,reply.complete,reply.events,reply.unmatched,reply.aggregates,reply.publicHeader,reply.validBytes,reply.remainingBytes);
                     }
                     if(bluetooth==Ok){
-                        SprdWcn::HciReply reply;bluetooth=SprdWcn::hciCommand(host,mmio[1],0x1001,nullptr,0,reply);
+                        SprdWcn::HciReply reply;bluetooth=SprdWcn::hciCommand(host,mmio[1],0x1001,nullptr,0,reply,resources->station.observer(),&resources->receiveState.pending);
                         if(bluetooth==Ok && reply.length!=8)bluetooth=Protocol;
                         IOLog("M126 bt: version result=%d status=0x%x bytes=%llu hci=0x%x revision=0x%x lmp=0x%x manufacturer=0x%x subversion=0x%x\n",bluetooth,reply.status,(unsigned long long)reply.length,reply.payload[0],SprdWcn::le16(reply.payload+1),reply.payload[3],SprdWcn::le16(reply.payload+4),SprdWcn::le16(reply.payload+6));
                     }
                     if(bluetooth==Ok){
-                        SprdWcn::HciReply reply;bluetooth=SprdWcn::hciCommand(host,mmio[1],0x1009,nullptr,0,reply);
+                        SprdWcn::HciReply reply;bluetooth=SprdWcn::hciCommand(host,mmio[1],0x1009,nullptr,0,reply,resources->station.observer(),&resources->receiveState.pending);
                         bool addressMatch=bluetooth==Ok && reply.length==6 && !memcmp(reply.payload,pskey+20,6);
                         if(bluetooth==Ok && !addressMatch)bluetooth=Protocol;
                         IOLog("M126 bt: factory address match=%u result=%d status=0x%x bytes=%llu\n",addressMatch,bluetooth,reply.status,(unsigned long long)reply.length);
                     }
                     if(enabled){
                         const uint8_t disable[]={0,9,0};SprdWcn::HciReply reply;
-                        Result disabled=SprdWcn::hciCommand(host,mmio[1],0xfca1,disable,sizeof(disable),reply);
+                        Result disabled=SprdWcn::hciCommand(host,mmio[1],0xfca1,disable,sizeof(disable),reply,resources->station.observer(),&resources->receiveState.pending);
                         IOLog("M126 bt: disable result=%d status=0x%x\n",disabled,reply.status);
                         if(bluetooth==Ok)bluetooth=disabled;
                     }

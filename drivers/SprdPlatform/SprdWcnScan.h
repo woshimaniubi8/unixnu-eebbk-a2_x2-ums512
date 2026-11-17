@@ -178,7 +178,8 @@ inline Result decodeWifiScanAggregate(const uint8_t *data,size_t bytes,uint32_t 
 template<class Host,class Gpio> Result wifiScan(Host &host,Gpio &gpio,uint8_t context,
                                                 uint32_t transaction,uint32_t channels,
                                                 WifiScanReport &report,
-                                                const uint8_t *ssid=nullptr,size_t ssidLength=0){
+                                                const uint8_t *ssid=nullptr,size_t ssidLength=0,
+                                                PacketObserver observer={},bool *continuation=nullptr){
     uint8_t body[44]={},tx[kTransmitBytes]={},rx[kReceiveBytes]={};
     size_t bodyBytes=0,txBytes=0;
     Result r=encodeWifiScanRequest(body,sizeof(body),channels,ssid,ssidLength,nullptr,0,bodyBytes);
@@ -188,9 +189,11 @@ template<class Host,class Gpio> Result wifiScan(Host &host,Gpio &gpio,uint8_t co
     r=host.packets(true,tx,txBytes);
     if(r!=Ok)return r;
     for(unsigned elapsed=0;elapsed<25000;elapsed++){
-        if(gpio.read32(kPacketGpioBank)&1u){
+        if((continuation && *continuation) || (gpio.read32(kPacketGpioBank)&1u)){
             r=host.packets(false,rx,sizeof(rx));
             if(r!=Ok)return r;
+            if(continuation)*continuation=le32(rx+sizeof(rx)-4)!=0;
+            if(observer.packet){r=observeAggregate(rx,sizeof(rx),observer);if(r!=Ok)return r;}
             r=decodeWifiScanAggregate(rx,sizeof(rx),transaction,context,report);
             if(r!=Ok)return r;
             if(report.responseSeen && report.doneSeen)return Ok;

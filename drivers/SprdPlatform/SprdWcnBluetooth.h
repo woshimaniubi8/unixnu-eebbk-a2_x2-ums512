@@ -75,15 +75,18 @@ inline Result decodeHciAggregate(const uint8_t *data,size_t bytes,uint16_t opcod
 }
 
 template<class Host,class Gpio> Result hciCommand(Host &host,Gpio &gpio,uint16_t opcode,
-                               const uint8_t *data,size_t bytes,HciReply &reply){
+                               const uint8_t *data,size_t bytes,HciReply &reply,
+                               PacketObserver observer={},bool *continuation=nullptr){
     uint8_t tx[kPacketBlock]={},rx[kReceiveBytes]={};size_t used=0;HciEvents events;
     Result r=encodeHciCommand(tx,sizeof(tx),opcode,data,bytes,used);if(r!=Ok)return r;
     r=host.packets(true,tx,used);if(r!=Ok)return r;
     // The FIFO carries Wi-Fi and BT traffic together. Unrelated valid frames
     // consume time, not a protocol-error budget; the loop remains bounded.
     for(unsigned elapsed=0;elapsed<10000;elapsed++){
-        if(gpio.read32(kPacketGpioBank)&1u){
+        if((continuation && *continuation) || (gpio.read32(kPacketGpioBank)&1u)){
             r=host.packets(false,rx,sizeof(rx));if(r!=Ok)return r;
+            if(continuation)*continuation=le32(rx+sizeof(rx)-4)!=0;
+            if(observer.packet){r=observeAggregate(rx,sizeof(rx),observer);if(r!=Ok)return r;}
             r=decodeHciAggregate(rx,sizeof(rx),opcode,events,reply);
             if(r!=Ok || reply.complete)return r;
         }

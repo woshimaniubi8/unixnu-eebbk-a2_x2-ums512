@@ -17,6 +17,36 @@ inline uint16_t le16(const uint8_t *p){return (uint16_t)(p[0]|(uint16_t)p[1]<<8)
 inline uint32_t le32(const uint8_t *p){return p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24;}
 inline void put32(uint8_t *p,uint32_t v){for(unsigned i=0;i<4;i++)p[i]=(uint8_t)(v>>(8*i));}
 
+struct PacketObserver {
+    void *context=nullptr;
+    Result (*packet)(void *,unsigned,unsigned,const uint8_t *,size_t)=nullptr;
+};
+// A command reply does not own the shared FIFO. In particular, credit, link
+// and Bluetooth frames following that reply must be delivered before return.
+inline Result observeAggregate(const uint8_t *data,size_t bytes,PacketObserver observer) {
+    if(!data || bytes!=kReceiveBytes)return Invalid;
+    const size_t valid=le32(data+bytes-8);
+    if(valid>kReceivePacketBytes)return Protocol;
+    size_t at=0,consumed=0;
+    while(at+4<=kReceivePacketBytes && consumed<valid) {
+        const uint32_t header=le32(data+at);
+        if(header&(1u<<23))return Protocol;
+        const unsigned type=header>>28,subtype=(header>>24)&15u;
+        const size_t length=(header>>7)&0xffffu,wire=length+((header&64u)?2u:0u);
+        if(!length || wire>kReceivePacketBytes-at-4)return Protocol;
+        if(type!=15) {
+            if(length>valid-consumed)return Protocol;
+            if(observer.packet) {
+                Result result=observer.packet(observer.context,type,subtype,data+at+4,length);
+                if(result!=Ok)return result;
+            }
+            consumed+=length;
+        }
+        at+=4+((wire+3u)&~size_t(3));
+    }
+    return consumed==valid?Ok:Protocol;
+}
+
 struct WifiReply {
     uint8_t payload[320]={};size_t length=0;
     int8_t status=0;uint8_t context=0;unsigned frames=0,unmatched=0;
@@ -81,7 +111,8 @@ inline Result decodeWifiReply(const uint8_t *data,size_t bytes,uint8_t command,u
 }
 
 template<class Host,class Gpio> Result wifiCommand(Host &host,Gpio &gpio,uint8_t command,uint32_t transaction,
-                            const uint8_t *payload,size_t length,WifiReply &reply,uint8_t context=0){
+                            const uint8_t *payload,size_t length,WifiReply &reply,uint8_t context=0,
+                            PacketObserver observer={},bool *continuation=nullptr){
     uint8_t tx[kTransmitBytes]={},rx[kReceiveBytes]={};size_t used=0;
     Result result=encodeWifiCommand(tx,sizeof(tx),command,transaction,payload,length,used,context);
     if(result!=Ok)return result;
@@ -90,8 +121,10 @@ template<class Host,class Gpio> Result wifiCommand(Host &host,Gpio &gpio,uint8_t
     // The caller owns its
     // saved direction/input/mask and the slave's dedicated interrupt enables.
     for(unsigned elapsed=0;elapsed<3000;elapsed++){
-        if(gpio.read32(kPacketGpioBank)&1u){
+        if((continuation && *continuation) || (gpio.read32(kPacketGpioBank)&1u)){
             result=host.packets(false,rx,sizeof(rx));if(result!=Ok)return result;
+            if(continuation)*continuation=le32(rx+sizeof(rx)-4)!=0;
+            if(observer.packet){result=observeAggregate(rx,sizeof(rx),observer);if(result!=Ok)return result;}
             bool matched=false;result=decodeWifiReply(rx,sizeof(rx),command,transaction,reply,matched);
             if(result!=Ok || matched)return result;
         }

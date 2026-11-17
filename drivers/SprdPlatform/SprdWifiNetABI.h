@@ -31,6 +31,8 @@ int nw_wifi_bss_count(void);
 int nw_wifi_bss_get(int i, struct nw_bss_info *out);                     /* 0 on success */
 int nw_wifi_connect(const uint8_t *ssid, size_t len, const uint8_t *bssid, const char *pass, size_t plen);   /* pass NULL: open network */
 int nw_wifi_disconnect(void);
+int nw_wifi_key(uint8_t index,int pairwise,const uint8_t *address,
+                const uint8_t *key,size_t length,const uint8_t *sequence,size_t sequenceLength);
 int nw_wifi_tx(const uint8_t *eth, size_t len);                          /* 0 queued */
 void nw_wifi_status_get(struct nw_wifi_status *st);
 void nw_wifi_tx_reasons(char *text, int size);                          /* the driver's transmit completion counts, as text */

@@ -61,3 +61,15 @@ copy markers appeared, and no panic or receive-stop occurred. The earlier
 its policy was unchanged. Association/DHCP, OS Bluetooth pairing and Metal
 rendering are still unfinished. See build/diag/m135-wcn-packet-irq/RESULTS.md
 in the local workspace for exact artifacts, evidence and rollback boundaries.
+
+M136 adds the original SC2355 station path: CONNECT82/SET_IE3+N,
+DISCONNECT2/KEY27+16, actual link/LUT/credit events, bounded key/TX queues,
+TX channel10 / RX channel24, and EAPOL command72 with the original five-byte
+flag. The shared FIFO dispatcher preserves unrelated events even while a
+Wi-Fi/scan/HCI command waits for a reply. GPIO32 and DTBS continuation remain
+unchanged. WPA2-PSK negotiates CCMP and optional raw32-byte PMK; unsupported
+mandatory MFP/WPA3/ciphers fail explicitly. No automatic AP selection occurs.
+21H461 Apple80211AssociateAsync sends856 bytes (1dfd9a9c8), key SET148 bytes
+(1dfd9f0d4); the donor592-byte association layout is not used. Host wire tests
+and guarded source CI are required. Hardware association/DHCP remain unproven
+until corresponding real firmware events and IP traffic are observed.

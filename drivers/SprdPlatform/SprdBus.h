@@ -7,7 +7,7 @@
 #include <stddef.h>
 
 namespace SprdBus {
-enum Result { Ok=0, Invalid=-1, Timeout=-2, Protocol=-3, Nack=-4 };
+enum Result { Ok=0, Invalid=-1, Timeout=-2, Protocol=-3, Nack=-4, Busy=-5 };
 constexpr uint32_t kAdiSlave = 0x20000;
 constexpr uint32_t kAdiPhysical = 0x32120000;
 template<class IO> class Adi {

@@ -77,14 +77,14 @@ struct scan_result {                                                            
   uint8_t rate_count, unused0; uint32_t rates[15]; uint8_t ssid_length, ssid[32], unused1[3]; uint32_t age_ms; uint8_t flags, unused2;
   uint16_t elements_length; uint8_t elements[1024];
 };
-struct assoc_request {                                                                            // 592 bytes
+struct assoc_request {                                                                            // 21H461: 856 bytes
   uint32_t version; uint16_t mode, auth_lower, auth_upper, unused0; uint32_t ssid_length; uint8_t ssid[32]; uint8_t bssid[6], unused1[2];
-  uint32_t key_version, key_length, key_cipher; uint16_t key_flags, key_index; uint8_t key[64]; uint8_t rest[0x250 - 0x88];
+  uint32_t key_version, key_length, key_cipher; uint16_t key_flags, key_index; uint8_t key[32]; uint8_t rest[0x358 - 0x68];
 };
 struct link_event { uint8_t down, unused0[3]; int32_t rssi; uint16_t snr, noise; uint8_t unused1[4]; uint8_t involuntary, unused2[3]; uint32_t reason, subreason; uint8_t unused3[4]; };
 static_assert(sizeof(scan_result) == 1164 && __builtin_offsetof(scan_result, ssid_length) == 0x60 && __builtin_offsetof(scan_result, age_ms) == 0x84 &&
               __builtin_offsetof(scan_result, elements) == 0x8c, "scan result layout");
-static_assert(sizeof(assoc_request) == 592 && __builtin_offsetof(assoc_request, key) == 0x48, "association layout");
+static_assert(sizeof(assoc_request) == 856 && __builtin_offsetof(assoc_request, key) == 0x48, "21H461 association layout");
 static_assert(sizeof(channels_list) == 4824, "channel list layout");
 static_assert(sizeof(link_event) == 32, "link event layout");
 
@@ -92,6 +92,7 @@ ifnet_t gIf;
 uint8_t gMac[6];
 bool gPower = true;
 int gAssocResult = kAssocFailed;
+uint32_t gAuthLower=1,gAuthUpper=0;
 unsigned gScanCursor, gScanning;
 bool gUserJoin;   // the wireless daemon joined, left or switched the radio itself: the unattended test join steps aside
 uint32_t gLogged[256 / 32];
@@ -125,20 +126,56 @@ void post_link(bool up) {
 
 // ---- what the module tells us ----
 void on_scan_done() { __atomic_store_n(&gScanning, 0u, __ATOMIC_RELEASE); gScanCursor = 0; post_event(kEvScanDone, nullptr, 0); }
-const struct nw_wifi_events gEvents = {on_scan_done,nullptr,nullptr,nullptr};
+void on_connect_done(int result) {
+  gAssocResult=result==NW_RES_OK?kAssocOk:result==NW_RES_TIMEOUT?kAssocTimeout:
+               result==NW_RES_BAD_KEY?kAssocBadKey:kAssocFailed;
+  post_link(result==NW_RES_OK);post_event(kEvAssocDone,nullptr,0);
+  if(result==NW_RES_OK) {
+    post_event(kEvSsidChanged,nullptr,0);post_event(kEvBssidChanged,nullptr,0);
+    nw_wifi_status st;nw_wifi_status_get(&st);link_event event={};event.rssi=st.signal_dbm;
+    post_event(kEvLinkChanged,&event,sizeof(event));
+  }
+}
+void on_link_lost(int reason) {
+  post_link(false);link_event event={};event.down=1;event.involuntary=1;event.reason=(uint32_t)reason;
+  post_event(kEvLinkChanged,&event,sizeof(event));
+}
+void on_rx(const uint8_t *frame,size_t length) {
+  if(!gIf || length<14 || length>1514)return;
+  // Retain the donor's chained-mbuf correction and IP-header alignment.
+  constexpr size_t align=2;mbuf_t m=nullptr;
+  if(mbuf_allocpacket(MBUF_DONTWAIT,length+align,nullptr,&m) || !m)return;
+  size_t done=0;bool first=true;
+  for(mbuf_t n=m;n;n=mbuf_next(n)) {
+    size_t room=mbuf_maxlen(n)-mbuf_leadingspace(n);
+    if(first) {
+      if(room<align+14)break;
+      if(mbuf_setdata(n,(uint8_t *)mbuf_data(n)+align,0))break;
+      room-=align;
+    }
+    const size_t take=length-done<room?length-done:room;
+    memcpy(mbuf_data(n),frame+done,take);mbuf_setlen(n,take);done+=take;first=false;
+  }
+  if(done!=length){mbuf_freem(m);return;}
+  mbuf_pkthdr_setlen(m,length);mbuf_pkthdr_setrcvif(m,gIf);
+  mbuf_pkthdr_setheader(m,mbuf_data(m));mbuf_adj(m,14);
+  struct ifnet_stat_increment_param inc={};inc.packets_in=1;inc.bytes_in=(uint32_t)length;
+  // ifnet_input consumes the packet on both success and error.
+  (void)ifnet_input(gIf,m,&inc);
+}
+const struct nw_wifi_events gEvents = {on_scan_done,on_connect_done,on_link_lost,on_rx};
 
 // ---- the interface ----
 errno_t if_output(ifnet_t, mbuf_t m) {
   size_t length = mbuf_pkthdr_len(m);
-  if (length >= 14 && length <= 2000) {
-    uint8_t frame[2000]; mbuf_copydata(m, 0, length, frame);
-    if (int result=nw_wifi_tx(frame,length)) {
-      static unsigned shown;if(shown++<4)log(6,"wifi-net: Ethernet TX not available: %d",result);
-    }
-    else {ifnet_stat_increment_out(gIf, 1, static_cast<uint32_t>(length), 0);}
+  errno_t result=EMSGSIZE;
+  if (length >= 14 && length <= 1514) {
+    uint8_t frame[1514];result=mbuf_copydata(m,0,length,frame);
+    if(!result)result=nw_wifi_tx(frame,length);
+    ifnet_stat_increment_out(gIf,result?0:1,result?0:static_cast<uint32_t>(length),result?1:0);
   }
   mbuf_freem(m);
-  return 0;
+  return result;
 }
 void if_event_stub(ifnet_t, const struct kev_msg *) {}
 
@@ -204,10 +241,44 @@ int apple80211(bool set, apple80211req &rq) {
       uint32_t ssidLength; memcpy(&ssidLength, buf + 16, 4); const uint8_t *ssid = buf + 20;
       if(ssidLength>32)return EINVAL;
       int result = nw_wifi_scan(ssidLength ? ssid : nullptr, ssidLength); if (result) return result; gScanning = 1; gScanCursor = 0; gResultsShown = 0; return 0; }
-    case kAssociate: return EOPNOTSUPP;
+    case kAssociate: {
+      // Apple80211AssociateAsync@1dfd9a9c8 sends 0x358, not the donor's 0x250.
+      if(rq.req_len!=sizeof(assoc_request))return EINVAL;
+      assoc_request a={};if(copy_in(rq,&a,sizeof(a)))return EFAULT;
+      struct Erase {assoc_request &a;~Erase(){volatile uint8_t *p=(volatile uint8_t *)&a;
+        for(size_t i=0;i<sizeof(a);i++)p[i]=0;}} erase{a};
+      if(!a.ssid_length || a.ssid_length>32)return EINVAL;
+      if(a.auth_lower>1 || (a.auth_upper && a.auth_upper!=8))return EOPNOTSUPP;
+      if(a.key_length && (a.key_cipher!=6 || a.key_length!=32))return EOPNOTSUPP;
+      uint8_t any=0;for(unsigned i=0;i<6;i++)any|=a.bssid[i];
+      // SC2355 takes the raw 32-byte PMK. The QCA donor's hex conversion is
+      // a different backend contract and would corrupt this firmware request.
+      int result=nw_wifi_connect(a.ssid,a.ssid_length,any?a.bssid:nullptr,
+          a.key_length?(const char *)a.key:nullptr,a.key_length);
+      if(!result){gUserJoin=true;gAssocResult=kAssocFailed;gAuthLower=1;gAuthUpper=a.auth_upper;}
+      return result;
+    }
+    case kCipherKey: {
+      // apple80211_key's fixed fields/RSC/MAC prefix, checked against itlwm.
+      // Apple80211SetWithIOCTL type3@1dfd9f0d4 requires exactly 0x94.
+      if(rq.req_len!=148)return EINVAL;
+      uint8_t key[104]={};if(copy_in(rq,key,sizeof(key)))return EFAULT;
+      struct Erase {uint8_t *p;~Erase(){volatile uint8_t *v=p;for(unsigned i=0;i<104;i++)v[i]=0;}} erase{key};
+      uint32_t length,cipher,rsc;uint16_t flags,index;
+      memcpy(&length,key+4,4);memcpy(&cipher,key+8,4);memcpy(&flags,key+12,2);
+      memcpy(&index,key+14,2);memcpy(&rsc,key+80,4);
+      if(cipher!=5 || length!=16 || index>3 || rsc>8)return EOPNOTSUPP;
+      return nw_wifi_key((uint8_t)index,(flags&1)!=0,key+92,key+16,length,key+84,rsc);
+    }
     case kDisassociate: case kDeauth: {int result=nw_wifi_disconnect();if(result)return result;gUserJoin=true;post_link(false);return 0;}
     case kScanCacheClear: return nw_wifi_bss_clear();
-    case kLocale: case kCountryCode: case kPowerSave: case kAuthType: case kCipherKey: return EOPNOTSUPP;
+    case kAuthType: {
+      if(rq.req_len!=16)return EINVAL;uint32_t auth[4]={};
+      if(copy_in(rq,auth,sizeof(auth)))return EFAULT;
+      if(auth[1]>1 || (auth[2] && auth[2]!=8))return EOPNOTSUPP;
+      gAuthLower=1;gAuthUpper=auth[2];return 0;
+    }
+    case kLocale: case kCountryCode: case kPowerSave: return EOPNOTSUPP;
     default: return EOPNOTSUPP;
     }
   }
@@ -215,7 +286,7 @@ int apple80211(bool set, apple80211req &rq) {
   case kPower: w[0] = 1; w[1] = 1; w[2] = gPower ? 1 : 0; return copy_out(rq, w, 24);
   case kState: return answer_value(rq, static_cast<uint32_t>(gPower ? map_state(st.state) : 0));
   case kOpMode: return answer_value(rq, 1);   // station
-  case kAuthType: return EOPNOTSUPP;
+  case kAuthType: w[0]=1;w[1]=gAuthLower;w[2]=gAuthUpper;return copy_out(rq,w,16);
   case kPowerSave: return EOPNOTSUPP;
   // This is a feature query, not a request to perform an unsupported action.
   // 21H461 requests the 16-byte version/capabilities layout. No cipher,
