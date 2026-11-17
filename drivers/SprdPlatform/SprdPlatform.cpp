@@ -19,7 +19,6 @@
 #include <libkern/libkern.h>
 #include <mach/kmod.h>
 #include <pexpert/pexpert.h>
-#include <new>
 #include "SprdBus.h"
 #include "SprdBacklight.h"
 #include "SprdTouchPins.h"
@@ -244,15 +243,14 @@ void NativeSprdPlatform::identifyRadioGpu() {
                     if(packet==Ok && opened.length!=0)packet=Protocol;
                     IOLog("M127 wifi: OPEN result=%d status=%d bytes=%llu ctx=%u factory_mac=%u\n",packet,opened.status,(unsigned long long)opened.length,opened.context,identityValid);
                     if(packet==Ok){
-                        void *scanMemory=IOMalloc(sizeof(SprdWcn::WifiScanReport));
-                        auto *scan=scanMemory?new(scanMemory) SprdWcn::WifiScanReport{}:nullptr;
+                        auto *scan=(SprdWcn::WifiScanReport *)IOMalloc(sizeof(SprdWcn::WifiScanReport));
                         if(scan){
+                            memset(scan,0,sizeof(*scan));
                             Result scanned=SprdWcn::wifiScan(host,mmio[1],opened.context,transaction++,0x421,*scan);
                             IOLog("M128 wifi: scan result=%d response=%u status=%d code=0x%x done=%u done_type=%u events=%u aggregates=%u frames=%u bss=%u dropped=%u invalid=%u channels=0x421\n",
                                   scanned,(unsigned)scan->responseSeen,scan->responseStatus,scan->responseCode,(unsigned)scan->doneSeen,scan->doneType,
                                   scan->events,scan->aggregates,scan->scanFrames,scan->uniqueNetworks,scan->droppedNetworks,scan->invalidFrames);
-                            scan->~WifiScanReport();
-                            IOFree(scanMemory,sizeof(*scan));
+                            IOFree(scan,sizeof(*scan));
                         }else IOLog("M128 wifi: scan allocation failed\n");
                         uint8_t mode=1;SprdWcn::WifiReply closed;
                         packet=SprdWcn::wifiCommand(host,mmio[1],4,transaction++,&mode,sizeof(mode),closed,opened.context);
