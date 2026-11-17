@@ -355,3 +355,12 @@ returns its allocated vif context in the public response header. Its body is
 empty because the original command wrapper writes hdr->common.ctx_id directly
 to the caller's vif_ctx_id pointer. The client uses that header context for
 subsequent CLOSE; treating OPEN as a one-byte payload is wrong.
+
+M128 adds the original SC2355 WIFI_CMD_SCAN request and asynchronous scan
+events. The request uses channel bitmap bits 0/5/10 (channels 1/6/11), an empty
+SSID and a zero 5 GHz channel count. The bounded parser accepts the command
+response, WIFI_EVENT_MGMT_FRAME scan beacons/probe responses, and
+WIFI_EVENT_SCAN_DONE; malformed lengths and information-element boundaries
+fail the probe. SSIDs and BSSIDs remain in the temporary in-memory cache and
+are not printed. This is a firmware scan probe, not yet the Apple80211/ifnet
+network frontend or association/DHCP path; hardware qualification is pending.
