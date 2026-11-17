@@ -333,6 +333,7 @@ void NativeSprdPlatform::identifyRadioGpu() {
                     if(packet==Ok && opened.length!=0)packet=Protocol;
                     IOLog("M127 wifi: OPEN result=%d status=%d bytes=%llu ctx=%u factory_mac=%u\n",packet,opened.status,(unsigned long long)opened.length,opened.context,identityValid);
                     if(packet==Ok){
+                        resources->stationOpen=true;resources->context=opened.context;
                         auto *scan=(SprdWcn::WifiScanReport *)IOMalloc(sizeof(SprdWcn::WifiScanReport));
                         if(scan){
                             memset(scan,0,sizeof(*scan));
@@ -343,9 +344,12 @@ void NativeSprdPlatform::identifyRadioGpu() {
                             if(scanned==Ok){resources->initial=scan;resources->scanQualified=true;}
                             else IOFree(scan,sizeof(*scan));
                         }else IOLog("M128 wifi: scan allocation failed\n");
-                        uint8_t mode=1;SprdWcn::WifiReply closed;
-                        packet=SprdWcn::wifiCommand(host,mmio[1],4,transaction++,&mode,sizeof(mode),closed,opened.context);
-                        IOLog("M127 wifi: CLOSE result=%d status=%d bytes=%llu ctx=%u\n",packet,closed.status,(unsigned long long)closed.length,opened.context);
+                        if(!resources->scanQualified) {
+                            uint8_t mode=1;SprdWcn::WifiReply closed;
+                            packet=SprdWcn::wifiCommand(host,mmio[1],4,transaction++,&mode,sizeof(mode),closed,opened.context);
+                            if(packet==Ok)resources->stationOpen=false;
+                            IOLog("M127 wifi: CLOSE result=%d status=%d bytes=%llu ctx=%u\n",packet,closed.status,(unsigned long long)closed.length,opened.context);
+                        }else IOLog("M131 wifi: qualified station kept open ctx=%u; no CLOSE/reopen cycle\n",opened.context);
                     }
                 }
                 if(packet==Ok && btSnapshot){
@@ -394,11 +398,8 @@ void NativeSprdPlatform::identifyRadioGpu() {
                     if(packet==Ok)packet=bluetooth;
                 }
                 resources->transaction=transaction;
-                if(packet==Ok && resources->scanQualified) {
-                    Result reopened=resources->power(true);
-                    persistent=reopened==Ok;
-                    IOLog("M130 wifi: persistent OPEN=%d ctx=%u\n",reopened,resources->context);
-                }
+                persistent=packet==Ok && resources->scanQualified && resources->stationOpen;
+                IOLog("M131 wifi: retained station=%u ctx=%u packet=%d\n",persistent,resources->context,packet);
                 if(!persistent) {
                 Result irqRestored=irqSaved?host.put(0,0x1ca,irqEnable):Invalid;
                 mmio[1].write32(bank+0x28,in);mmio[1].write32(bank+8,dir);mmio[1].write32(bank+4,mask);
