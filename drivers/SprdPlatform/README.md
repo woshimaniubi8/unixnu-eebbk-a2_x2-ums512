@@ -186,6 +186,12 @@ Failed initialization retains the actual stage/register/mask/wanted/read value.
 The header test exercises initially locked and already unlocked PMICs and
 failure during unlock/each supply operation, with exact state restoration.
 
+M117 verifies key status0->8000 and VDDSIM2 readback but stops atGPIO143.
+M118 matches the shipped sprd_gpio_direction_output: DMSK request, DIR output,
+INEN clear, DATA last. The previous DATA-before-DIR path also left INEN set,
+so reading DATA checked an input sample. GPIO diagnostics retain the actual
+pin/data/direction/INEN/DMSK snapshot. No inversion of raw CHIP_EN is added.
+
 ## Battery source and runtime evidence
 
 Through M113, the device reports efuse `775d` (voltage ADC705/current ADC5640),

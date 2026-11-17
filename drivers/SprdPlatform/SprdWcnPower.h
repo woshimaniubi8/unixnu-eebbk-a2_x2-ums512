@@ -25,12 +25,18 @@ template<class IO,class PMIC> class Power {
     bool raw(unsigned pin,bool high){
         unsigned bank=(pin/16)*0x80;uint32_t mask=1u<<(pin%16);
         gpio.write32(bank+4,gpio.read32(bank+4)|mask);
-        gpio.write32(bank,(gpio.read32(bank)&~mask)|(high?mask:0));
+        // sprd_gpio_direction_output() sets DIR, clears INEN, then writes
+        // DATA. A DATA read while INEN is still set samples the input path.
         gpio.write32(bank+8,gpio.read32(bank+8)|mask);
-        return (gpio.read32(bank+8)&mask) && !!(gpio.read32(bank)&mask)==high;
+        gpio.write32(bank+0x28,gpio.read32(bank+0x28)&~mask);
+        gpio.write32(bank,(gpio.read32(bank)&~mask)|(high?mask:0));
+        lastPin=pin;lastHigh=high;lastData=gpio.read32(bank);lastDirection=gpio.read32(bank+8);
+        lastInput=gpio.read32(bank+0x28);lastDataMask=gpio.read32(bank+4);
+        return (lastDirection&mask) && !(lastInput&mask) && !!(lastData&mask)==high;
     }
 public:
     unsigned stage=0,lastReg=0,lastMask=0,lastWant=0,lastGot=0;
+    unsigned lastPin=0,lastHigh=0,lastData=0,lastDirection=0,lastInput=0,lastDataMask=0;
     uint16_t protectionBefore=0,protectionAfter=0;
     Result lastResult=Ok;
     explicit Power(IO &g,IO &a,IO &p,IO &c,IO &ac,PMIC &pm):gpio(g),aon(a),ap(p),clock(c),apClock(ac),pmic(pm){}

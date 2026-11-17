@@ -10,8 +10,17 @@ using namespace SprdBus;
 struct Io {
     std::map<unsigned,uint32_t> regs;
     bool aliases=false;
+    bool gpioData=false;unsigned gpioWrites=0;
     uint32_t read32(unsigned a){return regs[a];}
-    void write32(unsigned a,uint32_t v){if(aliases && a>=0x1000 && a<0x2000)regs[a-0x1000]|=v;else if(aliases && a>=0x2000 && a<0x3000)regs[a-0x2000]&=~v;else regs[a]=v;}
+    void write32(unsigned a,uint32_t v){
+        if(gpioData && a%0x80==0){
+            gpioWrites++;for(unsigned pin:{97u,143u})if(a==(pin/16)*0x80){
+                unsigned bit=1u<<(pin%16);
+                assert((regs[a+8]&bit) && !(regs[a+0x28]&bit));
+            }
+        }
+        if(aliases && a>=0x1000 && a<0x2000)regs[a-0x1000]|=v;else if(aliases && a>=0x2000 && a<0x3000)regs[a-0x2000]&=~v;else regs[a]=v;
+    }
     void delay(unsigned){}
 };
 struct Pmic {
@@ -109,14 +118,17 @@ int main(){
     { Pmic locked;locked.regs[0x1bd0]=0;locked.regs[0x1998]=0;
       assert(locked.update(0x1998,0xff,60)==Ok && locked.regs[0x1998]==0); }
     for(unsigned protection:{0u,0xee7fu})for(unsigned failure: {0u,0x1bd0u,0x1998u,0x191cu,0x19d4u,0x1accu}){
-        Io gpio,aon,ap,clk,apclk;aon.aliases=ap.aliases=true;Pmic pmic;pmic.fail=failure;
+        Io gpio,aon,ap,clk,apclk;aon.aliases=ap.aliases=true;gpio.gpioData=true;Pmic pmic;pmic.fail=failure;
         for(unsigned pin:{97u,143u})for(unsigned off:{0u,4u,8u,0x28u})gpio.regs[(pin/16)*0x80+off]=0x55aa55aa;
         aon.regs[0]=0x80000000;ap.regs[0]=0x123;clk.regs[0x228]=0x8855;apclk.regs[0x88]=0xa50003;
         for(unsigned a:{0x1998u,0x1994u,0x1920u,0x191cu,0x19d4u,0x19d0u,0x1ac8u,0x1accu})pmic.regs[a]=0xa001;
         pmic.regs[0x1bd0]=(uint16_t)protection;
         auto gp=gpio.regs,ao=aon.regs,ap0=ap.regs,ck=clk.regs,ac=apclk.regs;auto pm=pmic.regs;
         SprdWcn::Power<Io,Pmic> power(gpio,aon,ap,clk,apclk,pmic);Result r=power.enable();
-        assert(r==(failure?Protocol:Ok));assert(power.restore()==Ok);
+        assert(r==(failure?Protocol:Ok));
+        // The saved state can restore an input pin; enforce the output-only
+        // contract during enable(), then check the full restored snapshot.
+        gpio.gpioData=false;assert(power.restore()==Ok);
         assert(gpio.regs==gp && aon.regs==ao && ap.regs==ap0 && clk.regs==ck && apclk.regs==ac && pmic.regs==pm);
     }
     for(unsigned mode=0;mode<3;mode++){
