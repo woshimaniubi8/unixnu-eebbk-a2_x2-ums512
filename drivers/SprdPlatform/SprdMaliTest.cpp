@@ -59,10 +59,13 @@ class Pages final:public NativeMaliPageSource {
 public:
     IOReturn alloc(NativeMaliPage *out) override{
         if(!out)return kIOReturnBadArgument;
-        for(auto &d:descriptors)if(!d){
-            d=allocate();if(!d)return kIOReturnNoMemory;
-            IOByteCount n=0;*out={d->getBytesNoCopy(),d->getPhysicalSegment(0,&n),4096};return kIOReturnSuccess;
-        }return kIOReturnNoResources;
+        for(auto &d:descriptors){
+            if(!d){
+                d=allocate();if(!d)return kIOReturnNoMemory;
+                IOByteCount n=0;*out={d->getBytesNoCopy(),d->getPhysicalSegment(0,&n),4096};return kIOReturnSuccess;
+            }
+        }
+        return kIOReturnNoResources;
     }
     void release(const NativeMaliPage &page) override{
         for(auto &d:descriptors){

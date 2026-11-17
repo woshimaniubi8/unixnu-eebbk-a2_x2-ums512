@@ -194,6 +194,17 @@ pin/data/direction/INEN/DMSK snapshot. No inversion of raw CHIP_EN is added.
 
 ### Pinned Mali task implementation
 
+M118 on-device WCN power, raw GPIO sequencing and SDIO commands0/5/3/7/52
+pass: OCR91ffff00, RCA8800, CCCR43, function1ready2, MANFID0/0 as expected.
+The first CMD53 exposes the SDHCR11 PIO defect: TransferComplete without
+BufferReadReady, zero FIFO bytes. M120 uses the same16-byte ADMA64 descriptor
+format and vendor engine/64-bit mode as the board's qualified eMMC driver.
+SDIO1 receives separate prepared, physically contiguous,32-bit DMA buffers;
+it never shares an eMMC descriptor or reads a DMA-owned FIFO. Both command
+and transfer completion are required, DMA_END is only acknowledged. Timeout
+resets both CMD/DATA lines before returning DMA buffers, or retains references
+if reset never completes. Host tests exercise both confirmed and stuck reset.
+
 The board reuses Dracen-W/Mali-G52 at2f279e1c0213c2ec33ec9e0f2f643c04c65565ec
 for Bifrost v7 feature decode, LPAE tables, AS programming, WRITE_VALUE encoding
 and polled job completion. Original GPL notices and per-file source hashes are

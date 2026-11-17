@@ -15,17 +15,23 @@ struct Identity {
     uint8_t functions=0,cccr=0,ready=0;
 };
 struct CommandState {unsigned index=0;uint32_t argument=0,status=0,present=0,response=0;size_t transferred=0;};
+class Dma {
+public:
+    virtual ~Dma()=default;
+    virtual Result prepare(uint8_t *,size_t,bool,uint64_t &)=0;
+    virtual void complete(uint8_t *,size_t,bool,bool,bool)=0;
+};
 
 template<class IO> class Host {
-    IO &io;bool started=false;uint16_t oldClock=0,oldControl2=0;
+    IO &io;Dma &dma;bool started=false;uint16_t oldClock=0,oldControl2=0;
     uint8_t oldControl=0,oldPower=0,oldTimeout=0;
-    uint32_t oldIntEnable=0,oldSignal=0;
+    uint32_t oldIntEnable=0,oldSignal=0,oldAdmaLow=0,oldAdmaHigh=0;
     bool waitClear(unsigned off,uint32_t mask,unsigned us) {
         while(us--){if(!(io.read32(off)&mask))return true;io.delay(1);}return false;
     }
 public:
     CommandState last;
-    explicit Host(IO &registers):io(registers){}
+    explicit Host(IO &registers,Dma &transport):io(registers),dma(transport){}
     Result clock(uint16_t divisor) {
         // The selected source is ext26m. Identification uses /128 or slower
         // on SDHCR11's 2x path; no guessed PLL or tuning value is installed.
@@ -40,6 +46,7 @@ public:
         oldClock=io.read16(0x2c);oldControl2=io.read16(0x3e);
         oldControl=io.read8(0x28);oldPower=io.read8(0x29);oldTimeout=io.read8(0x2e);
         oldIntEnable=io.read32(0x34);oldSignal=io.read32(0x38);started=true;
+        oldAdmaLow=io.read32(0x58);oldAdmaHigh=io.read32(0x5c);
         // Spreadtrum reset bit3 must stay asserted: clearing it resets card HW.
         io.write8(0x2f,(uint8_t)(io.read8(0x2f)|9));
         for(unsigned i=0;i<20000;i++){
@@ -58,31 +65,34 @@ public:
         last={};last.index=index;last.argument=argument;
         if(!waitClear(0x24,3,100000)){last.present=io.read32(0x24);return Timeout;}
         io.write32(0x30,0xffffffff);
-        if(length){io.write32(0,1);io.write16(4,(uint16_t)length);flags|=0x20;}
+        if(length){
+            uint64_t table=0;Result r=dma.prepare(data,length,write,table);if(r!=Ok)return r;
+            io.write8(0x28,(uint8_t)((io.read8(0x28)&~0x18u)|0x10u));
+            io.write16(0x3e,(uint16_t)((io.read16(0x3e)&~0x400u)|0x2800u));
+            io.write32(0,1);io.write16(4,(uint16_t)(length|0x7000));flags|=0x20;
+            io.write32(0x58,(uint32_t)table);io.write32(0x5c,(uint32_t)(table>>32));
+        }
         io.write32(8,argument);
-        io.write32(0xc,((uint32_t)index<<24)|((uint32_t)flags<<16)|(length&&!write?0x10u:0u));
+        io.write32(0xc,((uint32_t)index<<24)|((uint32_t)flags<<16)|(length?(write?1u:0x11u):0u));
         bool commandDone=false;
         for(unsigned t=0;t<200000;t++){
             uint32_t status=io.read32(0x30);last.status=status;
-            if(status&0x1fff8000u){last.present=io.read32(0x24);return Protocol;}
+            if(status&0x1fff8000u){last.present=io.read32(0x24);if(length)finishDma(data,length,write,false);return Protocol;}
             if(status&1){commandDone=true;response=io.read32(0x10);last.response=response;io.write32(0x30,1);}
-            // Drain/fill every word before accepting TRANSFER_COMPLETE. Both
-            // readiness and completion can be latched in the same snapshot.
-            const uint32_t ready=write?0x10u:0x20u;
-            if(length && last.transferred<length && (status&ready)){
-                while(last.transferred<length){
-                    size_t at=last.transferred;uint32_t word=0;
-                    if(write){for(unsigned j=0;j<4 && at+j<length;j++)word|=(uint32_t)data[at+j]<<(8*j);io.write32(0x20,word);}
-                    else {word=io.read32(0x20);for(unsigned j=0;j<4 && at+j<length;j++)data[at+j]=(uint8_t)(word>>(8*j));}
-                    last.transferred+=length-at<4?length-at:4;
-                }io.write32(0x30,ready);
-            }
-            if(commandDone && (!length || ((status&2) && last.transferred==length))){
-                if(length)io.write32(0x30,2);
+            // ADMA owns the FIFO; a CPU FIFO read steals DMA data. DMA_END
+            // alone never completes a transaction.
+            if(status&8)io.write32(0x30,8);
+            if(commandDone && (!length || (status&2))){
+                if(length){dma.complete(data,length,write,true,true);last.transferred=length;io.write32(0x30,2);}
                 if((flags&3)==3 && !waitClear(0x24,2,100000))return Timeout;
                 return Ok;
             }io.delay(1);
-        }last.present=io.read32(0x24);return Timeout;
+        }last.present=io.read32(0x24);if(length)finishDma(data,length,write,false);return Timeout;
+    }
+    void finishDma(uint8_t *data,size_t bytes,bool write,bool success){
+        io.write8(0x2f,(uint8_t)(io.read8(0x2f)|0x0e));
+        bool stopped=false;for(unsigned t=0;t<20000;t++){if(!(io.read8(0x2f)&6)){stopped=true;break;}io.delay(1);}
+        dma.complete(data,bytes,write,success,stopped);
     }
     Result direct(bool write,unsigned function,unsigned address,uint8_t &value) {
         if(function>7 || address>0x1ffff)return Invalid;
@@ -153,6 +163,7 @@ public:
         if(!started)return;
         io.write32(0x38,0);io.write16(0x2c,0);io.write8(0x29,oldPower);
         io.write8(0x28,oldControl);io.write16(0x3e,oldControl2);io.write8(0x2e,oldTimeout);
+        io.write32(0x58,oldAdmaLow);io.write32(0x5c,oldAdmaHigh);
         io.write32(0x34,oldIntEnable);io.write32(0x38,oldSignal);io.write16(0x2c,oldClock);started=false;
     }
 };

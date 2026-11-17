@@ -23,6 +23,7 @@
 #include "SprdFuelGauge.h"
 #include "SprdBattery.h"
 #include "SprdSdio.h"
+#include "SprdSdioDma.h"
 #include "SprdWcnPower.h"
 #include "SprdMali.h"
 extern "C" kmod_info_t g_kernel_kmod_info;
@@ -108,8 +109,9 @@ void NativeSprdPlatform::identifyRadioGpu() {
         Result p=power.enable();IOLog("M116 wcn: shared power=%d host=0x71200000 aux0=0x%x apclk=0x%x\n",p,r[1].read32(0x228),mmio[6].read32(0x88));
         IOLog("M117 wcn: stage=%u reg=0x%x mask=0x%x want=0x%x got=0x%x result=%d protection=0x%x->0x%x\n",power.stage,power.lastReg,power.lastMask,power.lastWant,power.lastGot,power.lastResult,power.protectionBefore,power.protectionAfter);
         IOLog("M118 wcn: gpio=%u high=%u data=0x%x dir=0x%x inen=0x%x dmsk=0x%x\n",power.lastPin,power.lastHigh,power.lastData,power.lastDirection,power.lastInput,power.lastDataMask);
-        SprdSdio::Host<Registers> host(r[0]);SprdSdio::Identity id;
-        Result h=p==Ok?host.initialize():Invalid,e=h==Ok?host.enumerate(id):Invalid;
+        SprdSdioDma dma;bool dmaReady=p==Ok && dma.initialize();
+        SprdSdio::Host<Registers> host(r[0],dma);SprdSdio::Identity id;
+        Result h=dmaReady?host.initialize():Invalid,e=h==Ok?host.enumerate(id):Invalid;
         IOLog("M116 wcn: host=%d enumerate=%d ocr=0x%x funcs=%u rca=0x%x cccr=0x%x ready=0x%x manfid=0x%x/0x%x chip=0x%x strap=0x%x\n",h,e,id.ocr,id.functions,id.rca,id.cccr,id.ready,id.vendor,id.device,id.chip,id.strap);
         IOLog("M116 wcn: command=%u arg=0x%x status=0x%x present=0x%x resp=0x%x copied=%llu\n",host.last.index,host.last.argument,host.last.status,host.last.present,host.last.response,(unsigned long long)host.last.transferred);
         host.restore();Result restored=power.restore();IOLog("M116 wcn: power restored=%d; radio firmware and OS network are subsequent operations\n",restored);
