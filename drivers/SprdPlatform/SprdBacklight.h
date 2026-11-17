@@ -117,7 +117,18 @@ public:
         IOLog("M104 backlight: takeover result=%d mux=0x%x prescale=%u mod=%u duty=%u enable=%u\n",
             r,regs[2].read32(0x240),saved.prescale,saved.mod,saved.duty,saved.enable);
         if(r!=SprdBus::Ok)return false;
-        prepared=true;level=from=goal=SprdBus::backlightLevel(saved.enable?saved.duty:0);
+        prepared=true;
+        // The original PWM probe selects clk_parent=ext26m for every channel.
+        // Qualify the inherited mux before applying this board's75us recipe.
+        const uint32_t mux=regs[2].read32(0x240);
+        if((mux&7)!=1){IOLog("M115 backlight: unqualified PWM2 parent mux=0x%x\n",mux);return false;}
+        r=pwm.configureFactory(26000000,75000);
+        const auto &wave=pwm.diagnostic();
+        IOLog("M115 backlight: factory75us result=%d before=%x/%x/%x/%x div=%x pattern=%x/%x after=%x/%x/%x/%x div=%x pattern=%x/%x mux=%x\n",
+            r,wave.before.prescale,wave.before.mod,wave.before.duty,wave.before.enable,wave.before.division,wave.before.patternLow,wave.before.patternHigh,
+            wave.after.prescale,wave.after.mod,wave.after.duty,wave.after.enable,wave.after.division,wave.after.patternLow,wave.after.patternHigh,mux);
+        if(r!=SprdBus::Ok)return false;
+        level=from=goal=SprdBus::backlightLevel(saved.enable?saved.duty:0);
         loop=IOWorkLoop::workLoop();request=IOTimerEventSource::timerEventSource(this,requestTick);fade=IOTimerEventSource::timerEventSource(this,fadeTick);
         if(!loop || !request || !fade || loop->addEventSource(request) || loop->addEventSource(fade))return false;
         if(!conformance()) {IOLog("M104 backlight: original AppleARMBacklight extent unavailable\n");return false;}

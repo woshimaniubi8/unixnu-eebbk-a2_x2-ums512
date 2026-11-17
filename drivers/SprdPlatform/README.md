@@ -51,14 +51,18 @@ this is not evidence that an untested physical controller already works.
 `SprdBacklight.h` adapts the CoreBrightness property/fade frontend from the
 pinned UniXNU-sheng `package/AppleARMBacklight.cpp`, whose copyright and BSD
 2-Clause-Patent license apply to the reused interface design. Its UMS512
-backend follows the GPL Spreadtrum `pwm-sprd.c` register contract and the
-shipped `sprd_pwm_*` implementation. The exact factory 1h190 256-entry curve,
+backend follows the shipped4.14 `sprd_pwm_*` implementation. The exact factory 1h190 256-entry curve,
 scale 880, is preserved in `FactoryBacklight.h`.
 
 PWM2 uses `0x32260000 + 2*0x20`, AON gate `0x327d0008` bit27 and the existing
 clock mux `0x32080240`. Takeover requires a valid firmware waveform (MOD255,
-bounded duty/prescaler); it preserves the source, period and sibling channels.
-Every brightness write is read back. Stop restores the saved waveform and only
+bounded duty/prescaler) and the original ext26m parent. M115 applies the factory
+75000ns request: PRESCALE6, MOD255, continuous PAT_LOW/PAT_HIGHffff/ffff.
+The quantized output period is68653.8ns, about14.6kHz. Store order is the exact
+shipped MOD/DUTY/PAT_LOW/PAT_HIGH/PRESCALE commit, not a newer driver's
+DUTY-last sequence. Other channels, divider and clock mux remain unchanged.
+Every brightness write is read back; ENABLE changes only on actual off/on.
+Stop restores the saved waveform including both pattern registers and only
 the clock gate owned by this service. IOKit power states control the backlight,
 not DSI panel rails or SoC deep sleep.
 
@@ -108,6 +112,20 @@ CPU PM assertion, released on stop, while this acquisition path is active.
 Display-off remains available. Full SoC suspend/resume, interrupt wake and
 per-device power restoration remain unqualified; do not label this assertion
 as hardware sleep support.
+
+### M115 flicker correction
+
+The earlier driver preserved cboot PRESCALE8003 and omitted both pattern
+registers, although the shipped Android PWM probe selects ext26m and its
+backlight requests75000ns. Disabling the channel changing8003 to0003 only
+establishes a readback transition; it does not qualify the inherited period
+or pattern for display. After the user reported visible backlight flicker,
+the exact original config function was emulated to recover the store order
+and PRESCALE6 recipe. M115 restores that factory initialization, then retains
+it across level changes. Source tests check atomic commit, all256 levels,
+off/on, readback refusal, unchanged sibling registers and full rollback.
+Physical flicker disappearance requires an on-device display observation;
+register equality alone is not that observation.
 
 ## Battery source and runtime evidence
 
