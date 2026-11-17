@@ -329,3 +329,23 @@ from /chosen/mac-address-wifi0; no address is compiled or printed. CLOSE uses
 the firmware-returned context. Failure stops the sequence, then the existing
 CP-reset/resource cleanup runs. Hardware M125 remains unverified until its
 capture confirms every command and cleanup result.
+
+M126 stages native HCI over the same owned SDIO transport, not a Qualcomm UART.
+The original 1h190 sprdbt_tty.ko (7c167434995cc76c02100a975f408c5b68c1f1136d40ebf7aca214577bbe89ea)
+confirms TX3 and H4 delivery; RX17 uses the shipped channel base12, subtype5.
+Its compiled SITM padding is4 bytes, including a complete4-byte pad for aligned
+commands; donor source with8-byte padding does not describe this binary.
+The BT memory snapshot stays alive until BT's c00 memory bits are enabled,
+the bytes are restored and BT_BIN_DOWNLOAD/BT_OPEN completes. Wi-Fi's80 DRAM
+bit is preserved. The public interrupt, GPIO, host and CP/power teardown stays
+with this one owner.
+
+HCI initialization reuses the order in Otto Pflueger's btsprdsipc.c at Linux
+464b3e7bf45bb300e190339977abba36c8078e1f: FCA0 PSKEY, FCA2 RF, FCA1(00,09,01),
+then standard RESET. Factory160/252-byte config is used; the PSKEY address at20
+is deliberately zero in source and filled from /chosen/mac-address-bluetooth0
+in HCI little-endian order. Bounded H4 event reassembly matches command
+completion opcode/status, then READ_LOCAL_VERSION and internal-only BDADDR
+comparison provide acceptance. No factory address is logged. Disable and CP
+reset follow before resources are freed. This source is not evidence for a
+published iOS Bluetooth controller or pairing; its hardware results are pending.

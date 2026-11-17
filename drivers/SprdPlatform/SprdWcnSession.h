@@ -66,6 +66,16 @@ public:
         if(bt.address<wifi.address+wifi.bytes && wifi.address<bt.address+bt.bytes)return Protocol;
         stage=4;return Ok;
     }
+    Result openBluetooth(const uint8_t *snapshot,size_t bytes){
+        if(!snapshot || !bt.bytes || bytes!=bt.bytes || stage!=14)return Invalid;
+        stage=15;Result r=wake();if(r!=Ok)return r;
+        stage=16;r=switchMemory(0,0xc00,true);if(r!=Ok)return r;
+        stage=17;r=host.writeCpBytes(bt.address,snapshot,bytes);if(r!=Ok)return r;
+        stage=18;r=host.put(0,0x1d0,0x10);if(r!=Ok)return r;
+        r=host.put(0,0x1b0,4);if(r!=Ok)return r;
+        stage=19;r=waitPublic(0x10,30000);if(r!=Ok)return r;
+        stage=20;return wake();
+    }
     Result saveAndOpenWifi(uint8_t *wifiBuffer,size_t wifiBytes,uint8_t *btBuffer,size_t btBytes){
         if(!wifiBuffer || !btBuffer || wifiBytes!=wifi.bytes || btBytes!=bt.bytes || !wifiBytes || !btBytes)return Invalid;
         stage=5;Result r=host.readCpBytes(wifi.address,wifiBuffer,wifiBytes);if(r!=Ok)return r;

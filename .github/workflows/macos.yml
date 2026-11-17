@@ -294,6 +294,11 @@ jobs:
           xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
             -fno-omit-frame-pointer device/scripts/test-sprd-radio-gpu.cpp -o radio-gpu-host-test
           ./radio-gpu-host-test
+          for unit in bluetooth bt-session; do
+            xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+              -fno-omit-frame-pointer "device/scripts/test-sprd-${unit}.cpp" -o "bt-${unit}-host-test"
+            "./bt-${unit}-host-test"
+          done
 
       - name: Check pinned Mali page tables and job descriptors
         run: |

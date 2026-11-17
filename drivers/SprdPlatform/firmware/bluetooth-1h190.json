@@ -1,0 +1,56 @@
+{
+  "config": [
+    {
+      "source_file": "bt_configure_pskey.ini",
+      "source_sha256": "c735ad5a1ff8be02281ad7e089223bc5874d918413a610eaa602ff9703ae2178",
+      "packed_sha256": "2abac002e31765ea4d2c13f1d71f17cd9c031fa90e506334a7fc842cafe26b5b",
+      "bytes": 160,
+      "identity_embedded": false
+    },
+    {
+      "source_file": "bt_configure_rf.ini",
+      "source_sha256": "4460360edeb8657427ce83082a5464a195155f11f028ad3f4fccf77fd4ae35dc",
+      "packed_sha256": "22b61f771ab6c83685677ddda08b979e00270d865fce8a749ba09a8358f72377",
+      "bytes": 252,
+      "identity_embedded": false
+    }
+  ],
+  "init_source": "Y:/tmp/a2_x2-ios/upstream-peripherals/rg-rotate/linux-464b3e7/drivers_bluetooth_btsprdsipc.c",
+  "hardware_sent": false,
+  "transport": {
+    "module_sha256": "7c167434995cc76c02100a975f408c5b68c1f1136d40ebf7aca214577bbe89ea",
+    "transport": "factory sprd,mtty SDIO H4, TX3 / RX17, RX subtype5 with channel base12",
+    "alignment": "SHIPPED parse_frame differs from donor: command/ACL padded to4 bytes (and w10,w9,#3). Verify before sending; donor8-byte rule rejected.",
+    "init_source": "beebono/linux-mainline-sprd@464b3e7bf45bb300e190339977abba36c8078e1f/drivers/bluetooth/btsprdsipc.c",
+    "init_order": [
+      "fca0 PSKEY with factory address at20",
+      "fca2 RF",
+      "fca1 enable 00 09 01",
+      "0c03 RESET"
+    ],
+    "host_reply_goal": [
+      "1001 READ_LOCAL_VERSION",
+      "1009 READ_BD_ADDR internally compare to factory only"
+    ],
+    "sources": [
+      {
+        "path": "Y:\\tmp\\a2_x2-ios\\upstream-peripherals\\Hadenix-ums512-4.14-c7f66a0\\drivers\\wcn\\bluetooth\\driver\\tty-sdio\\tty.c",
+        "sha256": "1a84d6bc2d6ad84cf2085726b39a790eee342437a69d60fb0a16c3a1d0abb223"
+      },
+      {
+        "path": "Y:\\tmp\\a2_x2-ios\\upstream-peripherals\\Hadenix-ums512-4.14-c7f66a0\\drivers\\wcn\\bluetooth\\driver\\tty-sdio\\tty.h",
+        "sha256": "70998e081524a1255f4512a1604d8a9c40c878da08c828dc18b3ade326fcc9ca"
+      },
+      {
+        "path": "Y:\\tmp\\a2_x2-ios\\upstream-peripherals\\Hadenix-ums512-4.14-c7f66a0\\drivers\\wcn\\bluetooth\\driver\\tty-sdio\\alignment\\sitm.c",
+        "sha256": "acb0a104acdd6cb56e1d4b143f745d51d3a2cc91c7c0b5751fc62649834ece4a"
+      },
+      {
+        "path": "Y:\\tmp\\a2_x2-ios\\upstream-peripherals\\Hadenix-ums512-4.14-c7f66a0\\drivers\\wcn\\bluetooth\\driver\\tty-sdio\\alignment\\sitm.h",
+        "sha256": "565b993f6763c6de27a2b7de9275f3b426fccbeec26f9ea0d524240bc9616d4d"
+      }
+    ],
+    "hardware_tested": false
+  },
+  "hardware_tested": false
+}

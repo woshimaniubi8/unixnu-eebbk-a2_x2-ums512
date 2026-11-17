@@ -28,6 +28,8 @@
 #include "SprdSdioDma.h"
 #include "SprdWcnPackets.h"
 #include "SprdWcnCalibration.h"
+#include "SprdWcnBluetooth.h"
+#include "SprdWcnBluetoothData.h"
 #include "SprdWcnApi.h"
 #include "SprdWcnSession.h"
 #include "SprdWcnPower.h"
@@ -179,6 +181,7 @@ void NativeSprdPlatform::identifyRadioGpu() {
         IOLog("M116 wcn: command=%u arg=0x%x status=0x%x present=0x%x resp=0x%x copied=%llu\n",host.last.index,host.last.argument,host.last.status,host.last.present,host.last.response,(unsigned long long)host.last.transferred);
         if(h==Ok && e==Ok){
             SprdWcn::Session<SprdSdio::Host<Registers>> session(host);
+            uint8_t *btSnapshot=nullptr;
             Result fw=session.enable();
             uint32_t fastClock=0;
             if(fw==Ok && PE_parse_boot_argn("bbk-wcn-fast-clock",&fastClock,sizeof(fastClock)) && fastClock==1){
@@ -192,7 +195,7 @@ void NativeSprdPlatform::identifyRadioGpu() {
             if(fw==Ok){
                 fw=session.query();
                 IOLog("M123 wcn: session query=%d stage=%u pub=0x%x sleep=0x%x wifi=0x%x+0x%x bt=0x%x+0x%x\n",fw,session.stage,session.lastPublic,session.lastSleep,session.wifi.address,session.wifi.bytes,session.bt.address,session.bt.bytes);
-                uint8_t *wifiSnapshot=nullptr,*btSnapshot=nullptr;
+                uint8_t *wifiSnapshot=nullptr;
                 if(fw==Ok){
                     wifiSnapshot=(uint8_t *)IOMalloc(session.wifi.bytes);btSnapshot=(uint8_t *)IOMalloc(session.bt.bytes);
                     if(!wifiSnapshot || !btSnapshot)fw=Invalid;
@@ -203,7 +206,6 @@ void NativeSprdPlatform::identifyRadioGpu() {
                 }
                 IOLog("M123 wcn: session open=%d stage=%u pub=0x%x sleep=0x%x cmd=%u arg=0x%x status=0x%x ps=0x%x resp=0x%x\n",fw,session.stage,session.lastPublic,session.lastSleep,host.last.index,host.last.argument,host.last.status,host.last.present,host.last.response);
                 if(wifiSnapshot)IOFree(wifiSnapshot,session.wifi.bytes);
-                if(btSnapshot)IOFree(btSnapshot,session.bt.bytes);
             }
             if(fw==Ok){
                 const unsigned bank=6*0x80;uint32_t mask=mmio[1].read32(bank+4),dir=mmio[1].read32(bank+8),in=mmio[1].read32(bank+0x28);
@@ -245,6 +247,51 @@ void NativeSprdPlatform::identifyRadioGpu() {
                         IOLog("M125 wifi: CLOSE result=%d status=%d bytes=%llu ctx=%u header_ctx=%u\n",packet,closed.status,(unsigned long long)closed.length,opened.payload[0],closed.context);
                     }
                 }
+                if(packet==Ok && btSnapshot){
+                    Result bluetooth=session.openBluetooth(btSnapshot,session.bt.bytes);
+                    IOLog("M126 bt: memory open=%d stage=%u public=0x%x sleep=0x%x\n",bluetooth,session.stage,session.lastPublic,session.lastSleep);
+                    uint8_t pskey[160]={};memcpy(pskey,SprdWcn::kFactoryBtPskey,sizeof(pskey));
+                    IORegistryEntry *chosen=IORegistryEntry::fromPath("/chosen",gIODTPlane);
+                    OSData *factoryMac=chosen?OSDynamicCast(OSData,chosen->getProperty("mac-address-bluetooth0")):nullptr;
+                    bool identityValid=factoryMac && factoryMac->getLength()==6;
+                    if(identityValid){
+                        const uint8_t *mac=(const uint8_t *)factoryMac->getBytesNoCopy();uint8_t any=0;
+                        for(unsigned i=0;i<6;i++){any|=mac[i];pskey[20+i]=mac[5-i];}
+                        identityValid=any && !(mac[0]&1);
+                    }
+                    OSSafeReleaseNULL(chosen);
+                    if(bluetooth==Ok && !identityValid)bluetooth=Invalid;
+                    const uint8_t enable[]={0,9,1};
+                    const uint16_t opcode[]={0xfca0,0xfca2,0xfca1,0x0c03};
+                    const uint8_t *parameters[]={pskey,SprdWcn::kFactoryBtRf,enable,nullptr};
+                    const size_t lengths[]={sizeof(pskey),sizeof(SprdWcn::kFactoryBtRf),sizeof(enable),0};
+                    bool enabled=false;
+                    for(unsigned step=0;step<4 && bluetooth==Ok;step++){
+                        SprdWcn::HciReply reply;
+                        bluetooth=SprdWcn::hciCommand(host,mmio[1],opcode[step],parameters[step],lengths[step],reply);
+                        if(step==2 && bluetooth==Ok)enabled=true;
+                        IOLog("M126 bt: init opcode=0x%04x bytes=%llu result=%d status=0x%x complete=%u events=%u unmatched=%u aggregates=%u header=0x%x valid=%u remain=%u\n",opcode[step],(unsigned long long)lengths[step],bluetooth,reply.status,reply.complete,reply.events,reply.unmatched,reply.aggregates,reply.publicHeader,reply.validBytes,reply.remainingBytes);
+                    }
+                    if(bluetooth==Ok){
+                        SprdWcn::HciReply reply;bluetooth=SprdWcn::hciCommand(host,mmio[1],0x1001,nullptr,0,reply);
+                        if(bluetooth==Ok && reply.length!=8)bluetooth=Protocol;
+                        IOLog("M126 bt: version result=%d status=0x%x bytes=%llu hci=0x%x revision=0x%x lmp=0x%x manufacturer=0x%x subversion=0x%x\n",bluetooth,reply.status,(unsigned long long)reply.length,reply.payload[0],SprdWcn::le16(reply.payload+1),reply.payload[3],SprdWcn::le16(reply.payload+4),SprdWcn::le16(reply.payload+6));
+                    }
+                    if(bluetooth==Ok){
+                        SprdWcn::HciReply reply;bluetooth=SprdWcn::hciCommand(host,mmio[1],0x1009,nullptr,0,reply);
+                        bool addressMatch=bluetooth==Ok && reply.length==6 && !memcmp(reply.payload,pskey+20,6);
+                        if(bluetooth==Ok && !addressMatch)bluetooth=Protocol;
+                        IOLog("M126 bt: factory address match=%u result=%d status=0x%x bytes=%llu\n",addressMatch,bluetooth,reply.status,(unsigned long long)reply.length);
+                    }
+                    if(enabled){
+                        const uint8_t disable[]={0,9,0};SprdWcn::HciReply reply;
+                        Result disabled=SprdWcn::hciCommand(host,mmio[1],0xfca1,disable,sizeof(disable),reply);
+                        IOLog("M126 bt: disable result=%d status=0x%x\n",disabled,reply.status);
+                        if(bluetooth==Ok)bluetooth=disabled;
+                    }
+                    IOLog("M126 bt: HCI transaction result=%d factory_identity=%u\n",bluetooth,identityValid);
+                    if(packet==Ok)packet=bluetooth;
+                }
                 Result irqRestored=irqSaved?host.put(0,0x1ca,irqEnable):Invalid;
                 mmio[1].write32(bank+0x28,in);mmio[1].write32(bank+8,dir);mmio[1].write32(bank+4,mask);
                 IOLog("M122 wcn: packet cleanup irq=%d gpio_restored=1 final=%d\n",irqRestored,packet);
@@ -260,6 +307,7 @@ void NativeSprdPlatform::identifyRadioGpu() {
             IOLog("M121 wcn: firmware test quiesce result=%d reset=0x%x held=%u\n",stopped,held,(held&1)!=0);
             Result publicRestored=session.restore();
             IOLog("M123 wcn: public interrupt enable restored=%d\n",publicRestored);
+            if(btSnapshot)IOFree(btSnapshot,session.bt.bytes);
         }
         host.restore();Result restored=power.restore();IOLog("M116 wcn: power restored=%d; firmware test ended, Wi-Fi/BT frontend not yet published\n",restored);
         uint16_t pd=0,vsel=0;Result a=adi.read(0x181c,pd),b=adi.read(0x1854,vsel);
