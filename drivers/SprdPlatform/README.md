@@ -124,8 +124,12 @@ the exact original config function was emulated to recover the store order
 and PRESCALE6 recipe. M115 restores that factory initialization, then retains
 it across level changes. Source tests check atomic commit, all256 levels,
 off/on, readback refusal, unchanged sibling registers and full rollback.
-Physical flicker disappearance requires an on-device display observation;
-register equality alone is not that observation.
+The flashed M115 image reads PRESCALE8003->8006, MOD255/DUTY25, DIV0,
+PAT_LOW/PAT_HIGHffff/ffff and ext26m mux1. Both patterns were alreadyffff in
+cboot, so pattern omission alone is not established as the cause. Brightness
+and physical power-key off/on writes pass readback. The user then confirmed
+that visible flicker stopped. This qualifies the observed M115 display result;
+the programmed14.6kHz estimate has not been measured with an oscilloscope.
 
 ## Battery source and runtime evidence
 
