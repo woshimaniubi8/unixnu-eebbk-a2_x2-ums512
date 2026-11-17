@@ -9,7 +9,7 @@
 
 namespace SprdWcn {
 using namespace SprdBus;
-constexpr size_t kPacketBlock=840,kReceiveBytes=1680,kCommandHeader=12;
+constexpr size_t kPacketBlock=840,kReceivePacketBytes=1680,kReceiveBytes=2520,kCommandHeader=12;
 inline uint16_t le16(const uint8_t *p){return (uint16_t)(p[0]|(uint16_t)p[1]<<8);}
 inline uint32_t le32(const uint8_t *p){return p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24;}
 inline void put32(uint8_t *p,uint32_t v){for(unsigned i=0;i<4;i++)p[i]=(uint8_t)(v>>(8*i));}
@@ -18,6 +18,7 @@ struct WifiReply {
     uint8_t payload[320]={};size_t length=0;
     int8_t status=0;unsigned frames=0,unmatched=0;
     uint32_t publicHeader=0,validBytes=0,remainingBytes=0;
+    uint32_t firstWords[4]={},trailer[4]={};
 };
 
 inline Result encodeWifiCommand(uint8_t *out,size_t capacity,uint8_t command,uint32_t transaction,
@@ -38,9 +39,13 @@ inline Result encodeWifiCommand(uint8_t *out,size_t capacity,uint8_t command,uin
 inline Result decodeWifiReply(const uint8_t *data,size_t bytes,uint8_t command,uint32_t transaction,
                               WifiReply &reply,bool &matched){
     matched=false;
-    if(!data || bytes<12 || bytes%kPacketBlock)return Invalid;
-    const size_t limit=bytes-8;
-    reply.validBytes=le32(data+limit);reply.remainingBytes=le32(data+limit+4);
+    // Original ADMA receive: one1680-byte packet slot + one840-byte DTBS
+    // metadata block. Normal-mode1680 reads put metadata at the wrong offset
+    // and also consume the CP FIFO using the wrong transaction length.
+    if(!data || bytes!=kReceiveBytes)return Invalid;
+    const size_t limit=kReceivePacketBytes;
+    for(unsigned i=0;i<4;i++){reply.firstWords[i]=le32(data+i*4);reply.trailer[i]=le32(data+bytes-16+i*4);}
+    reply.validBytes=le32(data+bytes-8);reply.remainingBytes=le32(data+bytes-4);
     if(reply.validBytes>limit)return Protocol;
     if(!reply.validBytes)return Ok;
     size_t at=0,payloadBytes=0;

@@ -301,3 +301,10 @@ bounded CP hardware-spinlock acquisition, checked CP ranges and original
 UMW2652 memory masks. AON wake precedes metadata reads and final CP reset.
 An explicit bbk-wcn-fast-clock=1 diagnostic may select divisor0400 after
 enumeration and requires a repeated chip-ID read; default remains unchanged.
+
+M123 hardware: MEM_SAVE, CP runtime ranges (Wi-Fi40520000+70000, BT405a8000+36300),
+snapshot/power-down/reload/WIFI_OPEN, final wake/reset and GPU regression passed.
+The remaining command parse failure is independent. M124 corrects the factory
+adma-rx transaction geometry: each1680-byte packet slot is followed by a
+separate840-byte DTBS block; the first receive is therefore2520 bytes/3blocks.
+The original1680 normal-mode aggregate assumption is rejected by host tests.

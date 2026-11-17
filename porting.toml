@@ -131,7 +131,7 @@ procedure = ["Validate chip/strap and firmware vectors; hold CP_RESET bit 0; tra
 findings = ["The Ath12kWifi/MHI components from the Qualcomm port do not apply."]
 completion = ["Scanning, association, address configuration and sustained receive/transmit traffic pass with the selected firmware."]
 limits = ["M121 firmware download/vector readback and final mailbox 0xf0f0f0ff passed on hardware, followed by confirmed CP reset and power rollback. Wi-Fi scan/association/traffic and Bluetooth HCI remain unimplemented."]
-next_action = ["M122 command9 timed out with no RX frames and post-wait CP reset returned Protocol. M123 adds the original MEM_SAVE snapshot/power-cycle/restore/WIFI_OPEN handshake before SYNC_VERSION/GET_INFO. RF calibration and OS network/BT frontends follow actual response acceptance."]
+next_action = ["M122 command9 timed out with no RX frames and post-wait CP reset returned Protocol. M123 MEM_SAVE and snapshot/power-cycle/restore/WIFI_OPEN passed, but parsing received no frames. M124 corrects the original ADMA RX packet1680+metadata840=2520-byte geometry before SYNC_VERSION/GET_INFO. RF calibration and OS network/BT frontends follow actual response acceptance."]
 evidence = [{ kind = "hardware", reference = "build/diag/m121-wcn-firmware/hardware-verification.json", result = "M121: exact factory firmware boot ready 0xf0f0f0ff, CP reset and power restoration passed; GPU real write job regression passed." }, { kind = "source", reference = "build/diag/m122-wcn-packets/factory-api-version.json + original UMS512 kernel/c7f66a031fd82a5a60e10eebd8a57e961de5d8df", result = "Exact factory g_api_array, RX subtype+12, CP load base, image length, reset and mailbox sequence." }]
 
 [[area]]

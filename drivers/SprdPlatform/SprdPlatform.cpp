@@ -213,6 +213,7 @@ void NativeSprdPlatform::identifyRadioGpu() {
                 SprdWcn::WifiReply sync;
                 if(packet==Ok)packet=SprdWcn::wifiCommand(host,mmio[1],9,1,api,sizeof(api),sync);
                 IOLog("M122 wifi: sync result=%d status=%d bytes=%llu frames=%u unmatched=%u header=0x%x valid=%u remain=%u cmd=%u arg=0x%x irq=%u\n",packet,sync.status,(unsigned long long)sync.length,sync.frames,sync.unmatched,sync.publicHeader,sync.validBytes,sync.remainingBytes,host.last.index,host.last.argument,(mmio[1].read32(bank)&1u)!=0);
+                IOLog("M124 wifi: ADMA RX=2520 head=%08x/%08x/%08x/%08x tail=%08x/%08x/%08x/%08x sd_status=0x%x response=0x%x copied=%llu\n",sync.firstWords[0],sync.firstWords[1],sync.firstWords[2],sync.firstWords[3],sync.trailer[0],sync.trailer[1],sync.trailer[2],sync.trailer[3],host.last.status,host.last.response,(unsigned long long)host.last.transferred);
                 if(packet==Ok){
                     SprdWcn::WifiReply info;packet=SprdWcn::wifiCommand(host,mmio[1],1,2,nullptr,0,info);
                     if(packet==Ok && info.length<24)packet=Protocol;

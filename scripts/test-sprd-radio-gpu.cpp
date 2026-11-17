@@ -135,10 +135,10 @@ struct PacketHost {
     Result packets(bool write,uint8_t *data,size_t bytes){
         if(fail)return Protocol;
         if(write){writes++;assert(bytes==840 && SprdWcn::le32(data+8)==17);return Ok;}
-        reads++;assert(bytes==1680);std::fill(data,data+bytes,0);
+        reads++;assert(bytes==2520);std::fill(data,data+bytes,0);
         SprdWcn::put32(data,(10u<<24)|(16u<<7));data[4]=8;data[5]=9;data[6]=16;
         SprdWcn::put32(data+8,stale?18:17);SprdWcn::put32(data+16,1);
-        SprdWcn::put32(data+20,1u<<23);SprdWcn::put32(data+1672,16);return Ok;
+        SprdWcn::put32(data+20,1u<<23);SprdWcn::put32(data+2512,16);return Ok;
     }
 };
 struct PacketGpio {bool high=true;unsigned delays=0;uint32_t read32(unsigned a){assert(a==0x300);return high?1:0;}void delay(unsigned n){assert(n==1000);delays++;}};
@@ -194,7 +194,7 @@ int main(){
     }
     {
         using namespace SprdWcn;
-        uint8_t tx[840]={},rx[1680]={},payload[260]={};size_t bytes=0;
+        uint8_t tx[840]={},rx[2520]={},payload[260]={};size_t bytes=0;
         put32(payload,1);
         assert(encodeWifiCommand(tx,sizeof(tx),9,0x12345678,payload,sizeof(payload),bytes)==Ok);
         assert(bytes==840 && le32(tx)==((8u<<24)|(272u<<7)));
@@ -202,7 +202,7 @@ int main(){
         assert(le32(tx+276)==(1u<<23));
         assert(encodeWifiCommand(tx,839,9,0,nullptr,0,bytes)==Invalid);
         std::copy(tx,tx+840,rx);put32(rx,(10u<<24)|(272u<<7));rx[4]=8;
-        put32(rx+1672,272);put32(rx+1676,0);
+        put32(rx+2512,272);put32(rx+2516,0);
         WifiReply reply;bool matched=false;
         assert(decodeWifiReply(rx,sizeof(rx),9,0x12345678,reply,matched)==Ok && matched);
         assert(reply.length==260 && le32(reply.payload)==1 && reply.frames==1);
@@ -210,15 +210,16 @@ int main(){
         rx[12]=0xff;assert(decodeWifiReply(rx,sizeof(rx),9,0x12345678,reply,matched)==Protocol);
         rx[12]=0;rx[6]=0xff;rx[7]=0xff;
         assert(decodeWifiReply(rx,sizeof(rx),9,0x12345678,reply,matched)==Protocol);
-        put32(rx+1672,1673);assert(decodeWifiReply(rx,sizeof(rx),9,0,reply,matched)==Protocol);
-        put32(rx+1672,0);assert(decodeWifiReply(rx,sizeof(rx),9,0,reply,matched)==Ok && !matched);
+        put32(rx+2512,1681);assert(decodeWifiReply(rx,sizeof(rx),9,0,reply,matched)==Protocol);
+        put32(rx+2512,0);assert(decodeWifiReply(rx,sizeof(rx),9,0,reply,matched)==Ok && !matched);
+        assert(decodeWifiReply(rx,1680,9,0,reply,matched)==Invalid);
     }
     {
         SdioIo io;DmaMock dma(io);SprdSdio::Host<SdioIo> host(io,dma);
-        assert(host.initialize()==Ok);uint8_t packet[840]={1,2,3},rx[1680]={};
+        assert(host.initialize()==Ok);uint8_t packet[840]={1,2,3},rx[2520]={};
         assert(host.packets(true,packet,sizeof(packet))==Ok && io.packetTx.size()==840);
-        io.packetRx.assign(1680,0xa5);assert(host.packets(false,rx,sizeof(rx))==Ok && rx[1679]==0xa5);
-        assert(io.portReads==0 && host.last.argument==0x18004002 && host.last.transferred==1680);
+        io.packetRx.assign(2520,0xa5);assert(host.packets(false,rx,sizeof(rx))==Ok && rx[2519]==0xa5);
+        assert(io.portReads==0 && host.last.argument==0x18004003 && host.last.transferred==2520);
         unsigned old=io.commands;assert(host.packets(true,packet,512)==Invalid && io.commands==old);
         host.restore();
     }
