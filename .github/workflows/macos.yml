@@ -300,7 +300,7 @@ jobs:
             "./bt-${unit}-host-test"
           done
 
-      - name: Check pinned Mali page tables and job descriptors
+      - name: Check native radio and Mali host contracts
         run: |
           set -euxo pipefail
           for unit in vm job; do

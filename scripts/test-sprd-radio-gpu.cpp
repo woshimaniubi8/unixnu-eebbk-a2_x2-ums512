@@ -194,6 +194,18 @@ int main(){
         assert(encodeWifiOpen(body,sizeof(body),zero,6)==Invalid);
         assert(encodeWifiOpen(body,sizeof(body),nullptr,6)==Invalid);
         assert(encodeWifiOpen(body,sizeof(body),unicast,5)==Invalid);
+        uint8_t rx[kReceiveBytes]={};
+        put32(rx,(10u<<24)|(kCommandHeader<<7));
+        rx[4]=(uint8_t)(0x10|(3u<<5));rx[5]=3;rx[6]=kCommandHeader;put32(rx+8,11);
+        put32(rx+2512,kCommandHeader);put32(rx+2516,0);
+        WifiReply opened;bool matched=false;
+        assert(decodeWifiReply(rx,sizeof(rx),3,11,opened,matched)==Ok&&matched);
+        assert(opened.length==0&&opened.context==3);
+        assert(encodeWifiCommand(tx,sizeof(tx),4,12,unicast,1,wire,opened.context)==Ok);
+        assert(((tx[4]>>5)&7)==3);
+        WifiReply closed;matched=false;rx[5]=4;put32(rx+8,12);
+        assert(decodeWifiReply(rx,sizeof(rx),4,12,closed,matched)==Ok&&matched);
+        assert(closed.length==0&&closed.context==3);
     }
     {
         SessionHost host;SprdWcn::Session<SessionHost> session(host);

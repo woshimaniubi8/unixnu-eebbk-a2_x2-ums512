@@ -239,12 +239,12 @@ void NativeSprdPlatform::identifyRadioGpu() {
                     const bool identityValid=packet==Ok;OSSafeReleaseNULL(chosen);
                     SprdWcn::WifiReply opened;
                     if(packet==Ok)packet=SprdWcn::wifiCommand(host,mmio[1],3,transaction++,body,sizeof(body),opened);
-                    if(packet==Ok && (opened.length!=1 || opened.payload[0]>7))packet=Protocol;
-                    IOLog("M125 wifi: OPEN result=%d status=%d bytes=%llu ctx=%u header_ctx=%u factory_mac=%u\n",packet,opened.status,(unsigned long long)opened.length,opened.payload[0],opened.context,identityValid);
+                    if(packet==Ok && opened.length!=0)packet=Protocol;
+                    IOLog("M127 wifi: OPEN result=%d status=%d bytes=%llu ctx=%u factory_mac=%u\n",packet,opened.status,(unsigned long long)opened.length,opened.context,identityValid);
                     if(packet==Ok){
                         uint8_t mode=1;SprdWcn::WifiReply closed;
-                        packet=SprdWcn::wifiCommand(host,mmio[1],4,transaction++,&mode,sizeof(mode),closed,opened.payload[0]);
-                        IOLog("M125 wifi: CLOSE result=%d status=%d bytes=%llu ctx=%u header_ctx=%u\n",packet,closed.status,(unsigned long long)closed.length,opened.payload[0],closed.context);
+                        packet=SprdWcn::wifiCommand(host,mmio[1],4,transaction++,&mode,sizeof(mode),closed,opened.context);
+                        IOLog("M127 wifi: CLOSE result=%d status=%d bytes=%llu ctx=%u\n",packet,closed.status,(unsigned long long)closed.length,opened.context);
                     }
                 }
                 if(packet==Ok && btSnapshot){

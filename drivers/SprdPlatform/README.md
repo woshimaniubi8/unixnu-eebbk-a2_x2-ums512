@@ -349,3 +349,9 @@ completion opcode/status, then READ_LOCAL_VERSION and internal-only BDADDR
 comparison provide acceptance. No factory address is logged. Disable and CP
 reset follow before resources are freed. This source is not evidence for a
 published iOS Bluetooth controller or pairing; its hardware results are pending.
+
+M127 documents the original sprdwl_cmd_send_recv() contract: WIFI_CMD_OPEN
+returns its allocated vif context in the public response header. Its body is
+empty because the original command wrapper writes hdr->common.ctx_id directly
+to the caller's vif_ctx_id pointer. The client uses that header context for
+subsequent CLOSE; treating OPEN as a one-byte payload is wrong.
