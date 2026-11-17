@@ -156,7 +156,7 @@ extern "C" void nw_wifi_tx_reasons(char *text,int size) {
 
 bool sprdWifiRuntimeStart(IOService *owner,SprdWifiHardware *hardware,const uint8_t *mac,
                          const SprdWcn::WifiScanReport *initial) {
-    if(!owner || !hardware || !mac || state.lock)return false;
+    if(!owner || !hardware || !mac || state.ready || state.hardware || state.loop)return false;
     if(!metaReady) {
         if(OSMetaClass::getMetaClassWithName("IO80211Controller") ||
            OSMetaClass::getMetaClassWithName("IONetworkStack")) {
@@ -168,7 +168,8 @@ bool sprdWifiRuntimeStart(IOService *owner,SprdWifiHardware *hardware,const uint
         if(result){IOLog("M130 wifi: network metaclass registration=0x%x\n",result);return false;}
         metaReady=true;
     }
-    state.lock=IOLockAlloc();state.loop=IOWorkLoop::workLoop();
+    if(!state.lock)state.lock=IOLockAlloc();
+    state.loop=IOWorkLoop::workLoop();
     state.cache=(SprdWcn::WifiScanReport *)IOMalloc(sizeof(*state.cache));
     state.work=(SprdWcn::WifiScanReport *)IOMalloc(sizeof(*state.work));
     if(!state.lock || !state.loop || !state.cache || !state.work){sprdWifiRuntimeStop();return false;}
@@ -186,7 +187,7 @@ bool sprdWifiRuntimeStart(IOService *owner,SprdWifiHardware *hardware,const uint
     return true;
 }
 void sprdWifiRuntimeStop() {
-    if(state.gate)state.gate->runAction(stopTick);
+    if(state.gate && state.gate->getWorkLoop())state.gate->runAction(stopTick);
     else state.ready=false;
     if(state.timer){state.timer->cancelTimeout();if(state.loop)state.loop->removeEventSource(state.timer);}
     sprd_wifi_net_stop();
@@ -194,8 +195,15 @@ void sprdWifiRuntimeStop() {
     if(state.gate && state.loop)state.loop->removeEventSource(state.gate);
     OSSafeReleaseNULL(state.gate);
     OSSafeReleaseNULL(state.loop);
-    if(state.cache)IOFree(state.cache,sizeof(*state.cache));
-    if(state.work)IOFree(state.work,sizeof(*state.work));
-    if(state.lock)IOLockFree(state.lock);
-    state=State{};
+    auto *cache=state.cache,*work=state.work;
+    if(state.lock)IOLockLock(state.lock);
+    state.cache=nullptr;state.work=nullptr;state.hardware=nullptr;
+    state.pendingScan=false;state.scanning=false;state.pendingPower=false;
+    state.status={};state.status.state=NW_STA_OFF;state.events={};
+    if(state.lock)IOLockUnlock(state.lock);
+    if(cache)IOFree(cache,sizeof(*cache));
+    if(work)IOFree(work,sizeof(*work));
+    // The C networking callbacks are built in and can outlive an asynchronous
+    // ifnet detach. Their single global lock has the same kernel lifetime;
+    // it remains valid while they observe the stopped, empty state.
 }

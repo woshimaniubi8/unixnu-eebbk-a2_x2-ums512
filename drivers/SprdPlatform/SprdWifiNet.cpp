@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: BSD-2-Clause-Patent
 // Adapted from UniXNU-sheng@08cde20edc3254ed6f7df8d0f5384fb887786e8f
 // package/WifiNet.cpp. SC2355 fullmac backend; no QCA softmac firmware/PCIe.
-// SPDX-License-Identifier: BSD-2-Clause-Patent
 // The WiFi module's network side: the Ethernet interface the system routes through, the registry entries by which the wireless daemon and
 // the network configuration find a wireless interface, and the Apple80211 requests (ioctls on that interface) the daemon uses to scan,
 // join and read state. Nothing here talks to the radio: it calls the module's station interface (nw_abi.h) and turns what it answers into
@@ -92,9 +91,6 @@ static_assert(sizeof(link_event) == 32, "link event layout");
 ifnet_t gIf;
 uint8_t gMac[6];
 bool gPower = true;
-bool gKeyed;   // the last join used a passphrase
-uint32_t gRxFrames, gRxErrors; int gRxLastError;
-uint32_t gRxNoBuffer, gRxChains, gRxLongest;   // frames dropped for want of a buffer, frames that took a chain, the longest frame
 int gAssocResult = kAssocFailed;
 unsigned gScanCursor, gScanning;
 bool gUserJoin;   // the wireless daemon joined, left or switched the radio itself: the unattended test join steps aside
@@ -129,62 +125,16 @@ void post_link(bool up) {
 
 // ---- what the module tells us ----
 void on_scan_done() { __atomic_store_n(&gScanning, 0u, __ATOMIC_RELEASE); gScanCursor = 0; post_event(kEvScanDone, nullptr, 0); }
-// A scan answered from the cache finishes after the time a short scan takes: answered at once, the daemon asks again straight away.
-void on_connect_done(int result) {
-  gAssocResult = result == NW_RES_OK ? kAssocOk : result == NW_RES_BAD_KEY ? kAssocBadKey : result == NW_RES_TIMEOUT ? kAssocTimeout : kAssocFailed;
-  log(6, "wifi-net: join finished: module result %d", result);
-  if (result == NW_RES_OK) { post_link(true); }
-  post_event(kEvAssocDone, nullptr, 0);
-  if (result == NW_RES_OK) {
-    post_event(kEvSsidChanged, nullptr, 0); post_event(kEvBssidChanged, nullptr, 0);
-    nw_wifi_status st; nw_wifi_status_get(&st);
-    link_event ev; memset(&ev, 0, sizeof ev); ev.rssi = st.signal_dbm; ev.noise = static_cast<uint16_t>(-95); ev.snr = static_cast<uint16_t>(st.signal_dbm + 95);
-    post_event(kEvLinkChanged, &ev, sizeof ev);
-  }
-}
-void on_link_lost(int reason) {
-  log(6, "wifi-net: link lost: reason %d", reason);
-  post_link(false);
-  link_event ev; memset(&ev, 0, sizeof ev); ev.down = 1; ev.involuntary = 1; ev.reason = static_cast<uint32_t>(reason);
-  post_event(kEvLinkChanged, &ev, sizeof ev);
-}
-// What the address configuration exchanges, as it crosses the interface: DHCP messages (type, transaction, offered address) and ARP, the first
-// ones of each direction, and per-kind counts for the traffic line.
-void note_frame(const uint8_t *, size_t, bool) {}
-void on_rx(const uint8_t *eth, size_t length) {
-  if (!gIf || length < 14) return;
-  note_frame(eth, length, false);
-  // Two bytes ahead of the Ethernet header put the IP header on a 4-byte boundary. The packet may come back as a chain (a frame larger
-  // than one cluster, or no large cluster free): each buffer gets only what fits in it. Setting the whole length on the first one (as
-  // before) let the stack read past that buffer's end (i469: a data abort in m_copydata reading across a page).
-  enum : size_t { Align = 2 };
-  mbuf_t m = nullptr;
-  if (mbuf_allocpacket(MBUF_DONTWAIT, length + Align, nullptr, &m) || !m) { gRxNoBuffer++; return; }
-  if (length > gRxLongest) gRxLongest = static_cast<uint32_t>(length);
-  if (mbuf_next(m)) gRxChains++;
-  size_t done = 0; bool first = true;
-  for (mbuf_t n = m; n; n = mbuf_next(n)) {
-    size_t room = mbuf_maxlen(n) - mbuf_leadingspace(n);
-    if (first) { if (room < Align + 14) break; mbuf_setdata(n, static_cast<uint8_t *>(mbuf_datastart(n)) + mbuf_leadingspace(n) + Align, 0); room -= Align; }
-    const size_t take = length - done < room ? length - done : room;
-    memcpy(mbuf_data(n), eth + done, take); mbuf_setlen(n, take); done += take; first = false;
-  }
-  if (done != length) { gRxNoBuffer++; mbuf_freem(m); return; }
-  mbuf_pkthdr_setlen(m, length); mbuf_pkthdr_setrcvif(m, gIf);
-  mbuf_pkthdr_setheader(m, mbuf_data(m)); mbuf_adj(m, 14);   // the stack wants the Ethernet header apart from the payload
-  struct ifnet_stat_increment_param inc; memset(&inc, 0, sizeof inc); inc.packets_in = 1; inc.bytes_in = static_cast<uint32_t>(length);
-  const errno_t e = ifnet_input(gIf, m, &inc);
-  if (e) { gRxErrors++; gRxLastError = e; } else gRxFrames++;
-}
-const struct nw_wifi_events gEvents = { on_scan_done, on_connect_done, on_link_lost, on_rx };
+const struct nw_wifi_events gEvents = {on_scan_done,nullptr,nullptr,nullptr};
 
 // ---- the interface ----
 errno_t if_output(ifnet_t, mbuf_t m) {
   size_t length = mbuf_pkthdr_len(m);
   if (length >= 14 && length <= 2000) {
     uint8_t frame[2000]; mbuf_copydata(m, 0, length, frame);
-    note_frame(frame, length, true);
-    if (nw_wifi_tx(frame, length)) log(6, "wifi-net: a frame was dropped (queue full)");
+    if (int result=nw_wifi_tx(frame,length)) {
+      static unsigned shown;if(shown++<4)log(6,"wifi-net: Ethernet TX not available: %d",result);
+    }
     else {ifnet_stat_increment_out(gIf, 1, static_cast<uint32_t>(length), 0);}
   }
   mbuf_freem(m);
@@ -254,19 +204,7 @@ int apple80211(bool set, apple80211req &rq) {
       uint32_t ssidLength; memcpy(&ssidLength, buf + 16, 4); const uint8_t *ssid = buf + 20;
       if(ssidLength>32)return EINVAL;
       int result = nw_wifi_scan(ssidLength ? ssid : nullptr, ssidLength); if (result) return result; gScanning = 1; gScanCursor = 0; gResultsShown = 0; return 0; }
-    case kAssociate: {
-      assoc_request a; if (copy_in(rq, &a, sizeof a)) return EFAULT;
-      if (a.ssid_length > 32) return EINVAL;
-      const bool hasBssid = (a.bssid[0] | a.bssid[1] | a.bssid[2] | a.bssid[3] | a.bssid[4] | a.bssid[5]) != 0;
-      const bool hasKey = a.key_length != 0 && a.key_length <= 64; char pass[65]; memset(pass, 0, sizeof pass); if (hasKey) memcpy(pass, a.key, a.key_length);
-      // cipher 6: the daemon already derived the pairwise master key (32 bytes); the module takes it as 64 hex digits
-      unsigned keyLength = a.key_length;
-      if (hasKey && a.key_cipher == 6 && a.key_length == 32) { static const char hex[] = "0123456789abcdef"; for (int i = 0; i < 32; i++) { pass[2 * i] = hex[a.key[i] >> 4]; pass[2 * i + 1] = hex[a.key[i] & 15]; } keyLength = 64; }
-      gAssocResult = kAssocFailed; gUserJoin = true;
-      log(6, "wifi-net: join: ssid length %u, bssid given %d, key length %u cipher %u", a.ssid_length, hasBssid, a.key_length, a.key_cipher);
-      gKeyed = hasKey; int r = nw_wifi_connect(a.ssid, a.ssid_length, hasBssid ? a.bssid : nullptr, hasKey ? pass : nullptr, hasKey ? keyLength : 0);
-      memset(pass, 0, sizeof pass); memset(&a, 0, sizeof a);
-      return r == NW_RES_UNSUPPORTED ? EOPNOTSUPP : r ? EINVAL : 0; }
+    case kAssociate: return EOPNOTSUPP;
     case kDisassociate: case kDeauth: {int result=nw_wifi_disconnect();if(result)return result;gUserJoin=true;post_link(false);return 0;}
     case kScanCacheClear: return nw_wifi_bss_clear();
     case kLocale: case kCountryCode: case kPowerSave: case kAuthType: case kCipherKey: return EOPNOTSUPP;
@@ -277,7 +215,7 @@ int apple80211(bool set, apple80211req &rq) {
   case kPower: w[0] = 1; w[1] = 1; w[2] = gPower ? 1 : 0; return copy_out(rq, w, 24);
   case kState: return answer_value(rq, static_cast<uint32_t>(gPower ? map_state(st.state) : 0));
   case kOpMode: return answer_value(rq, 1);   // station
-  case kAuthType: w[0] = 1; w[1] = 1; w[2] = gKeyed ? 0x8 : 0; return copy_out(rq, w, 12);   // {version, lower: open system, upper: WPA2 personal or none}
+  case kAuthType: return EOPNOTSUPP;
   case kPowerSave: return EOPNOTSUPP;
   case kCardCaps: case kPhyMode: return EOPNOTSUPP;
   case kSsid: if (st.state < NW_STA_ASSOC) return ENOENT; return answer_bytes(rq, st.ssid, st.ssid_len);
@@ -365,9 +303,8 @@ class IONetworkStackUserClient : public IOUserClient {
   IOReturn setProperties(OSObject *properties) APPLE_KEXT_OVERRIDE {
     static unsigned said;
     if (said++ < 16) {
-      char text[200] = "?";
-      if (OSSerialize *s = OSSerialize::withCapacity(512)) { if (properties && properties->serialize(s)) strlcpy(text, s->text(), sizeof text); s->release(); }
-      log(6, "wifi-net: network stack command %s", text);
+      log(6, "wifi-net: network stack command %u",said);
+
     }
     return kIOReturnSuccess;
   }
