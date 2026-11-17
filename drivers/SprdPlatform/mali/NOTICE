@@ -1,0 +1,84 @@
+NativeMali
+Copyright (C) 2026 Dracen
+
+This project as a whole is distributed under GPL-2.0-only (see LICENSE), because
+it is derived from GPL-2.0 licensed Linux kernel sources. Files derived from
+Adreno740 (formerly NativeAdreno) are normally relicensed under GPL-2.0-only,
+which the MIT licence permits. The one exception is NativeMaliHandleIndex.h: it
+is a literal port of NativeAdrenoHandleIndex.h, keeps its MIT SPDX header, and is therefore under the
+MIT terms reproduced below. The derivation of every such file is recorded in its
+own header.
+
+--------------------------------------------------------------------------------
+Third-party material
+
+1. Adreno740, formerly NativeAdreno (MIT)
+   Copyright (c) 2026 NativeAdreno contributors
+   https://github.com/UniXNU/Adreno740/tree/5c8c1453c67d6ef6b10ec43ab1f8fc570a2f33e1
+   (pinned commit; the repository was renamed, its files keep the NativeAdreno
+   prefix).
+   Reference copies: Adreno740-main/ and NativeAdreno-reference-old/ (verbatim,
+   not built, not committed, keep their own MIT headers). Used as the model for
+   module structure, error handling, the user-client ABI shape and the
+   host-test style. Files of this project that are derived from it say so in
+   their header; NativeMaliHandleIndex.h keeps its MIT header. The XNU adapters
+   under xnu/ follow its IOKit call shapes (window mapping, buffer allocation
+   and span walking, the cache-maintenance sequence, the BO view cache) and are
+   derived from it in that sense.
+
+2. Linux kernel: drivers/gpu/drm/panfrost/, drivers/iommu/io-pgtable-arm.c,
+   include/uapi/drm/panfrost_drm.h, Documentation/devicetree/bindings/gpu/
+   arm,mali-bifrost.yaml
+   SPDX-License-Identifier: GPL-2.0 / GPL-2.0-only (per file)
+   Reference copy: third_party/linux-panfrost/ (verbatim, not built, keeps its
+   own SPDX headers and copyrights; byte-identical to torvalds/linux at commit
+   9944dd07f3cf7b6c19d65c2585147887ca06677c).
+   Source of every register offset, bit definition and page-table format used
+   here; each converted value names the file and function it came from. Pinned in
+   third_party/PINNED.md.
+
+3. Mesa (MIT)
+   Copyright (C) 2019-2020 Collabora Ltd., Alyssa Rosenzweig, Broadcom
+   Reference copy: third_party/mesa-panfrost/ (verbatim, not built):
+     src/panfrost/genxml/v7.xml   Bifrost v7 descriptor bit layout (M6)
+     src/panfrost/lib/pan_jc.h    the job-chain builder and header fields
+   Read as a specification; the job header's own bit positions still need
+   common.xml, so that part of the driver stays a marked TODO.
+
+4. Device tree: tests/data/mt6768.dtb is the device tree of the owner's phone
+   (MediaTek, vendor tree). It is board data, not code; it is used only as test
+   input and as the source of the DT facts quoted in the driver comments.
+
+5. MediaTek vendor kernel (GPL-2.0 / GPL-2.0-only, per file)
+   Reference copy: third_party/mtk-android/ (verbatim, not built, not committed;
+   extracted from the owner's phone's GPL kernel archive). Source of every M2
+   offset, bit and voltage value: clk-mt6768-pg.c, clk-mt6768.c,
+   mt6358-regulator.c, pwrap_hal.[ch], upmu_hw.h, mtk_gpufreq_core.[ch] and the
+   MT6768 board DTS. Each value used by the driver names the file and the
+   function or line it came from; docs/MTK_SOURCES.md records the sha256 of each
+   file so a different archive is detected rather than silently trusted.
+
+--------------------------------------------------------------------------------
+MIT licence text, as it applies to the Adreno740 (formerly NativeAdreno) derived
+material (NativeMaliHandleIndex.h)
+
+Copyright (c) 2026 NativeAdreno contributors
+Copyright (c) 2026 Dracen (modifications)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

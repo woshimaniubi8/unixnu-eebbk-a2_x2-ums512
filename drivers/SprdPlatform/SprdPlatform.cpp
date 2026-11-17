@@ -31,6 +31,7 @@ extern "C" IOService *sprd_hid_allocate(bool);
 extern "C" IOReturn sprd_hid_buttons(IOService *,uint8_t);
 extern "C" IOReturn sprd_hid_contacts(IOService *,const SprdBus::Frame *,unsigned,unsigned);
 extern "C" void sprd_hid_diagnostics(IOService *);
+extern "C" IOReturn sprd_mali_owned_write_test(volatile uint8_t *,volatile uint8_t *,volatile uint8_t *,volatile uint8_t *,bool *);
 using namespace SprdBus;
 namespace {
 constexpr FuelOcvPoint kFactoryOcvCapacity[]={{4386000,100},{4329000,95},{4274000,90},{4217000,85},{4160000,80},{4106000,75},{4055000,70},{4008000,65},{3964000,60},{3905000,55},{3866000,50},{3840000,45},{3818000,40},{3800000,35},{3784000,30},{3766000,25},{3744000,20},{3719000,15},{3690000,10},{3679000,5},{3460000,0}};
@@ -118,7 +119,13 @@ void NativeSprdPlatform::identifyRadioGpu() {
             SprdMali::Probe<Registers> gpu(r[2],mmio[2],r[3],r[4]);SprdMali::Identity g;
             Result gr=gpu.run(g);
             IOLog("M116 mali: result=%d id=0x%x status=0x%x shader=0x%x tiler=0x%x l2=0x%x as=0x%x js=0x%x irq=0x%x reset_polls=%u\n",gr,g.id,g.status,g.shader,g.tiler,g.l2,g.as,g.js,g.irq,g.resetPolls);
-            gpu.restore();IOLog("M116 mali: clock/domain restored; no Metal device published by this identification operation\n");
+            bool canRestore=true;
+            if(gr==Ok){
+                IOReturn job=sprd_mali_owned_write_test(r[4].base,r[2].base,mmio[2].base,r[3].base,&canRestore);
+                IOLog("M119 mali: owned-memory job=0x%x domain_restorable=%u\n",job,canRestore);
+            }
+            if(canRestore){gpu.restore();IOLog("M116 mali: clock/domain restored; no Metal device published by this identification operation\n");}
+            else IOLog("M119 mali: domain retained and GPU buffers quarantined after unconfirmed DMA stop\n");
         }else IOLog("M116 mali: stopped before GPU register access: factory always-on supply is not qualified\n");
     }
     for(auto &v:m)OSSafeReleaseNULL(v);

@@ -1,0 +1,88 @@
+{
+  "repository": "https://github.com/Dracen-W/Mali-G52",
+  "commit": "2f279e1c0213c2ec33ec9e0f2f643c04c65565ec",
+  "license": "GPL-2.0-only",
+  "files": [
+    {
+      "path": "NativeMaliPlatform.h",
+      "source_sha256": "73f73952f3a34ebafc68cc70a3f7462a0b08e13931ebfe9e2378ed033a6b381f"
+    },
+    {
+      "path": "NativeMaliGpu.h",
+      "source_sha256": "7d34c2435173168ce09245e14bd30b7d1e96d9af3d31065ba26e7d3271a33c38"
+    },
+    {
+      "path": "NativeMaliGpu.cpp",
+      "source_sha256": "ceddef6e69aa2a3f7bf93d476b4ffc84a068350ba25ddb956ba63684fd5d9eaf"
+    },
+    {
+      "path": "NativeMaliGpuCore.h",
+      "source_sha256": "17b3db889840d617422b4f2e23c0d0efe90b9b6e335c8886a0cd94d038100435"
+    },
+    {
+      "path": "NativeMaliGpuCore.cpp",
+      "source_sha256": "c38db10c3ddd04b62940b7667b9312da11f9be00b2c1a701f90a4ba869cebbc3"
+    },
+    {
+      "path": "NativeMaliCache.h",
+      "source_sha256": "aa5a1d6e1f1d8e6c4de58e1eaeb8e6ba33ade5b2efd902f20932a9a1855cb3be"
+    },
+    {
+      "path": "NativeMaliRegs.h",
+      "source_sha256": "2afa5d3a20b1738072467228bb06085becf9e1c06b30710813d2ebb6c683a60d"
+    },
+    {
+      "path": "NativeMaliVm.h",
+      "source_sha256": "8d811993d337a2d6633b1a73090eb94240e8a653ea70d35566fac279c385c4c2"
+    },
+    {
+      "path": "NativeMaliVm.cpp",
+      "source_sha256": "2c8ebf53ea23b0c024469037524e3da372d9365d9ba3509e19dc48101cab82dc"
+    },
+    {
+      "path": "NativeMaliMmu.h",
+      "source_sha256": "4d9109b833017dc1e951853e55eac59d249eb4152ffeb71f3eb1b41b411052e9"
+    },
+    {
+      "path": "NativeMaliMmu.cpp",
+      "source_sha256": "d12ac8c964757ba9cfd115240ae6d2e886bac196f3c920ff353627cd461594b5"
+    },
+    {
+      "path": "NativeMaliFault.h",
+      "source_sha256": "e350becbbc25a3de88c85455fc6e60a3a906d6b20c0072a8b0b865f214fe78f9"
+    },
+    {
+      "path": "NativeMaliFault.cpp",
+      "source_sha256": "7fa20a167f03099bff0bdc7ef3561db3739c076e48e614aec05b39a819554819"
+    },
+    {
+      "path": "NativeMaliJob.h",
+      "source_sha256": "771087eb1217195af995721ede79911108c5509fe953750fb427831bbde9b9dc"
+    },
+    {
+      "path": "NativeMaliJob.cpp",
+      "source_sha256": "cfb598208a6f402876c1b031e34527675b18cf89a37a1a7a8477d6b4c44ca2f2"
+    },
+    {
+      "path": "NativeMaliJobSlot.h",
+      "source_sha256": "3046b7fc36bc59957d534738adb713e8d18cc87fa0113f80ec074b54ac4ccea2"
+    },
+    {
+      "path": "NativeMaliJobSlot.cpp",
+      "source_sha256": "78c1fdb562afc38daa80967a3ef0b9540b3572419313fe4c760914beaa6fc3f0"
+    },
+    {
+      "path": "LICENSE",
+      "source_sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+    },
+    {
+      "path": "NOTICE",
+      "source_sha256": "d96023d20d69384fab3626cc67aa01fb418650274a993e54d9f43eff186b2d40"
+    }
+  ],
+  "changes": {
+    "NativeMaliGpuCore.cpp": "Route reset progress to UART instead of modifying the framebuffer",
+    "NativeMaliPower.h": "Board adapter qualifies the live Sprd domain/gates; MTK PMIC/pwrap/SPM code is not linked"
+  },
+  "hardware_scope": "Owned-memory WRITE_VALUE validation only; no Metal or network functionality claimed"
+}

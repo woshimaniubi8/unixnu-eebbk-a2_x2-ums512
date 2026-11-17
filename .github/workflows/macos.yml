@@ -293,6 +293,18 @@ jobs:
             -fno-omit-frame-pointer device/scripts/test-sprd-radio-gpu.cpp -o radio-gpu-host-test
           ./radio-gpu-host-test
 
+      - name: Check pinned Mali page tables and job descriptors
+        run: |
+          set -euxo pipefail
+          for unit in vm job; do
+            case "$unit" in vm) source=NativeMaliVm;; job) source=NativeMaliJob;; esac
+            xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+              -fno-omit-frame-pointer -Idevice/scripts/mali-host/shim -Idevice/drivers/SprdPlatform/mali \
+              "device/scripts/mali-host/test_${unit}.cpp" "device/drivers/SprdPlatform/mali/${source}.cpp" \
+              -o "mali-host-${unit}"
+            "./mali-host-${unit}"
+          done
+
       - name: defconfig + status
         working-directory: UniXNU
         run: |

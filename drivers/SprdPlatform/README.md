@@ -192,6 +192,26 @@ INEN clear, DATA last. The previous DATA-before-DIR path also left INEN set,
 so reading DATA checked an input sample. GPIO diagnostics retain the actual
 pin/data/direction/INEN/DMSK snapshot. No inversion of raw CHIP_EN is added.
 
+### Pinned Mali task implementation
+
+The board reuses Dracen-W/Mali-G52 at2f279e1c0213c2ec33ec9e0f2f643c04c65565ec
+for Bifrost v7 feature decode, LPAE tables, AS programming, WRITE_VALUE encoding
+and polled job completion. Original GPL notices and per-file source hashes are
+preserved inhardware/mali-g52-reuse.json. The MTK PMIC/pwrap/SPM implementation
+is excluded; NativeMaliPower.h only qualifies this board's live Sprd resources.
+Reset progress goes to UART, not the existing display's framebuffer.
+
+The first workload uses a16KiB physically contiguous, prepared,32-bit-addressable
+IOBufferMemoryDescriptor. GPU IOVA1000000 maps only its first8KiB; the chain
+writes4750554d313139 to the second4KiB page. Table pages get separate16KiB
+descriptors while exposing4KiB Mali granules. CPU cache operations use the live
+CTR_EL0 line size and explicit PoC clean/invalidate. Success requires the JM
+completion, the literal written value and confirmed teardown; identity alone
+does not qualify acceleration. On unconfirmed DMA stop, buffer references remain
+pinned and domain restoration is refused. No Metal plugin or accelerator is
+published by this owned-memory test. The host codec/table tests pass; hardware
+acceptance must come from the exact candidate's M119 log.
+
 ## Battery source and runtime evidence
 
 Through M113, the device reports efuse `775d` (voltage ADC705/current ADC5640),
