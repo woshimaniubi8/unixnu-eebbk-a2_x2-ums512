@@ -102,7 +102,7 @@ diff --git a/bsd/dev/arm/systemcalls.c b/bsd/dev/arm/systemcalls.c
 +		printf("M140 bt syscall: enter pid=%d tid=%llu code=%u a0=0x%llx a1=0x%llx pc=0x%llx lr=0x%llx\n",
 +		    proc_getpid(proc), (unsigned long long)thread_tid(current_thread()), code,
 +		    (unsigned long long)uthread->uu_arg[0], (unsigned long long)uthread->uu_arg[1],
-+		    (unsigned long long)get_saved_state_pc(regs), (unsigned long long)get_saved_state_lr(regs));
++		    (unsigned long long)get_saved_state_pc(state), (unsigned long long)get_saved_state_lr(state));
 +	}
  	error = (*(callp->sy_call))(proc, &uthread->uu_arg[0], &(uthread->uu_rval[0]));
 +	if (bbk_bt_observe) {
