@@ -57,10 +57,12 @@ diff --git a/bsd/kern/sys_generic.c b/bsd/kern/sys_generic.c
 diff --git a/bsd/kern/kern_exit.c b/bsd/kern/kern_exit.c
 --- a/bsd/kern/kern_exit.c
 +++ b/bsd/kern/kern_exit.c
-@@ -1942,5 +1942,5 @@
+@@ -1941,7 +1941,7 @@
+ 		}
  
  #if (DEVELOPMENT || DEBUG)
 -		if (p->p_pid <= exception_log_max_pid) {
 +		if (p->p_pid <= exception_log_max_pid || strcmp(proc_best_name(p), "bluetoothd") == 0) {
  			char *proc_name = proc_best_name(p);
- 			if (PROC_HAS_EXITREASON(p)) {
+ 			/* Opt-in with exception_log_max_pid. The System Event 96-byte
+ 			 * buffer truncates the description after its prefix. These are
