@@ -128,7 +128,20 @@ public:
             r,wave.before.prescale,wave.before.mod,wave.before.duty,wave.before.enable,wave.before.division,wave.before.patternLow,wave.before.patternHigh,
             wave.after.prescale,wave.after.mod,wave.after.duty,wave.after.enable,wave.after.division,wave.after.patternLow,wave.after.patternHigh,mux);
         if(r!=SprdBus::Ok)return false;
-        level=from=goal=SprdBus::backlightLevel(saved.enable?saved.duty:0);
+        const unsigned inherited=SprdBus::backlightLevel(saved.enable?saved.duty:0);
+        /* cboot leaves PWM2 at raw duty 25 (about 10% of the 8-bit range),
+         * which makes the first panel frame effectively unreadable. Keep an
+         * explicitly-off waveform off, but start an enabled panel at a
+         * calibrated 50% logical floor; later CoreBrightness requests still
+         * set the exact requested level. */
+        constexpr unsigned kStartupBrightnessFloor=128;
+        level=from=goal=saved.enable && inherited<kStartupBrightnessFloor
+            ? kStartupBrightnessFloor : inherited;
+        if(level!=inherited) {
+            if(!apply(level))return false;
+            IOLog("M150 backlight: startup floor logical=%u inherited=%u raw=%u\n",
+                level,inherited,SprdBus::backlightDuty(level));
+        }
         loop=IOWorkLoop::workLoop();request=IOTimerEventSource::timerEventSource(this,requestTick);fade=IOTimerEventSource::timerEventSource(this,fadeTick);
         if(!loop || !request || !fade || loop->addEventSource(request) || loop->addEventSource(fade))return false;
         if(!conformance()) {IOLog("M104 backlight: original AppleARMBacklight extent unavailable\n");return false;}

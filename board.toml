@@ -140,6 +140,13 @@ physical_memory_map = true
 psci_method = "smc"
 cpu_regs = "0,0x100,0x200,0x300,0x400,0x500,0x600,0x700"
 
+
+# Factory MAC bytes read from this tablet's prodnv, not an emulated network service.
+# MobileGestalt checks these chosen properties before waiting for IONetworkController.
+[adt.chosen.bytes]
+mac-address-wifi0 = "74d87381e13d"
+mac-address-bluetooth0 = "74d87381e13e"
+
 [userdata]
 # GPT entry measured on hardware (see the UEFI GPT walk in the bring-up log).
 # The eMMC exposes 512-byte sectors and the GPT LBA unit is 512 bytes:

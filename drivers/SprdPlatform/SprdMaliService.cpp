@@ -51,12 +51,7 @@ struct Window {
 
 class NativeSprdMaliService final : public IOService {
     OSDeclareDefaultStructors(NativeSprdMaliService)
-    Window windows_[4] = {
-        {0x60000000, 0x100000}, /* Mali core/JM/MMU */
-        {0x327e0000, 0x1000},   /* GPU PMU gate */
-        {0x327d0000, 0x3000},   /* AON APB gate */
-        {0x60100000, 0x3000}    /* GPU clock */
-    };
+    Window windows_[4]{};
     NativeMaliPower *power_ = nullptr;
     NativeMaliGpuCore core_;
     NativeMaliMmu mmu_;
@@ -68,6 +63,18 @@ class NativeSprdMaliService final : public IOService {
     bool mmuPrepared_ = false;
     bool jobsPrepared_ = false;
     bool ready_ = false;
+
+    void describeWindows()
+    {
+        windows_[0].base = 0x60000000;
+        windows_[0].bytes = 0x100000; /* Mali core/JM/MMU */
+        windows_[1].base = 0x327e0000;
+        windows_[1].bytes = 0x1000;   /* GPU PMU gate */
+        windows_[2].base = 0x327d0000;
+        windows_[2].bytes = 0x3000;   /* AON APB gate */
+        windows_[3].base = 0x60100000;
+        windows_[3].bytes = 0x3000;   /* GPU clock */
+    }
 
     void releaseWindows()
     {
@@ -110,6 +117,7 @@ public:
     bool start(IOService *provider) override
     {
         if(!IOService::start(provider))return false;
+        describeWindows();
         const IOReturn mapping = [&]() {
             for(auto &window : windows_) {
                 IODeviceMemory *memory = IODeviceMemory::withRange(
