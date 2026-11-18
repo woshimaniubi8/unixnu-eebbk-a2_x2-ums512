@@ -45,6 +45,7 @@ extern "C" IOService *sprd_hid_allocate(bool);
 extern "C" IOReturn sprd_hid_buttons(IOService *,uint8_t);
 extern "C" IOReturn sprd_hid_contacts(IOService *,const SprdBus::Frame *,unsigned,unsigned);
 extern "C" void sprd_hid_diagnostics(IOService *);
+extern "C" IOService *sprd_mali_service_create();
 extern "C" IOReturn sprd_mali_owned_write_test(volatile uint8_t *,volatile uint8_t *,volatile uint8_t *,volatile uint8_t *,bool *);
 extern "C" const uint8_t sprd_wcn_firmware_start[];
 extern "C" const uint8_t sprd_wcn_firmware_end[];
@@ -331,9 +332,9 @@ class NativeSprdPlatform : public IOService {
     IOPMrootDomain *sleepRoot=nullptr;IOPMDriverAssertionID pollingAssertion=kIOPMUndefinedDriverAssertionID;
     TouchPins<Registers,Registers> touchPins{touchPinRegisters,mmio[1]};
     IOWorkLoop *loop=nullptr;IOTimerEventSource *timer=nullptr;
-    IOService *keys=nullptr,*touch=nullptr,*backlight=nullptr;
+    IOService *keys=nullptr,*touch=nullptr,*backlight=nullptr,*mali=nullptr;
     OSDictionary *touchPersonality=nullptr;
-    bool keysStarted=false,touchStarted=false;
+    bool keysStarted=false,touchStarted=false,maliStarted=false;
     uint32_t aonAdded[2]={},apAdded=0,clockSaved[2]={};bool clockChanged=false;
     uint32_t gpioSaved[3]={};bool gpioChanged=false,pmicChanged=false,pmicReady=false;
     uint16_t pmicMask=0;unsigned touchKind=0,touchW=0,touchH=0,ticks=0,touchErrors=0,touchReports=0,keyErrors=0;
@@ -859,6 +860,15 @@ bool NativeSprdPlatform::start(IOService *p) {
     if(!prepare()){IOLog("bbk platform: hardware prepare failed\n");stop(p);return false;}
     prepareFuelGauge();
     identifyRadioGpu();
+    mali=sprd_mali_service_create();
+    if(mali && mali->attach(this)) {
+        maliStarted=mali->start(this);
+        IOLog("M149 mali: child attach/start=%u\n",maliStarted ? 1u : 0u);
+        if(!maliStarted){mali->detach(this);mali->release();mali=nullptr;}
+    } else {
+        IOLog("M149 mali: child service allocation/attach failed\n");
+        OSSafeReleaseNULL(mali);
+    }
     identifyTouch();recoverTouchReset();
     if(!publishInput()){IOLog("bbk platform: HID publication failed\n");stop(p);return false;}
     timer=IOTimerEventSource::timerEventSource(this,tick);
@@ -886,6 +896,7 @@ void NativeSprdPlatform::restore() {
 void NativeSprdPlatform::stop(IOService *p) {
     if(backlight){backlight->stop(this);backlight->detach(this);backlight->release();backlight=nullptr;}
     if(timer){timer->cancelTimeout();if(loop)loop->removeEventSource(timer);OSSafeReleaseNULL(timer);}
+    if(mali){if(maliStarted)mali->stop(this);if(mali->getProvider()==this)mali->detach(this);mali->release();mali=nullptr;maliStarted=false;}
     if(radio){sprdWifiRuntimeStop();radio->shutdown();delete radio;radio=nullptr;}
     if(battery){battery->terminate(kIOServiceSynchronous);if(batteryStarted)battery->stop(this);battery->detach(this);battery->release();battery=nullptr;batteryStarted=false;}
     if(pollingAssertion && sleepRoot){sleepRoot->releasePMAssertion(pollingAssertion);pollingAssertion=kIOPMUndefinedDriverAssertionID;sleepRoot=nullptr;}
