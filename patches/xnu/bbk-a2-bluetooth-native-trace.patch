@@ -83,7 +83,7 @@ diff --git a/bsd/kern/sys_generic.c b/bsd/kern/sys_generic.c
 diff --git a/bsd/dev/arm/systemcalls.c b/bsd/dev/arm/systemcalls.c
 --- a/bsd/dev/arm/systemcalls.c
 +++ b/bsd/dev/arm/systemcalls.c
-@@ -219,7 +219,40 @@
+@@ -219,7 +219,41 @@
  		}
  	}
  
@@ -91,22 +91,23 @@ diff --git a/bsd/dev/arm/systemcalls.c b/bsd/dev/arm/systemcalls.c
 +	bool bbk_bt_observe = false;
 +	if (strcmp(proc_best_name(proc), "bluetoothd") == 0) {
 +		switch (code) {
-+		case 1: case 33: case 37: case 54: case 97: case 98:
-+		case 202: case 274: case 328: case 521:
++		case 1: case 5: case 33: case 37: case 54: case 97: case 98:
++		case 202: case 274: case 328: case 338: case 340: case 463: case 464: case 466: case 521:
 +			bbk_bt_observe = __atomic_fetch_add(&bbk_bt_syscalls, 1u, __ATOMIC_RELAXED) < 1024;
 +			break;
 +		default: break;
 +		}
 +	}
 +	if (bbk_bt_observe) {
-+		if (code == 33) {
++		if (code == 5 || code == 33 || code == 338 || code == 340 || code == 463 || code == 464 || code == 466) {
 +			char path[192] = {0};
 +			size_t path_length = 0;
-+			int path_error = copyinstr((user_addr_t)uthread->uu_arg[0], path, sizeof(path), &path_length);
++			unsigned int path_index = (code == 463 || code == 464 || code == 466) ? 1 : 0;
++			int path_error = copyinstr((user_addr_t)uthread->uu_arg[path_index], path, sizeof(path), &path_length);
 +			path[sizeof(path) - 1] = '\0';
-+			printf("M141 bt access: pid=%d tid=%llu flags=0x%llx copy=%d len=%lu path=%s lr=0x%llx\n",
++			printf("M142 bt path: pid=%d tid=%llu code=%u copy=%d len=%lu path=%s lr=0x%llx\n",
 +			    proc_getpid(proc), (unsigned long long)thread_tid(current_thread()),
-+			    (unsigned long long)uthread->uu_arg[1], path_error, (unsigned long)path_length, path,
++			    code, path_error, (unsigned long)path_length, path,
 +			    (unsigned long long)get_saved_state_lr(state));
 +		}
 +		printf("M140 bt syscall: enter pid=%d tid=%llu code=%u a0=0x%llx a1=0x%llx pc=0x%llx lr=0x%llx\n",
