@@ -83,10 +83,52 @@ diff --git a/bsd/kern/sys_generic.c b/bsd/kern/sys_generic.c
 diff --git a/bsd/dev/arm/systemcalls.c b/bsd/dev/arm/systemcalls.c
 --- a/bsd/dev/arm/systemcalls.c
 +++ b/bsd/dev/arm/systemcalls.c
-@@ -219,7 +219,41 @@
+@@ -219,7 +219,83 @@
  		}
  	}
  
++	/* The original daemon preserves its restart reason/context in x20/x19.
++	 * Observe a small number of real exit calls independently of the path budget.
++	 * Bounded copyin never dereferences user pointers directly. */
++	static uint32_t bbk_bt_exit_reasons;
++	if (code == 1 && strcmp(proc_best_name(proc), "bluetoothd") == 0 &&
++	    __atomic_fetch_add(&bbk_bt_exit_reasons, 1u, __ATOMIC_RELAXED) < 8) {
++		uint64_t context = get_saved_state_reg(state, 19);
++		uint64_t reason = get_saved_state_reg(state, 20);
++		uint64_t fp = get_saved_state_fp(state);
++		uint64_t sp = get_saved_state_sp(state);
++		char message[160] = {0};
++		size_t length = 0;
++		int copy_error = copyinstr((user_addr_t)context, message, sizeof(message), &length);
++		if (copy_error != 0) {
++			message[0] = 0;
++		}
++		for (unsigned int i = 0; i < sizeof(message) - 1 && message[i] != 0; ++i) {
++			if ((unsigned char)message[i] < 32 || (unsigned char)message[i] > 126) {
++				message[i] = '?';
++			}
++		}
++		message[sizeof(message) - 1] = 0;
++		printf("M143 bt reason: pid=%d tid=%llu x19=0x%llx x20=0x%llx copy=%d context=%s fp=0x%llx sp=0x%llx lr=0x%llx\n",
++		    proc_getpid(proc), (unsigned long long)thread_tid(current_thread()),
++		    (unsigned long long)context, (unsigned long long)reason, copy_error, message,
++		    (unsigned long long)fp, (unsigned long long)sp,
++		    (unsigned long long)get_saved_state_lr(state));
++		for (unsigned int frame = 0; frame < 6; ++frame) {
++			uint64_t words[2] = {0};
++			if ((fp >> 48) != 0 || (fp & 15) != 0 || fp < sp || fp - sp > 0x10000 - sizeof(words)) {
++				break;
++			}
++			int error = copyin((user_addr_t)fp, words, sizeof(words));
++			printf("M143 bt frame: pid=%d index=%u fp=0x%llx copy=%d next=0x%llx ret=0x%llx\n",
++			    proc_getpid(proc), frame, (unsigned long long)fp, error,
++			    (unsigned long long)words[0], (unsigned long long)words[1]);
++			if (error != 0 || words[0] <= fp) {
++				break;
++			}
++			fp = words[0];
++		}
++	}
 +	static uint32_t bbk_bt_syscalls;
 +	bool bbk_bt_observe = false;
 +	if (strcmp(proc_best_name(proc), "bluetoothd") == 0) {
