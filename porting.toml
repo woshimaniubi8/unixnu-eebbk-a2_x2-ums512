@@ -192,14 +192,14 @@ evidence = [{ kind = "host", command = "python3 tools/verify-bootimg.py dist/boo
 
 [[area]]
 id = "bluetooth"
-status = "hci-command-verified"
+status = "hci-command-verified-transport-implemented"
 components = ["SprdPlatform"]
-paths = ["drivers/SprdPlatform/SprdWcnBluetooth.h", "drivers/SprdPlatform/SprdWcnBluetoothData.h", "drivers/SprdPlatform/SprdWcnSession.h"]
+paths = ["drivers/SprdPlatform/SprdWcnBluetooth.h", "drivers/SprdPlatform/SprdWcnBluetoothData.h", "drivers/SprdPlatform/SprdWcnSession.h", "drivers/SprdPlatform/SprdBluetoothStream.h", "drivers/SprdPlatform/SprdBluetoothTransport.c", "drivers/SprdPlatform/SprdWifiRuntime.cpp"]
 inputs = ["Exact sprdbt_tty.ko H4/padding4 and TX3/RX17 subtype5; original160-byte PSKEY and252-byte RF data; private address filled at runtime."]
 configuration = ["Original BT memory snapshot/reload with c00 mask preserving Wi-Fi80, BT_BIN_DOWNLOAD/BT_OPEN; HCI FCA0,FCA2,FCA1(00,09,01), RESET, READ_LOCAL_VERSION, internal-only READ_BD_ADDR check and FCA1 disable."]
 procedure = ["Require matched command-completion opcode/status, bounded partial-event reassembly and actual disable/CPreset/IRQ/GPIO/power cleanup in the same boot."]
 findings = ["M129 fast-clock: all factory initialization commands, HCI version9/manufacturer1ec/subversion400, private address match and disable passed. RF completion arrived after140 unrelated packets.", "Actual21H461 bluetoothd contains com.apple.uart.sk.bluetooth and BM3UART os_channel_sync paths. All27 candidate QcaBluetooth UART.SK transport import names exist in the current kernel; structure and controller ABI remain to be validated."]
 completion = ["Actual bluetoothd connection, standard HCI traffic, discovery, pairing, reconnection and coexistence with Wi-Fi pass."]
-limits = ["No iOS Bluetooth system controller, UART.SK channel or pairing is published by M129. HCI probe success is not a pairing result."]
-next_action = ["Reuse the audited UART.SK transport frontend after checking21H461 ABI. Connect it to the same sole WCN/SDIO owner with separate H4 TX/RX queues and real power results."]
+limits = ["M137 implements the reused generic UART.SK frontend and real shared-SDIO H4 path; daemon channel creation, discovery and pairing require hardware verification. HCI probe success is not a pairing result."]
+next_action = ["Build with actual kernel headers and refreshed guarded bindings; verify native21H461 bluetoothd control connection, channel and real HCI traffic before discovery/pairing qualification."]
 evidence = [{ kind = "hardware", reference = "build/diag/m129-fast-clock/hardware-verification.json", result = "Factory HCI and disable passed in same scan/GPU boot; no private identity printed." }, { kind = "host", reference = "build/diag/m130-wifi-net/bt-skywalk-imports.json", result = "Target daemon control name and27 current kernel API symbols found. Symbol presence alone does not prove ABI or runtime success." }]

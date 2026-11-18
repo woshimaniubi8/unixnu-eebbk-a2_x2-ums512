@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 #include "SprdWifiRuntime.h"
 #include "SprdWifiNetABI.h"
+#include "SprdBluetoothTransport.h"
+#include "SprdBluetoothStream.h"
 #include <IOKit/IOLib.h>
 #include <IOKit/IOWorkLoop.h>
 #include <IOKit/IOTimerEventSource.h>
@@ -41,6 +43,14 @@ struct State {
     struct Frame {uint16_t bytes;uint8_t data[SprdWcn::kEthernetMaximum];};
     struct Queue {Frame frame[32];} *tx=nullptr;
     unsigned txHead=0,txCount=0,txSent=0,txFailed=0,txFull=0,rxFrames=0;
+    bool btPowerPending=false,btPowerRequested=true,btEnabled=false;
+    uint32_t btWorkPending=0;
+    unsigned btTicks=0;
+    struct Bluetooth {
+        SprdWcn::H4Stream rx;
+        uint8_t pending[16384]={};size_t offset=0,length=0;
+        bool fault=false;
+    } *bt=nullptr;
 } state;
 bool metaReady=false;
 uint64_t nowNs(){uint64_t now=0;absolutetime_to_nanoseconds(mach_absolute_time(),&now);return now;}
@@ -77,6 +87,46 @@ void received(void *,const uint8_t *frame,size_t length) {
     IOLockUnlock(state.lock);
     if(rx)rx(frame,length);
 }
+int bluetoothPower(void *,bool on) {
+    if(!state.lock)return ENETDOWN;
+    IOLockLock(state.lock);int result=0;
+    if(!state.ready)result=ENETDOWN;
+    else if(state.btPowerPending)result=EBUSY;
+    else {state.btPowerPending=true;state.btPowerRequested=on;}
+    IOLockUnlock(state.lock);return result;
+}
+void bluetoothWake(void *) {
+    // The dedicated WCN loop already wakes every20ms. Kernel-control and
+    // channel callbacks enqueue work; none may enter the SDIO owner inline.
+    __atomic_store_n(&state.btWorkPending,1u,__ATOMIC_RELEASE);
+}
+void flushBluetooth() {
+    if(!state.bt || !state.btEnabled)return;
+    auto &b=*state.bt;
+    if(b.length) {
+        const uint32_t taken=sprd_bt_transport_receive(b.pending+b.offset,(uint32_t)b.length);
+        b.offset+=taken;b.length-=taken;if(!b.length)b.offset=0;
+    }
+}
+void bluetoothReceived(void *,const uint8_t *bytes,size_t length) {
+    if(!state.bt || !state.btEnabled || state.bt->fault)return;
+    auto &b=*state.bt;flushBluetooth();
+    SprdBus::Result result=b.rx.consume(bytes,length,true,[&b](const uint8_t *frame,size_t n) {
+        size_t taken=b.length?0:sprd_bt_transport_receive(frame,(uint32_t)n);
+        if(taken==n)return SprdBus::Ok;
+        if(n-taken>sizeof(b.pending)-b.length)return SprdBus::Busy;
+        if(b.offset+b.length+n-taken>sizeof(b.pending)) {
+            memmove(b.pending,b.pending+b.offset,b.length);b.offset=0;
+        }
+        memcpy(b.pending+b.offset+b.length,frame+taken,n-taken);b.length+=n-taken;
+        return SprdBus::Ok;
+    });
+    if(result!=SprdBus::Ok) {
+        b.fault=true;
+        sprd_bt_transport_power_result(false,result==SprdBus::Busy?ENOBUFS:EPROTO,"UMW2652/SC2355",3200000);
+        IOLog("M137 bt: H4 RX stopped result=%d pending=%llu\n",result,(unsigned long long)b.length);
+    }
+}
 bool hasMetaClass(const char *name) {
     const OSSymbol *symbol=OSSymbol::withCString(name);if(!symbol)return true;
     bool present=OSMetaClass::getMetaClassWithName(symbol)!=nullptr;
@@ -85,28 +135,38 @@ bool hasMetaClass(const char *name) {
 
 void tick(OSObject *,IOTimerEventSource *) {
     if(!state.ready)return;
-    bool scan=false,power=false,on=false,join=false,leave=false,key=false;
+    bool scan=false,power=false,on=false,join=false,leave=false,key=false,btPower=false,btOn=false;
     uint8_t ssid[32]={};size_t length=0;
     SprdWcn::StationJoin request;State::Key keyRequest={};
     IOLockLock(state.lock);
     if(state.ready) {
         power=state.pendingPower;on=state.powerRequested;state.pendingPower=false;
-        if(!power && state.pendingDisconnect){leave=true;state.pendingDisconnect=false;}
-        if(!power && !leave && state.pendingJoin){join=true;request=state.join;
+        if(!power && state.btPowerPending){btPower=true;btOn=state.btPowerRequested;state.btPowerPending=false;}
+        if(!power && !btPower && state.pendingDisconnect){leave=true;state.pendingDisconnect=false;}
+        if(!power && !btPower && !leave && state.pendingJoin){join=true;request=state.join;
             eraseSecret(&state.join,sizeof(state.join));state.pendingJoin=false;state.joining=true;
             state.status.state=NW_STA_AUTH;state.joinDeadline=nowNs()+20000000000ull;}
-        if(!power && !leave && !join && state.keyCount) {
+        if(!power && !btPower && !leave && !join && state.keyCount) {
             key=true;keyRequest=state.keys[state.keyHead];eraseSecret(&state.keys[state.keyHead],sizeof(keyRequest));
             state.keyHead=(state.keyHead+1)%4;state.keyCount--;
         }
-        if(!power && !leave && !join && !key && state.pendingScan && state.status.state!=NW_STA_OFF) {
+        if(!power && !btPower && !leave && !join && !key && state.pendingScan && state.status.state!=NW_STA_OFF) {
             scan=true;state.pendingScan=false;state.scanning=true;
             state.status.state=NW_STA_SCANNING;
             length=state.scanSsidLength;memcpy(ssid,state.scanSsid,length);
         }
     }
     IOLockUnlock(state.lock);
-    if(power) {
+    flushBluetooth();
+    if(btPower) {
+        SprdBus::Result result=state.hardware->bluetoothPower(btOn);
+        if(result==SprdBus::Ok){
+            IOLockLock(state.lock);state.btEnabled=btOn;IOLockUnlock(state.lock);
+            if(state.bt){state.bt->rx.reset();state.bt->length=state.bt->offset=0;state.bt->fault=false;}
+        }
+        sprd_bt_transport_power_result(btOn,result==SprdBus::Ok?0:EIO,"UMW2652/SC2355",3200000);
+        IOLog("M137 bt: original enable=%u result=%d\n",btOn,result);
+    } else if(power) {
         SprdBus::Result result=state.hardware->power(on);
         IOLockLock(state.lock);
         if(result==SprdBus::Ok){state.status.state=on?NW_STA_IDLE:NW_STA_OFF;state.joining=false;
@@ -161,6 +221,24 @@ void tick(OSObject *,IOTimerEventSource *) {
             return;
         }
     }
+    flushBluetooth();
+    if(state.btEnabled && state.bt && !state.bt->fault &&
+       (__atomic_exchange_n(&state.btWorkPending,0u,__ATOMIC_ACQ_REL) || sprd_bt_transport_tx_pending())) {
+        uint8_t bytes[512];
+        // H4 frames may span several Skywalk slots; the original sitm-style
+        // parser retains their header/body boundary until the packet is whole.
+        for(unsigned i=0;i<8;i++) {
+            uint32_t n=sprd_bt_transport_tx_take(bytes,sizeof(bytes));if(!n)break;
+            SprdBus::Result result=state.hardware->bluetoothWrite(bytes,n);
+            if(result!=SprdBus::Ok){state.bt->fault=true;
+                sprd_bt_transport_power_result(false,EIO,"UMW2652/SC2355",3200000);break;}
+        }
+    }
+    if((++state.btTicks%500)==0 && state.btEnabled) {
+        IOLog("M137 bt: control power=%u boot_reads=%u connects=%u channels=%u active=%u rx_frames=%u\n",
+            sprd_bt_transport_activity[0],sprd_bt_transport_activity[1],sprd_bt_transport_activity[2],
+            sprd_bt_transport_activity[3],sprd_bt_transport_active(),state.bt?state.bt->rx.frames:0);
+    }
     bool timedOut=false;
     IOLockLock(state.lock);timedOut=state.joining && nowNs()>=state.joinDeadline;IOLockUnlock(state.lock);
     if(timedOut){state.hardware->disconnect(3);connected(nullptr,false,NW_RES_TIMEOUT,nullptr,0,0);}
@@ -207,7 +285,8 @@ extern "C" int nw_wifi_scan(const uint8_t *ssid,size_t length) {
     if(length>32 || (length && !ssid) || !state.lock)return EINVAL;
     IOLockLock(state.lock);int result=0;
     if(!state.ready || state.status.state==NW_STA_OFF)result=ENETDOWN;
-    else if(state.pendingScan || state.scanning || state.joining || state.pendingJoin || state.status.state>=NW_STA_AUTH)result=EBUSY;
+    else if(state.pendingScan || state.scanning || state.joining || state.pendingJoin || state.status.state>=NW_STA_AUTH ||
+            (state.btEnabled && sprd_bt_transport_active()))result=EBUSY;
     else {state.pendingScan=true;state.scanSsidLength=length;if(length)memcpy(state.scanSsid,ssid,length);}
     IOLockUnlock(state.lock);return result;
 }
@@ -331,13 +410,18 @@ bool sprdWifiRuntimeStart(IOService *owner,SprdWifiHardware *hardware,const uint
     state.cache=(SprdWcn::WifiScanReport *)IOMalloc(sizeof(*state.cache));
     state.work=(SprdWcn::WifiScanReport *)IOMalloc(sizeof(*state.work));
     state.tx=(State::Queue *)IOMalloc(sizeof(*state.tx));
-    if(!state.lock || !state.loop || !state.cache || !state.work || !state.tx){sprdWifiRuntimeStop();return false;}
+    state.bt=new State::Bluetooth;
+    if(!state.lock || !state.loop || !state.cache || !state.work || !state.tx || !state.bt){sprdWifiRuntimeStop();return false;}
     bzero(state.cache,sizeof(*state.cache));bzero(state.work,sizeof(*state.work));
     if(initial)memcpy(state.cache,initial,sizeof(*state.cache));
     state.hardware=hardware;state.status={};state.status.state=NW_STA_IDLE;
     state.scans=state.drained=state.ticks=0;
     state.status.channels=0x421;memcpy(state.status.mac,mac,6);state.ready=true;
-    hardware->callbacks({nullptr,connected,disconnected,received,nullptr});
+    hardware->callbacks({nullptr,connected,disconnected,received,bluetoothReceived});
+    const sprd_bt_transport_ops btOps={nullptr,bluetoothWake,bluetoothPower};
+    const int btStatus=sprd_bt_transport_init(&btOps);
+    if(!btStatus){state.btPowerPending=true;state.btPowerRequested=true;}
+    IOLog("M137 bt: shared SDIO transport queued status=%d\n",btStatus);
     state.gate=IOCommandGate::commandGate(owner);
     state.timer=IOTimerEventSource::timerEventSource(owner,tick);
     if(!state.gate || !state.timer || state.loop->addEventSource(state.gate)!=kIOReturnSuccess ||
@@ -352,15 +436,19 @@ void sprdWifiRuntimeStop() {
     else state.ready=false;
     if(state.timer){state.timer->cancelTimeout();if(state.loop)state.loop->removeEventSource(state.timer);}
     sprd_wifi_net_stop();
+    if(state.btEnabled){sprd_bt_transport_power_result(false,ENETDOWN,"UMW2652/SC2355",3200000);
+        if(state.hardware)state.hardware->bluetoothPower(false);state.btEnabled=false;}
     if(state.hardware)state.hardware->callbacks({});
     OSSafeReleaseNULL(state.timer);
     if(state.gate && state.loop)state.loop->removeEventSource(state.gate);
     OSSafeReleaseNULL(state.gate);
     OSSafeReleaseNULL(state.loop);
     auto *cache=state.cache,*work=state.work;auto *tx=state.tx;
+    auto *bt=state.bt;state.bt=nullptr;
     if(state.lock)IOLockLock(state.lock);
     state.cache=nullptr;state.work=nullptr;state.hardware=nullptr;state.tx=nullptr;
     state.pendingScan=false;state.scanning=false;state.pendingPower=false;
+    state.btPowerPending=false;state.btEnabled=false;state.btTicks=0;
     state.pendingJoin=false;state.joining=false;state.pendingDisconnect=false;
     eraseSecret(&state.join,sizeof(state.join));eraseSecret(state.keys,sizeof(state.keys));
     state.keyCount=state.keyHead=state.txCount=state.txHead=0;
@@ -369,6 +457,7 @@ void sprdWifiRuntimeStop() {
     if(cache)IOFree(cache,sizeof(*cache));
     if(work)IOFree(work,sizeof(*work));
     if(tx){eraseSecret(tx,sizeof(*tx));IOFree(tx,sizeof(*tx));}
+    delete bt;
     // The C networking callbacks are built in and can outlive an asynchronous
     // ifnet detach. Their single global lock has the same kernel lifetime;
     // it remains valid while they observe the stopped, empty state.

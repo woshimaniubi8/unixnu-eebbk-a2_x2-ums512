@@ -170,6 +170,16 @@
 			status = "okay";
 		};
 
+		/* H4 packet transport over the same original SDIO1 WCN owner.
+		 * The baud is the logical UART.SK termios contract, not an AP UART. */
+		bluetooth {
+			compatible = "unixnu,sc2355-bluetooth";
+			unixnu,adt-name = "bluetooth";
+			transport-encoding = <1>;
+			speed = <3200000>;
+			status = "okay";
+		};
+
 		watchdog: watchdog@322f0000 {
 			compatible = "sprd,wdt-r2p0-fiq";
 			unixnu,adt-name = "watchdog";

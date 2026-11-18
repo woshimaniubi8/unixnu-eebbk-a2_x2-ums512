@@ -14,7 +14,7 @@ M128 hardware scan on channels 1/6/11 returned nine scan frames and six BSS,
 with response/status/done accepted and zero malformed frames. Bluetooth HCI
 and the Mali owned-memory WRITE_VALUE regression passed in the same boot.
 
-This frontend is initially scan-only. Association, key installation and
+The initial M130 frontend was scan-only. Association, key installation and
 Ethernet TX/RX are still unsupported. It returns the real unsupported/error
 result, never a successful association or fabricated network/rate/noise.
 Only the three tested channels are currently reported. No SSID, BSSID,
@@ -73,3 +73,20 @@ mandatory MFP/WPA3/ciphers fail explicitly. No automatic AP selection occurs.
 (1dfd9f0d4); the donor592-byte association layout is not used. Host wire tests
 and guarded source CI are required. Hardware association/DHCP remain unproven
 until corresponding real firmware events and IP traffic are observed.
+
+M136's closed 937-second hardware observation passed 23 real system scans,
+the original Bluetooth HCI regression and the owned Mali test, without a
+kernel panic or receive-stop. This still does not qualify association/DHCP.
+
+M137 connects the same WCN owner to the generic kernel-control/Skywalk H4
+stream from UniXNU/QcaBluetooth@22ff97f. The target is 21H461, not the donor's
+iPadOS27: the actual bluetoothd control name and 72-byte termios contract
+were checked in the deployed binary. Only generic transport code is reused;
+the original SC2355 SDIO3/17, PSKEY, RF and enable protocol stay unchanged.
+The real Bluetooth function is exported under arm-io/bluetooth. Power success
+is published only after the original controller ACK. H4 command/ACL/SCO/event
+frames retain their boundaries across slots and SDIO packets; receive
+backpressure has a bounded staging queue and reports overflow as an error.
+Bluetooth discovery/pairing and native daemon traffic remain unqualified
+until a closed hardware capture confirms those operations. No Apple vendor
+command is answered with a fabricated completion.

@@ -181,6 +181,16 @@ jobs:
               path.write_text(text.replace(needle, "'timebase-frequency', 'timeout-sec'", 1))
           print("watchdog timeout-sec added to the ADT U32 whitelist")
           PY_WDT
+          python3 - <<'PY_BT_DT'
+          from pathlib import Path
+          path = Path("UniXNU/scripts/unixnu/devicetree.py")
+          text = path.read_text()
+          needle = "U64 = {'redistributor-stride'}"
+          if needle not in text:
+              raise SystemExit("Bluetooth ADT U32 anchor missing")
+          text = text.replace(needle, "U32 |= {'transport-encoding', 'speed'}\n" + needle, 1)
+          path.write_text(text)
+          PY_BT_DT
           # BBK display integration is pinned; never silently substitute another ABI.
           test "$(git -C UniXNU/drivers/GopFramebuffer rev-parse HEAD)" = b0d812d578efa2acb005b66f73168891719af09a
           git -C UniXNU/drivers/GopFramebuffer apply "$GITHUB_WORKSPACE/device/patches/unixnu/gop-bbk-cpu-only.patch"
@@ -306,6 +316,9 @@ jobs:
           xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
             -fno-omit-frame-pointer device/scripts/test-sprd-station.cpp -o station-host-test
           ./station-host-test
+          xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            -fno-omit-frame-pointer device/scripts/test-sprd-bt-stream.cpp -o bt-stream-host-test
+          ./bt-stream-host-test
           for unit in bluetooth bt-session; do
             xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
               -fno-omit-frame-pointer "device/scripts/test-sprd-${unit}.cpp" -o "bt-${unit}-host-test"

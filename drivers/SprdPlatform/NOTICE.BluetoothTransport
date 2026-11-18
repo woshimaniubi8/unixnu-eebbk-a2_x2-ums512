@@ -1,0 +1,9 @@
+SprdBluetoothTransport.c and .h are derived from UniXNU/QcaBluetooth
+commit22ff97f93416452335bb61badb14c762da653487.
+https://github.com/UniXNU/QcaBluetooth
+Original src/qbt_transport.c SHA25636441542921cae5824d84c74603dcd0b072402df252a008351cfd5070df01741 (APSL-2.0).
+Original include/qbt_transport.h SHA256ada5265de650073f621a6aefd04c0c755948cb2ba13205dd4331e2e6f38f4aa5 (BSD-2-Clause-Patent).
+Only generic kernel-control/Skywalk byte-stream machinery is reused.
+SC2355 PSKEY/RF/enable/SDIO remain the original1h190 protocols.
+Target native daemon3f1e4493ea6a76976625f7af58a8f330c0c90d82d9020b11110b4f3f5b758df4
+contains UART.SK connect/termios at1000ddaa8; no iPadOS27 instruction patches copied.

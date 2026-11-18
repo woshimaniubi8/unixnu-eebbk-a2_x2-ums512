@@ -31,6 +31,7 @@
 #include "SprdWcnCalibration.h"
 #include "SprdWcnBluetooth.h"
 #include "SprdWcnBluetoothData.h"
+#include "SprdBluetoothStream.h"
 #include "SprdWcnApi.h"
 #include "SprdWcnSession.h"
 #include "SprdWcnPower.h"
@@ -130,6 +131,9 @@ public:
     bool packetSaved=false,stationOpen=false,scanQualified=false,firmwareStarted=false;
     SprdWcn::ReceiveState receiveState;
     SprdWcn::WifiStation station;
+    SprdWcn::H4Stream bluetoothTx;
+    uint8_t bluetoothPacket[SprdWcn::kH4TransmitBytes]={};
+    bool bluetoothQualified=false,bluetoothEnabled=false;
     RadioResources(Registers &g,Registers &a,Registers &p,Registers &ac,Adi<Registers> &adi):
         gpio(g),powerOwner(g,a,p,registers[1],ac,adi),host(registers[0],dma),session(host) {}
     ~RadioResources() override {
@@ -192,6 +196,46 @@ public:
         SprdWcn::WifiReply reply;Result result=session.wake();
         if(result==Ok)result=command(14,body,length,reply,context);
         return result;
+    }
+    Result bluetoothPower(bool on) override {
+        if(!bluetoothQualified)return Invalid;
+        if(bluetoothEnabled==on)return Ok;
+        Result result=session.wake();SprdWcn::HciReply reply;
+        const uint8_t parameters[]={0,9,(uint8_t)(on?1:0)};
+        if(result==Ok)result=SprdWcn::hciCommand(host,gpio,0xfca1,parameters,sizeof(parameters),reply,
+                                               station.observer(),&receiveState.pending);
+        if(result==Ok){bluetoothEnabled=on;bluetoothTx.reset();}
+        if(result==Ok && on) {
+            IORegistryEntry *entry=IORegistryEntry::fromPath("/arm-io/bluetooth",gIODTPlane);
+            IORegistryEntry *chosen=IORegistryEntry::fromPath("/chosen",gIODTPlane);
+            OSData *mac=chosen?OSDynamicCast(OSData,chosen->getProperty("mac-address-bluetooth0")):nullptr;
+            const uint32_t encoding=1,speed=3200000;
+            const bool published=entry && mac && mac->getLength()==6 &&
+                entry->setProperty("local-mac-address",mac) &&
+                entry->setProperty("transport-encoding",&encoding,sizeof(encoding)) &&
+                entry->setProperty("speed",&speed,sizeof(speed));
+            IOLog("M137 bt: real function properties published=%u\n",published);
+            OSSafeReleaseNULL(chosen);OSSafeReleaseNULL(entry);
+            if(!published) {
+                const uint8_t disable[]={0,9,0};SprdWcn::HciReply stopped;
+                Result off=SprdWcn::hciCommand(host,gpio,0xfca1,disable,sizeof(disable),stopped,
+                                              station.observer(),&receiveState.pending);
+                if(off==Ok)bluetoothEnabled=false;
+                IOLog("M137 bt: property failure controller cleanup=%d\n",off);
+                result=Invalid;
+            }
+        }
+        return result;
+    }
+    Result bluetoothWrite(const uint8_t *bytes,size_t length) override {
+        if(!bluetoothEnabled)return Invalid;
+        return bluetoothTx.consume(bytes,length,false,[this](const uint8_t *frame,size_t n) {
+            size_t used=0;Result result=SprdWcn::encodeH4Packet(frame,n,bluetoothPacket,sizeof(bluetoothPacket),used);
+            if(result==Ok)result=session.wake();
+            if(result==Ok)result=host.packets(true,bluetoothPacket,used);
+            if(result!=Ok)IOLog("M137 bt: H4 TX failed type=%u bytes=%llu result=%d\n",frame[0],(unsigned long long)n,result);
+            return result;
+        });
     }
     Result transmit(const uint8_t *frame,size_t bytes) override {
         uint8_t tx[SprdWcn::kTransmitBytes]={};size_t used=0;int color=-1;bool eapol=false;
@@ -447,6 +491,7 @@ void NativeSprdPlatform::identifyRadioGpu() {
                         if(bluetooth==Ok)bluetooth=disabled;
                     }
                     IOLog("M126 bt: HCI transaction result=%d factory_identity=%u\n",bluetooth,identityValid);
+                    resources->bluetoothQualified=bluetooth==Ok;
                     if(packet==Ok)packet=bluetooth;
                 }
                 resources->transaction=transaction;

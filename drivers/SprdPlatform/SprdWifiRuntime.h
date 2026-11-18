@@ -14,6 +14,8 @@ public:
     virtual SprdBus::Result disconnect(unsigned)=0;
     virtual SprdBus::Result key(const uint8_t *,size_t)=0;
     virtual SprdBus::Result transmit(const uint8_t *,size_t)=0;
+    virtual SprdBus::Result bluetoothPower(bool)=0;
+    virtual SprdBus::Result bluetoothWrite(const uint8_t *,size_t)=0;
 };
 bool sprdWifiRuntimeStart(IOService *,SprdWifiHardware *,const uint8_t *,
                          const SprdWcn::WifiScanReport *);

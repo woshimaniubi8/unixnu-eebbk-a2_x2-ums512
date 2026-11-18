@@ -32,6 +32,27 @@ for source in sources:
         assert ' T __GLOBAL__sub_I_SprdWifiNet.cpp' in symbols
         objects.append(str(late))
     else:objects.append(str(obj))
+# The reused kernel-control/Skywalk transport is C, not a C++ IOKit object.
+# Keep the actual kernel's include/target/feature ABI while selecting C rules.
+source=SOURCE/'SprdBluetoothTransport.c';obj=OUT/'SprdBluetoothTransport.o'
+command=[];args=record['arguments'];i=0
+while i<len(args):
+    value=args[i]
+    if value==record['file']:command.append(str(source))
+    elif value=='-o':command+=['-o',str(obj)];i+=1
+    elif value=='-Xclang' and args[i+1].startswith('-W'):i+=1
+    elif value=='-x':i+=1
+    elif value.startswith(('-std=','-stdlib=','-W')) or value in ('-fno-rtti','-fapple-kext','-fno-exceptions','-fno-threadsafe-statics','-fvisibility-inlines-hidden'):
+        pass
+    else:command.append(value)
+    i+=1
+command[1:1]=['-x','c','-std=gnu11']
+command+=['-Wall','-Wextra','-Werror','-Wno-unused-parameter']
+(OUT/'SprdBluetoothTransport-command.json').write_text(json.dumps(command,indent=2)+'\n')
+r=subprocess.run(command,cwd=record['directory'],capture_output=True,text=True)
+(OUT/'SprdBluetoothTransport.log').write_text(r.stdout+r.stderr)
+if r.returncode:raise SystemExit((r.stdout+r.stderr)[-7000:])
+objects.append(str(obj))
 firmware=SOURCE/'firmware/wcnmodem-1h190-sc2355.bin'
 raw=firmware.read_bytes()
 assert len(raw)==0xe7400 and hashlib.sha256(raw).hexdigest()=='59e177b4cb195c63a0021164d286c13c5c4fc9be9d430457451db40dc8caf554'
