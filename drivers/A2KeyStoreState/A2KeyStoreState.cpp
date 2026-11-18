@@ -8,6 +8,9 @@
 #include <libkern/c++/OSData.h>
 #include <pexpert/pexpert.h>
 
+extern "C" void proc_selfname(char *name, int size);
+extern "C" int proc_selfpid(void);
+
 // Keep the upstream selector implementation and metaclasses byte-for-byte in
 // their own source file; this wrapper supplies only the board state/lifecycle.
 #include "upstream/NativeKeyStoreEvents.cpp"
@@ -45,6 +48,20 @@ extern "C" void native_aks_call(uint32_t selector, int32_t result)
 {
     unsigned n = (unsigned)OSIncrementAtomic(&calls) + 1;
     if (logCount(n)) IOLog("bbk aks: call selector=%u result=0x%x calls=%u\n", selector, (unsigned)result, n);
+    // The original Bluetooth daemon currently exits inside readRootKeys().
+    // Keep results unchanged; expose the first four calls and subsequent powers
+    // of two for each selector, rather than hiding failures behind a global rate.
+    static volatile SInt32 bySelector[256];
+    if (selector < 256) {
+        unsigned count = (unsigned)OSIncrementAtomic(&bySelector[selector]) + 1;
+        if (count <= 4 || (count & (count - 1)) == 0) {
+            char name[32] = {0};
+            proc_selfname(name, (int)sizeof(name));
+            IOLog("M144 aks: pid=%d name=%s selector=%u result=0x%x count=%u\n",
+                  proc_selfpid(), name, selector, (unsigned)result, count);
+        }
+    }
+
 }
 extern "C" void native_aks_opened(void)
 {
