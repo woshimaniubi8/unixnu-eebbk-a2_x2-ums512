@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BSD-2-Clause-Patent
 // Board lifecycle for the pinned UniXNU AppleKeyStoreState component.
-// Only the explicitly selected, unencrypted ephemeral RAM Data profile uses it.
+// The explicitly selected ephemeral RAM Data profile uses upstream software
+// wrapping keyed from actual board identity; it does not implement hardware data protection.
 #include <IOKit/IOKitKeys.h>
 #include <IOKit/IODeviceTreeSupport.h>
 #include <IOKit/IOLib.h>
@@ -17,6 +18,8 @@ extern "C" int proc_selfpid(void);
 
 namespace {
 bool stateEnabled;
+uint8_t deviceIdentity[6] = {};
+size_t deviceIdentityBytes;
 volatile SInt32 calls, opened, refused;
 
 bool ephemeralRamData()
@@ -39,9 +42,37 @@ bool ephemeralRamData()
     return flag == 1 && range[0] != 0 && range[1] == 0x2000000ULL && range[0] + range[1] > range[0];
 }
 
+bool readFactoryIdentity()
+{
+    IORegistryEntry *chosen = IORegistryEntry::fromPath("/chosen", gIODTPlane);
+    if (!chosen) return false;
+    OSData *identity = OSDynamicCast(OSData, chosen->getProperty("mac-address-bluetooth0"));
+    uint8_t value[6] = {};
+    const bool sized = identity && identity->getLength() == sizeof(value);
+    if (sized) memcpy(value, identity->getBytesNoCopy(), sizeof(value));
+    chosen->release();
+    unsigned any = 0, notOnes = 0;
+    for (unsigned i = 0; i < sizeof(value); ++i) {
+        any |= value[i];
+        notOnes |= (unsigned)(value[i] ^ 0xffu);
+    }
+    if (!sized || any == 0 || notOnes == 0) return false;
+    memcpy(deviceIdentity, value, sizeof(value));
+    deviceIdentityBytes = sizeof(value);
+    return true;
+}
+
 bool logCount(unsigned n) { return n <= 16 || (n & (n - 1)) == 0; }
 }
 
+// Identity is captured before service publication and never printed. There is
+// no fabricated identity: the software key cannot be derived without this board.
+extern "C" size_t native_aks_device_id(uint8_t *out, size_t capacity)
+{
+    if (!stateEnabled || !out || deviceIdentityBytes != sizeof(deviceIdentity) || capacity < deviceIdentityBytes) return 0;
+    memcpy(out, deviceIdentity, deviceIdentityBytes);
+    return deviceIdentityBytes;
+}
 extern "C" bool native_aks_state_enabled(void) { return stateEnabled; }
 extern "C" uint32_t native_aks_lock_state(void) { return 0; }
 extern "C" void native_aks_call(uint32_t selector, int32_t result)
@@ -85,6 +116,11 @@ public:
             return false;
         }
         if (!IOService::start(provider)) return false;
+        if (!readFactoryIdentity()) {
+            IOLog("M145 aks: actual factory identity unavailable; software key service not started\n");
+            IOService::stop(provider);
+            return false;
+        }
         events = native_keyevents_allocate();
         if (!events || !events->init(nullptr)) {
             IOLog("bbk aks: event service allocation/init failed\n");
@@ -110,7 +146,8 @@ public:
         }
         setProperty("EphemeralRAMDataOnly", true);
         registerService();
-        IOLog("bbk aks: AppleKeyStore published class=%s state=unlocked key-operations=unavailable profile=ephemeral-ram-data\n", events->getMetaClass()->getClassName());
+        IOLog("M145 aks: original upstream software-wrap=1 identity=factory-bluetooth bytes=%u profile=ephemeral-ram-data class=%s\n",
+              (unsigned)deviceIdentityBytes, events->getMetaClass()->getClassName());
         return true;
     }
     void stop(IOService *provider) override
