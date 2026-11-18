@@ -199,12 +199,18 @@ public:
     }
     Result bluetoothPower(bool on) override {
         if(!bluetoothQualified)return Invalid;
-        if(bluetoothEnabled==on)return Ok;
-        Result result=session.wake();SprdWcn::HciReply reply;
+        // The retained controller has already passed PSKEY/RF/enable/reset.
+        // Still publish its real properties when there is no new transition.
+        if(bluetoothEnabled==on && !on)return Ok;
+        const bool retained=bluetoothEnabled && on;
+        Result result=Ok;SprdWcn::HciReply reply;
         const uint8_t parameters[]={0,9,(uint8_t)(on?1:0)};
-        if(result==Ok)result=SprdWcn::hciCommand(host,gpio,0xfca1,parameters,sizeof(parameters),reply,
+        if(!retained)result=session.wake();
+        if(!retained && result==Ok)result=SprdWcn::hciCommand(host,gpio,0xfca1,parameters,sizeof(parameters),reply,
                                                station.observer(),&receiveState.pending);
         if(result==Ok){bluetoothEnabled=on;bluetoothTx.reset();}
+        IOLog("M138 bt: power transition=%u retained=%u result=%d events=%u aggregates=%u sleep=0x%x\n",
+              on,retained,result,reply.events,reply.aggregates,session.lastSleep);
         if(result==Ok && on) {
             IORegistryEntry *entry=IORegistryEntry::fromPath("/arm-io/bluetooth",gIODTPlane);
             IORegistryEntry *chosen=IORegistryEntry::fromPath("/chosen",gIODTPlane);
@@ -275,6 +281,9 @@ public:
         IOLog("M130 wifi: IRQ/GPIO restore=%d\n",result);
     }
     void shutdown() {
+        if(bluetoothEnabled) {
+            Result stopped=bluetoothPower(false);IOLog("M138 bt: shutdown disable=%d\n",stopped);
+        }
         if(stationOpen) {
             Result closed=power(false);IOLog("M130 wifi: shutdown CLOSE=%d\n",closed);
         }
@@ -489,11 +498,16 @@ void NativeSprdPlatform::identifyRadioGpu() {
                         if(bluetooth==Ok && !addressMatch)bluetooth=Protocol;
                         IOLog("M126 bt: factory address match=%u result=%d status=0x%x bytes=%llu\n",addressMatch,bluetooth,reply.status,(unsigned long long)reply.length);
                     }
-                    if(enabled){
+                    const bool retain=bluetooth==Ok && resources->scanQualified && resources->stationOpen;
+                    if(enabled && !retain){
                         const uint8_t disable[]={0,9,0};SprdWcn::HciReply reply;
                         Result disabled=SprdWcn::hciCommand(host,mmio[1],0xfca1,disable,sizeof(disable),reply,resources->station.observer(),&resources->receiveState.pending);
                         IOLog("M126 bt: disable result=%d status=0x%x\n",disabled,reply.status);
                         if(bluetooth==Ok)bluetooth=disabled;
+                    }
+                    if(retain){
+                        resources->bluetoothEnabled=true;
+                        IOLog("M138 bt: original initialized controller retained for native transport\n");
                     }
                     IOLog("M126 bt: HCI transaction result=%d factory_identity=%u\n",bluetooth,identityValid);
                     resources->bluetoothQualified=bluetooth==Ok;

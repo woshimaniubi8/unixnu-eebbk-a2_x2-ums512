@@ -90,3 +90,10 @@ backpressure has a bounded staging queue and reports overflow as an error.
 Bluetooth discovery/pairing and native daemon traffic remain unqualified
 until a closed hardware capture confirms those operations. No Apple vendor
 command is answered with a fabricated completion.
+
+M137 hardware passed the complete original HCI initialization but the later
+disable/enable runtime transition timed out. M138 retains that qualified live
+controller instead of closing it between the probe and the native transport,
+matching the retained Wi-Fi session's ownership. Explicit teardown still sends
+the original disable command before CP reset and power restoration. Native
+Bluetooth traffic, subsequent power cycles and pairing remain separate tests.
