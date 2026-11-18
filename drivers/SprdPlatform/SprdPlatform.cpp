@@ -221,6 +221,11 @@ public:
                 entry->setProperty("transport-encoding",&encoding,sizeof(encoding)) &&
                 entry->setProperty("speed",&speed,sizeof(speed));
             IOLog("M137 bt: real function properties published=%u\n",published);
+            IOLog("M139 bt: registry class=%s service_plane=%u service_name=%s mac_bytes=%u\n",
+                  entry?entry->getMetaClass()->getClassName():"absent",
+                  entry && entry->inPlane(gIOServicePlane),
+                  entry?entry->getName(gIOServicePlane):"absent",
+                  mac?(unsigned)mac->getLength():0);
             OSSafeReleaseNULL(chosen);OSSafeReleaseNULL(entry);
             if(!published) {
                 const uint8_t disable[]={0,9,0};SprdWcn::HciReply stopped;
