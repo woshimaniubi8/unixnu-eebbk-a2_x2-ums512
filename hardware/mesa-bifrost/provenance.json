@@ -1,0 +1,48 @@
+{
+  "repository": "https://gitlab.freedesktop.org/mesa/mesa",
+  "tag": "mesa-26.2.6",
+  "commit": "8e87a503ebd91408c88596d1b9eeb5f4c0b2088d",
+  "xml_sha256": "0d86661a755b749fd49ac3645e10ea8222a3618bb2b25167be8bb91ef5507f36",
+  "generator_sha256": "0c90397237b688caa6c1de5474eda04732b374905fe6f4a1effb463f1d5b4607",
+  "generated_full_sha256": "385bf032ea246cb170aa52136e24b4a2c77b0becad596a538ba2a6a01467539b",
+  "selected_packets": [
+    "JOB_HEADER",
+    "FRAMEBUFFER_PARAMETERS",
+    "RT_BUFFER",
+    "RT_CLEAR",
+    "RGB_RENDER_TARGET",
+    "TILER_HEAP",
+    "TILER_WEIGHTS",
+    "TILER_STATE",
+    "TILER_CONTEXT",
+    "FRAGMENT_JOB_PAYLOAD"
+  ],
+  "output_sha256": "3347d4275b8a85e08c4a3eb3d5ab0c1d97daca167b12c1f56d3ec1c40a51a55c",
+  "source_files": [
+    {
+      "path": "pan_desc.c",
+      "sha256": "0dba4d844eb7cb3fe3480bcf79cf527a5456d85d6273e2082c1ad6562386fa2d",
+      "url": "https://gitlab.freedesktop.org/mesa/mesa/-/raw/mesa-26.2.6/src/panfrost/lib/pan_desc.c"
+    },
+    {
+      "path": "pan_clear.c",
+      "sha256": "d93298128f9b0ac14dd89d06d1d4f113bb3a48228c35e5cae48a155c449fec46",
+      "url": "https://gitlab.freedesktop.org/mesa/mesa/-/raw/mesa-26.2.6/src/panfrost/lib/pan_clear.c"
+    },
+    {
+      "path": "pan_samples.c",
+      "sha256": "f74519ffb334a5e4bb88012e8f9bf6bdf2a76803c0c53fd464853dba4c760f5d",
+      "url": "https://gitlab.freedesktop.org/mesa/mesa/-/raw/mesa-26.2.6/src/panfrost/lib/pan_samples.c"
+    },
+    {
+      "path": "pan_tiler.c",
+      "sha256": "b38b2683baa13b67db54469a6fe960dc13b375fb57fb55c92727ceb9e4b24051",
+      "url": "https://gitlab.freedesktop.org/mesa/mesa/-/raw/mesa-26.2.6/src/panfrost/lib/pan_tiler.c"
+    },
+    {
+      "path": "panvk_vX_cmd_buffer.c",
+      "sha256": "0a766006a6cfff7883f57955360f063cf6dbe337296b07b0df3ea3d14e952ef3",
+      "url": "https://gitlab.freedesktop.org/mesa/mesa/-/raw/mesa-26.2.6/src/panfrost/vulkan/jm/panvk_vX_cmd_buffer.c"
+    }
+  ]
+}

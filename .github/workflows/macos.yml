@@ -328,6 +328,11 @@ jobs:
       - name: Check native radio and Mali host contracts
         run: |
           set -euxo pipefail
+          python3 device/scripts/generate-mali-render-packets.py --check
+          xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            -fno-omit-frame-pointer device/scripts/tests/test-sprd-mali-render.cpp -o mali-render-host-test
+          ./mali-render-host-test mali-render-packets.bin
+          python3 device/scripts/check-mali-render-packets.py mali-render-packets.bin
           for unit in vm job; do
             case "$unit" in vm) source=NativeMaliVm;; job) source=NativeMaliJob;; esac
             xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \

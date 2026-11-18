@@ -48,6 +48,16 @@ this is not evidence that an untested physical controller already works.
 
 ## SC2355 and Mali hardware dependencies (M116)
 
+M147 adds an owned 64x64 RGBA image qualification after WRITE_VALUE. Mesa26.2.6
+v7.xml and its unchanged generator provide the actual packet packers. Four
+fragment jobs clear separate tile-aligned quadrants. The CPU writes only job
+descriptors, empty tiler storage and a sentinel; it never supplies expected
+pixel values to the output image. Every pixel and both 16KiB guard regions
+must match after GPU completion, followed by the existing DMA/reset cleanup.
+This is a fixed-function fragment test, not a shader renderer or a Metal
+device. Device execution remains unqualified until its literal readback is
+recorded; packet host tests alone do not establish rendering success.
+
 The driver-integration reference is https://unixnu.com/zh/porting/drivers.
 The radio and GPU transport backends in its examples belong to WCN7850 and
 Adreno740. This board uses SC2355 on SDIO1 at0x71200000 and Mali Gondul at
