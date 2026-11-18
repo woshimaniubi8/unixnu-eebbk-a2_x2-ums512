@@ -33,25 +33,27 @@ for source in sources:
         objects.append(str(late))
     else:objects.append(str(obj))
 # The reused kernel-control/Skywalk transport is C, not a C++ IOKit object.
-# Keep the actual kernel's include/target/feature ABI while selecting C rules.
+# Use the kernel's real C record. The C++ record contains compact -xc++ and
+# language-specific driver options, so translating its flag list is fragile.
 source=SOURCE/'SprdBluetoothTransport.c';obj=OUT/'SprdBluetoothTransport.o'
-command=[];args=record['arguments'];i=0
+c_records=list((ROOT/'build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837').rglob('kern_control.o.json'))
+assert len(c_records)==1,c_records
+c_record=json.loads(c_records[0].read_text().strip().rstrip(','))
+assert Path(c_record['file']).name=='kern_control.c'
+command=[];args=c_record['arguments'];i=0
 while i<len(args):
     value=args[i]
-    if value==record['file']:command.append(str(source))
+    if value==c_record['file']:command.append(str(source))
     elif value=='-o':command+=['-o',str(obj)];i+=1
     elif value=='-Xclang' and args[i+1].startswith('-W'):i+=1
-    elif value=='-x':i+=1
-    elif value.startswith(('-std=','-stdlib=','-W')) or value in ('-fno-rtti','-fapple-kext','-fno-exceptions','-fno-threadsafe-statics','-fvisibility-inlines-hidden'):
-        pass
+    elif value.startswith('-W'):pass
     else:command.append(value)
     i+=1
-command[1:1]=['-x','c','-std=gnu11']
 command+=['-Wall','-Wextra','-Werror','-Wno-unused-parameter']
 (OUT/'SprdBluetoothTransport-command.json').write_text(json.dumps(command,indent=2)+'\n')
-r=subprocess.run(command,cwd=record['directory'],capture_output=True,text=True)
+r=subprocess.run(command,cwd=c_record['directory'],capture_output=True,text=True)
 (OUT/'SprdBluetoothTransport.log').write_text(r.stdout+r.stderr)
-if r.returncode:raise SystemExit((r.stdout+r.stderr)[-7000:])
+if r.returncode:raise SystemExit(json.dumps(command)+'\n'+(r.stdout+r.stderr)[-16000:])
 objects.append(str(obj))
 firmware=SOURCE/'firmware/wcnmodem-1h190-sc2355.bin'
 raw=firmware.read_bytes()

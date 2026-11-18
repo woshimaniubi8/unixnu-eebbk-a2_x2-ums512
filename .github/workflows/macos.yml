@@ -491,6 +491,8 @@ jobs:
             payload.log
             status.txt
             UniXNU/out/*/*/*/logs/*.log
+            UniXNU/out/*/*/*/tree/build/sprdplatform/*-command.json
+            UniXNU/out/*/*/*/tree/build/sprdplatform/*.log
             UniXNU/build/owner-data-fixture/seed.json
           if-no-files-found: warn
           retention-days: 7
