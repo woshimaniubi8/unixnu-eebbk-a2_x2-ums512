@@ -159,3 +159,6 @@ bbk-a2-sprd-platform.patch
 
 # Bounded original bluetoothd stderr and native exit reasons; no startup override.
 bbk-a2-bluetooth-native-trace.patch
+
+# Enable deep UI stack traces and Stackshot sampling only when requested.
+bbk-a2-ui-diagnostics-opt-in.patch

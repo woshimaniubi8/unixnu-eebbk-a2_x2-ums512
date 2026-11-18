@@ -1,0 +1,46 @@
+diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
+index c47c7bcad9bc58ca3d44a223f135175bd3389b1c..34d2f0cdf370f0655679c8f83160a0f7549232f2 100644
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -63,6 +63,7 @@ extern int strcmp(const char *s1, const char *s2);
+ #include <machine/atomic.h>
+ #include <machine/limits.h>
+ 
++#include <pexpert/pexpert.h>
+ #include <pexpert/arm/protos.h>
+ #include <pexpert/arm64/apple_arm64_regs.h>
+ #include <pexpert/arm64/board_config.h>
+@@ -2201,16 +2202,27 @@ native_bbk_ui_trace_exec(int pid, const char *name, uint64_t target_tid)
+ {
+ 	for (unsigned int role = 0; role < BBK_UI_ROLES; role++) {
+ 		if (strcmp(name, bbk_ui_names[role]) != 0) continue;
+-		lck_spin_lock(&bbk_ui_lock);
+-		for (unsigned int i = 0; i < BBK_UI_SLOTS; i++) bbk_ui_records[role][i] = (struct bbk_ui_record){0};
+-		bbk_ui_dropped[role] = 0;
+-		os_atomic_store(&bbk_ui_main_tids[role], target_tid, release);
+-		os_atomic_store(&bbk_ui_pids[role], pid, release);
+-		lck_spin_unlock(&bbk_ui_lock);
++		if (os_atomic_load(&bbk_ui_enabled, acquire)) {
++			lck_spin_lock(&bbk_ui_lock);
++			for (unsigned int i = 0; i < BBK_UI_SLOTS; i++) {
++				bbk_ui_records[role][i] = (struct bbk_ui_record){0};
++			}
++			bbk_ui_dropped[role] = 0;
++			os_atomic_store(&bbk_ui_main_tids[role], target_tid, release);
++			os_atomic_store(&bbk_ui_pids[role], pid, release);
++			lck_spin_unlock(&bbk_ui_lock);
++		}
+ 		printf("M93 ui-exec: name=%s pid=%d main_tid=%llu exec_context_tid=%llu\n",
+ 		    name, pid, (unsigned long long)target_tid, (unsigned long long)thread_tid(current_thread()));
+ 	}
+ 	if (pid == 1 && os_atomic_cmpxchg(&bbk_ui_started, 0, 1, relaxed)) {
++		/* Deep user stacks on the syscall path perturb the timings they measure. */
++		unsigned int diagnostics = 0;
++		if (!PE_parse_boot_argn("bbk-ui-diagnostics", &diagnostics, sizeof(diagnostics)) ||
++		    diagnostics != 1) {
++			printf("M152 ui: deep diagnostics off (enable with bbk-ui-diagnostics=1)\n");
++			return;
++		}
+ 		bbk_ui_call = thread_call_allocate(bbk_ui_snapshot, NULL);
+ 		if (bbk_ui_call) {
+ 			uint64_t deadline;
