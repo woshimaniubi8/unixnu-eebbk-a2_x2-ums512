@@ -328,6 +328,10 @@ jobs:
       - name: Check native radio and Mali host contracts
         run: |
           set -euxo pipefail
+          xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            -fno-omit-frame-pointer device/scripts/tests/test-sprd-mali-job-routing.cpp \
+            -o mali-job-routing-host-test
+          ./mali-job-routing-host-test
           python3 device/scripts/generate-mali-render-packets.py --check
           xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
             -fno-omit-frame-pointer device/scripts/tests/test-sprd-mali-render.cpp -o mali-render-host-test

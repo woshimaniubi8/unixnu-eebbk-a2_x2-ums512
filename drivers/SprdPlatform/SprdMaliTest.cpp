@@ -10,6 +10,7 @@
 #include "mali/NativeMaliJob.h"
 #include "mali/NativeMaliJobSlot.h"
 #include "mali/NativeMaliRegs.h"
+#include "mali/SprdMaliJobRouting.h"
 #include "SprdMaliRender.h"
 
 extern "C" void sprd_mali_trace_mark(unsigned step,const char *text){IOLog("M119 mali: reset step=%u %s\n",step,text);}
@@ -91,13 +92,17 @@ IOReturn fragmentImage(Resources *r,NativeMaliGpuCore &core,NativeMaliJobSlot &s
     memset(cpu,0xa5,BufferBytes);
     constexpr uint64_t address=0x1000000;
     IOReturn result=kIOReturnSuccess;
+    uint32_t fragmentSlot=0;
+    if(!SprdMaliJobRouting::choose(slots.present(),SprdMaliJobRouting::Type::Fragment,
+        &fragmentSlot))return kIOReturnUnsupported;
+    IOLog("M148 mali: route fragment=js%u present=0x%x\n",fragmentSlot,slots.present());
     for(unsigned pass=0;pass<4 && result==kIOReturnSuccess;pass++) {
         if(!build(cpu,BufferBytes,address,pass))return kIOReturnBadArgument;
         result=r->cache.maintain(cpu,BufferBytes,NativeMaliCacheCleanInvalidate);
         uint32_t flush=0;NativeMaliFence fence;NativeMaliJobCompletion completion;
         if(result==kIOReturnSuccess)result=core.latestFlushId(&flush);
-        if(result==kIOReturnSuccess){jobLive=true;result=slots.submit(0,address,as,flush,&fence);}
-        if(result==kIOReturnSuccess)result=slots.waitForCompletion(0,&completion,100000,10);
+        if(result==kIOReturnSuccess){jobLive=true;result=slots.submit(fragmentSlot,address,as,flush,&fence);}
+        if(result==kIOReturnSuccess)result=slots.waitForCompletion(fragmentSlot,&completion,100000,10);
         if(result==kIOReturnSuccess)result=r->cache.maintain(cpu,BufferBytes,NativeMaliCacheInvalidate);
         IOLog("M147 mali: fragment pass=%u result=0x%x raw=0x%x js=0x%x header=0x%x pixel0=0x%x\n",
             pass,result,completion.rawStatus,completion.jsStatus,*(uint32_t *)cpu,
@@ -156,8 +161,13 @@ extern "C" IOReturn sprd_mali_owned_write_test(volatile uint8_t *gpu,volatile ui
     if(result==kIOReturnSuccess)result=slots.setPresent(obs.jsPresent,obs.shaderPresent);
     uint32_t flush=0;
     if(result==kIOReturnSuccess)result=core.latestFlushId(&flush);
-    if(result==kIOReturnSuccess){stage=7;jobLive=true;result=slots.submit(1,chain.firstJob(),as,flush,&fence);}
-    if(result==kIOReturnSuccess){stage=8;result=slots.waitForCompletion(1,&completion,100000,10);}
+    uint32_t writeSlot=0;
+    if(result==kIOReturnSuccess && !SprdMaliJobRouting::choose(obs.jsPresent,
+        SprdMaliJobRouting::Type::WriteValue,&writeSlot))result=kIOReturnUnsupported;
+    if(result==kIOReturnSuccess)IOLog("M148 mali: route write_value=js%u fragment=js0 compute=js2 present=0x%x\n",
+        writeSlot,obs.jsPresent);
+    if(result==kIOReturnSuccess){stage=7;jobLive=true;result=slots.submit(writeSlot,chain.firstJob(),as,flush,&fence);}
+    if(result==kIOReturnSuccess){stage=8;result=slots.waitForCompletion(writeSlot,&completion,100000,10);}
     if(result==kIOReturnSuccess){
         result=r->cache.maintain(r->buffer->getBytesNoCopy(),0x4000,NativeMaliCacheInvalidate);
         if(result==kIOReturnSuccess){got=*(volatile uint64_t *)((uint8_t *)r->buffer->getBytesNoCopy()+4096);if(got!=expected)result=kIOReturnIOError;}
