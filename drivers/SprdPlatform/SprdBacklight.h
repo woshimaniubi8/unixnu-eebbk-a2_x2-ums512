@@ -97,7 +97,13 @@ class NativeSprdBacklight : public IOService {
         auto *self=static_cast<NativeSprdBacklight *>(o);
         uint64_t v=__atomic_exchange_n(&self->pending,0,__ATOMIC_ACQ_REL);
         if(!(v>>63))return;
-        self->fade->cancelTimeout();self->sets++;self->from=self->level;self->goal=(unsigned)((v>>32)&255);
+        constexpr unsigned kMinimumVisibleBrightness=128;
+        const unsigned requested=(unsigned)((v>>32)&255);
+        const unsigned applied=requested && requested<kMinimumVisibleBrightness
+            ? kMinimumVisibleBrightness : requested;
+        self->fade->cancelTimeout();self->sets++;self->from=self->level;self->goal=applied;
+        if(requested!=applied && self->sets<=8)
+            IOLog("M150 backlight: request floor requested=%u applied=%u\n",requested,applied);
         self->fadeStart=mach_absolute_time();nanoseconds_to_absolutetime((uint64_t)(uint32_t)v*NSEC_PER_MSEC,&self->fadeDuration);
         fadeTick(self,self->fade);
     }

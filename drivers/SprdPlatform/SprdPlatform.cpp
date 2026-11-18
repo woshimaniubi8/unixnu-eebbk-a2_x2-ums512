@@ -45,7 +45,7 @@ extern "C" IOService *sprd_hid_allocate(bool);
 extern "C" IOReturn sprd_hid_buttons(IOService *,uint8_t);
 extern "C" IOReturn sprd_hid_contacts(IOService *,const SprdBus::Frame *,unsigned,unsigned);
 extern "C" void sprd_hid_diagnostics(IOService *);
-extern "C" IOService *sprd_mali_service_create();
+extern "C" IOService *sprd_mali_service_create(bool factorySupplyQualified);
 extern "C" IOReturn sprd_mali_owned_write_test(volatile uint8_t *,volatile uint8_t *,volatile uint8_t *,volatile uint8_t *,bool *);
 extern "C" const uint8_t sprd_wcn_firmware_start[];
 extern "C" const uint8_t sprd_wcn_firmware_end[];
@@ -334,7 +334,7 @@ class NativeSprdPlatform : public IOService {
     IOWorkLoop *loop=nullptr;IOTimerEventSource *timer=nullptr;
     IOService *keys=nullptr,*touch=nullptr,*backlight=nullptr,*mali=nullptr;
     OSDictionary *touchPersonality=nullptr;
-    bool keysStarted=false,touchStarted=false,maliStarted=false;
+    bool keysStarted=false,touchStarted=false,maliStarted=false,maliFactorySupplyReady=false;
     uint32_t aonAdded[2]={},apAdded=0,clockSaved[2]={};bool clockChanged=false;
     uint32_t gpioSaved[3]={};bool gpioChanged=false,pmicChanged=false,pmicReady=false;
     uint16_t pmicMask=0;unsigned touchKind=0,touchW=0,touchH=0,ticks=0,touchErrors=0,touchReports=0,keyErrors=0;
@@ -554,7 +554,10 @@ void NativeSprdPlatform::identifyRadioGpu() {
         } else IOLog("M130 wifi: runtime resource allocation failed\n");
         uint16_t pd=0,vsel=0;Result a=adi.read(0x181c,pd),b=adi.read(0x1854,vsel);
         IOLog("M116 mali: DCDC_GPU reads=%d/%d pd=0x%x selector=%u (3125uV/step)\n",a,b,pd,vsel&0x1ff);
-        if(a==Ok && b==Ok && SprdMali::factorySupplyReady(pd,vsel)){
+        maliFactorySupplyReady=a==Ok && b==Ok && SprdMali::factorySupplyReady(pd,vsel);
+        IOLog("M150 mali: factory supply qualified=%u reads=%d/%d pd=0x%x selector=%u\n",
+            maliFactorySupplyReady ? 1u : 0u, a, b, pd, vsel&0x1ff);
+        if(maliFactorySupplyReady){
             SprdMali::Probe<Registers> gpu(r[2],mmio[2],r[3],r[4]);SprdMali::Identity g;
             Result gr=gpu.run(g);
             IOLog("M116 mali: result=%d id=0x%x status=0x%x shader=0x%x tiler=0x%x l2=0x%x as=0x%x js=0x%x irq=0x%x reset_polls=%u\n",gr,g.id,g.status,g.shader,g.tiler,g.l2,g.as,g.js,g.irq,g.resetPolls);
@@ -860,10 +863,10 @@ bool NativeSprdPlatform::start(IOService *p) {
     if(!prepare()){IOLog("bbk platform: hardware prepare failed\n");stop(p);return false;}
     prepareFuelGauge();
     identifyRadioGpu();
-    mali=sprd_mali_service_create();
+    mali=sprd_mali_service_create(maliFactorySupplyReady);
     if(mali && mali->attach(this)) {
         maliStarted=mali->start(this);
-        IOLog("M149 mali: child attach/start=%u\n",maliStarted ? 1u : 0u);
+        IOLog("M150 mali: child attach/start=%u\n",maliStarted ? 1u : 0u);
         if(!maliStarted){mali->detach(this);mali->release();mali=nullptr;}
     } else {
         IOLog("M149 mali: child service allocation/attach failed\n");

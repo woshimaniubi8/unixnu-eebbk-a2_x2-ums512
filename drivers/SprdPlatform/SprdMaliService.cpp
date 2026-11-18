@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Persistent board-owned Mali service. M149 deliberately stops at a real
-// IOService and hardware lifetime; user-client/Metal publication is M150.
+// Persistent board-owned Mali service. User-client/Metal publication remains
+// a separate integration step after the hardware lifetime is proven.
 #include <IOKit/IODeviceMemory.h>
 #include <IOKit/IOLib.h>
 #include <IOKit/IOService.h>
 #include "mali/NativeMaliGpuCore.h"
 #include "mali/NativeMaliJobSlot.h"
 #include "mali/NativeMaliMmu.h"
+#include "mali/NativeMaliRegs.h"
 
 namespace {
 
@@ -57,6 +58,10 @@ class NativeSprdMaliService final : public IOService {
     NativeMaliMmu mmu_;
     NativeMaliJobSlot jobs_;
     NativeMaliGpuObservation observation_{};
+    bool factorySupplyQualified_ = false;
+    bool powerAcquired_ = false;
+    uint32_t savedGpuInterruptMask_ = 0;
+    bool gpuInterruptMaskSaved_ = false;
     bool corePrepared_ = false;
     bool resetDone_ = false;
     bool powered_ = false;
@@ -105,7 +110,16 @@ class NativeSprdMaliService final : public IOService {
             (void)core_.softReset();
             resetDone_ = false;
         }
+        if(gpuInterruptMaskSaved_) {
+            (void)windows_[0].regs.write32(GPU_INT_MASK, savedGpuInterruptMask_);
+            gpuInterruptMaskSaved_ = false;
+        }
         if(power_) {
+            if(powerAcquired_) {
+                const IOReturn released = power_->release();
+                IOLog("M150 mali: power release=0x%x\n", released);
+                powerAcquired_ = false;
+            }
             delete power_;
             power_ = nullptr;
         }
@@ -114,6 +128,7 @@ class NativeSprdMaliService final : public IOService {
     }
 
 public:
+    void setFactorySupplyQualified(bool qualified) { factorySupplyQualified_ = qualified; }
     bool start(IOService *provider) override
     {
         if(!IOService::start(provider))return false;
@@ -133,7 +148,7 @@ public:
             return kIOReturnSuccess;
         }();
         if(mapping != kIOReturnSuccess) {
-            IOLog("M149 mali: service map failed=0x%x\n", mapping);
+            IOLog("M150 mali: service map failed=0x%x\n", mapping);
             stop(provider);
             return false;
         }
@@ -143,14 +158,26 @@ public:
             reinterpret_cast<volatile uint8_t *>(windows_[2].map->getVirtualAddress()),
             reinterpret_cast<volatile uint8_t *>(windows_[3].map->getVirtualAddress()));
         if(!power_) {
-            IOLog("M149 mali: service power allocation failed\n");
+            IOLog("M150 mali: service power allocation failed\n");
             stop(provider);
             return false;
         }
-        IOReturn result = core_.prepare(&windows_[0].regs, power_);
+        IOReturn result = power_->acquire(factorySupplyQualified_);
+        powerAcquired_ = result == kIOReturnSuccess;
+        IOLog("M150 mali: power acquire=0x%x factory_supply=%u pmu=0x%x aon=0x%x clocks=0x%x/0x%x/0x%x\n",
+            result, factorySupplyQualified_ ? 1u : 0u,
+            *reinterpret_cast<volatile uint32_t *>(reinterpret_cast<volatile uint8_t *>(windows_[1].map->getVirtualAddress()) + 0x30),
+            *reinterpret_cast<volatile uint32_t *>(windows_[2].map->getVirtualAddress()),
+            *reinterpret_cast<volatile uint32_t *>(reinterpret_cast<volatile uint8_t *>(windows_[3].map->getVirtualAddress()) + 4),
+            *reinterpret_cast<volatile uint32_t *>(reinterpret_cast<volatile uint8_t *>(windows_[3].map->getVirtualAddress()) + 8),
+            *reinterpret_cast<volatile uint32_t *>(reinterpret_cast<volatile uint8_t *>(windows_[3].map->getVirtualAddress()) + 0xc));
+        if(result == kIOReturnSuccess)IODelay(700);
+        if(result == kIOReturnSuccess)result = windows_[0].regs.read32(GPU_INT_MASK, &savedGpuInterruptMask_);
+        gpuInterruptMaskSaved_ = result == kIOReturnSuccess;
+        if(result == kIOReturnSuccess)result = core_.prepare(&windows_[0].regs, power_);
         corePrepared_ = result == kIOReturnSuccess;
         if(result == kIOReturnSuccess)result = core_.probe(&observation_);
-        IOLog("M149 mali: service probe result=0x%x id=0x%x js=0x%x as=0x%x shader=0x%llx\n",
+        IOLog("M150 mali: service probe result=0x%x id=0x%x js=0x%x as=0x%x shader=0x%llx\n",
             result, observation_.gpuId, observation_.jsPresent, observation_.asPresent,
             static_cast<unsigned long long>(observation_.shaderPresent));
         if(result == kIOReturnSuccess && observation_.gpuId != 0x74021000)
@@ -177,7 +204,7 @@ public:
                     observation_.shaderPresent);
         }
         if(result != kIOReturnSuccess) {
-            IOLog("M149 mali: service start failed=0x%x\n", result);
+            IOLog("M150 mali: service start failed=0x%x\n", result);
             stop(provider);
             return false;
         }
@@ -187,14 +214,14 @@ public:
         setName("Mali-G52");
         registerService();
         ready_ = true;
-        IOLog("M149 mali: service published ready=1 id=0x%x js=0x%x\n",
+        IOLog("M150 mali: service published ready=1 id=0x%x js=0x%x\n",
             observation_.gpuId, observation_.jsPresent);
         return true;
     }
 
     void stop(IOService *provider) override
     {
-        IOLog("M149 mali: service stop ready=%u\n", ready_ ? 1u : 0u);
+        IOLog("M150 mali: service stop ready=%u\n", ready_ ? 1u : 0u);
         stopHardware();
         releaseWindows();
         IOService::stop(provider);
@@ -203,8 +230,11 @@ public:
 
 OSDefineMetaClassAndStructors(NativeSprdMaliService, IOService)
 
-extern "C" IOService *sprd_mali_service_create()
+extern "C" IOService *sprd_mali_service_create(bool factorySupplyQualified)
 {
     auto *service = new NativeSprdMaliService;
-    return service && service->init() ? service : nullptr;
+    if(!service)return nullptr;
+    if(!service->init()){service->release();return nullptr;}
+    service->setFactorySupplyQualified(factorySupplyQualified);
+    return service;
 }
