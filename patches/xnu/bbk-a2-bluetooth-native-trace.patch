@@ -48,7 +48,7 @@ diff --git a/bsd/kern/sys_generic.c b/bsd/kern/sys_generic.c
 +		text[0] = 0;
 +	}
 +	/* Preserve device identity in the private raw source, not console copies. */
-+	if (strstr(text, "Got local-mac-address:") != NULL) {
++	if (strnstr(text, "Got local-mac-address:", sizeof(text)) != NULL) {
 +		strlcpy(text, "bluetooth: Got local-mac-address: [private-address]", sizeof(text));
 +	}
 +	printf("M139 bt native: pid=%d fd=%d bytes=%u copy=%d text=%s\n",
