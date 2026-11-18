@@ -8,7 +8,7 @@ namespace SprdMaliRender {
 constexpr size_t BufferBytes=0x10000,ImageOffset=0x8000,ImageBytes=0x4000;
 constexpr unsigned Width=64,Height=64,Stride=Width*4;
 constexpr uint64_t JobOffset=0,FramebufferOffset=0x100,HeapDescOffset=0x200;
-constexpr uint64_t TilerOffset=0x240,SampleOffset=0x400,PolygonOffset=0x1000,HeapOffset=0x2000;
+constexpr uint64_t TilerOffset=0x240,SampleOffset=0x400,HeapOffset=0x2000;
 constexpr uint32_t Colors[4]={0xff0000ff,0xff00ff00,0xffff0000,0xffffffff};
 
 inline bool build(void *cpu,size_t bytes,uint64_t gpu,unsigned quadrant) {
@@ -49,7 +49,9 @@ inline bool build(void *cpu,size_t bytes,uint64_t gpu,unsigned quadrant) {
     MALI_TILER_HEAP heap={};heap.size=0x2000;heap.base=heap.bottom=gpu+HeapOffset;
     heap.top=gpu+0x4000;
     MALI_TILER_HEAP_pack((mali_tiler_heap_packed *)(p+HeapDescOffset),&heap);
-    MALI_TILER_CONTEXT tiler={};tiler.polygon_list=gpu+PolygonOffset;
+    // Mesa leaves polygon_list zero when no vertex/tiler job preceded the
+    // fragment clear. The tiler generates that pointer only for geometry.
+    MALI_TILER_CONTEXT tiler={};
     tiler.hierarchy_mask=1; // One 16x16 bin level; the 64x64 empty list fits one owned page.
     tiler.fb_width=Width;tiler.fb_height=Height;tiler.heap=gpu+HeapDescOffset;
     MALI_TILER_CONTEXT_pack((mali_tiler_context_packed *)(p+TilerOffset),&tiler);

@@ -47,7 +47,7 @@ for quadrant in range(4):
     heap=decode('Tiler Heap',data[0x200:0x220])
     require(heap,Base=0x1002000,Bottom=0x1002000,Top=0x1004000,Size=8192)
     tiler=decode('Tiler Context',data[0x240:0x300])
-    require(tiler,Polygon_List=0x1001000,Hierarchy_Mask=1,FB_Width=64,FB_Height=64,Heap=0x1000200)
+    require(tiler,Polygon_List=0,Hierarchy_Mask=1,FB_Width=64,FB_Height=64,Heap=0x1000200)
     assert struct.unpack_from('<HH',data,0x400)==(128,128)
     assert data[0x4000:]==bytes([0xa5])*0xc000
 print('PASS: independent Mesa XML decode of all four fragment/framebuffer/RT/tiler packets and untouched image/guards')
