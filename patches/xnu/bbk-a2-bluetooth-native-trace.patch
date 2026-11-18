@@ -1,7 +1,26 @@
+diff --git a/bsd/kern/kern_exit.c b/bsd/kern/kern_exit.c
+--- a/bsd/kern/kern_exit.c
++++ b/bsd/kern/kern_exit.c
+@@ -1892,6 +1892,14 @@
+ 	task_t task = proc_task(p);
+ 
+ 
++	if (strcmp(proc_best_name(p), "bluetoothd") == 0) {
++		printf("M140 bt exit: pid=%d raw=0x%x exited=%u status=%d signal=%d ns=%u code=0x%llx desc=%s\n",
++		    proc_getpid(p), rv, WIFEXITED(rv), WEXITSTATUS(rv), WTERMSIG(rv),
++		    PROC_HAS_EXITREASON(p) ? p->p_exit_reason->osr_namespace : 0,
++		    PROC_HAS_EXITREASON(p) ? (unsigned long long)p->p_exit_reason->osr_code : 0,
++		    PROC_HAS_EXITREASON(p) ? exit_reason_get_string_desc(p->p_exit_reason) : "none");
++	}
++
+ 	if (p->p_crash_behavior != 0 || p == initproc) {
+ 		proc_handle_critical_exit(p, rv);
+ 	}
 diff --git a/bsd/kern/sys_generic.c b/bsd/kern/sys_generic.c
 --- a/bsd/kern/sys_generic.c
 +++ b/bsd/kern/sys_generic.c
-@@ -697,7 +697,36 @@
+@@ -696,9 +696,42 @@
+ 	return writev_internal(p, fd, uio, flags, puguard, retval);
  }
  
 +/* Bounded observation of the original daemon's own stderr/stdout.
@@ -28,6 +47,10 @@ diff --git a/bsd/kern/sys_generic.c b/bsd/kern/sys_generic.c
 +	} else {
 +		text[0] = 0;
 +	}
++	/* Preserve device identity in the private raw source, not console copies. */
++	if (strstr(text, "Got local-mac-address:") != NULL) {
++		strlcpy(text, "bluetooth: Got local-mac-address: [private-address]", sizeof(text));
++	}
 +	printf("M139 bt native: pid=%d fd=%d bytes=%u copy=%d text=%s\n",
 +	    proc_getpid(p), fd, bytes, error, text);
 +}
@@ -38,7 +61,9 @@ diff --git a/bsd/kern/sys_generic.c b/bsd/kern/sys_generic.c
 +	bbk_bluetooth_write_trace(p, uap->fd, uap->cbuf, uap->nbyte);
  	return write_internal(p, uap->fd, uap->cbuf, uap->nbyte, (off_t)-1, 0,
  	           NULL, retval);
-@@ -782,4 +811,15 @@
+ }
+@@ -781,6 +814,17 @@
+ 
  	if (error) {
  		goto out;
 +	}
@@ -54,15 +79,38 @@ diff --git a/bsd/kern/sys_generic.c b/bsd/kern/sys_generic.c
 +		}
  	}
  
-diff --git a/bsd/kern/kern_exit.c b/bsd/kern/kern_exit.c
---- a/bsd/kern/kern_exit.c
-+++ b/bsd/kern/kern_exit.c
-@@ -1941,7 +1941,7 @@
+ 	error = writev_internal(p, fd, uio, flags, puguard, retval);
+diff --git a/bsd/dev/arm/systemcalls.c b/bsd/dev/arm/systemcalls.c
+--- a/bsd/dev/arm/systemcalls.c
++++ b/bsd/dev/arm/systemcalls.c
+@@ -219,7 +219,30 @@
  		}
+ 	}
  
- #if (DEVELOPMENT || DEBUG)
--		if (p->p_pid <= exception_log_max_pid) {
-+		if (p->p_pid <= exception_log_max_pid || strcmp(proc_best_name(p), "bluetoothd") == 0) {
- 			char *proc_name = proc_best_name(p);
- 			/* Opt-in with exception_log_max_pid. The System Event 96-byte
- 			 * buffer truncates the description after its prefix. These are
++	static uint32_t bbk_bt_syscalls;
++	bool bbk_bt_observe = false;
++	if (strcmp(proc_best_name(proc), "bluetoothd") == 0) {
++		switch (code) {
++		case 1: case 33: case 37: case 54: case 97: case 98:
++		case 202: case 274: case 328: case 521:
++			bbk_bt_observe = __atomic_fetch_add(&bbk_bt_syscalls, 1u, __ATOMIC_RELAXED) < 1024;
++			break;
++		default: break;
++		}
++	}
++	if (bbk_bt_observe) {
++		printf("M140 bt syscall: enter pid=%d tid=%llu code=%u a0=0x%llx a1=0x%llx pc=0x%llx lr=0x%llx\n",
++		    proc_getpid(proc), (unsigned long long)thread_tid(current_thread()), code,
++		    (unsigned long long)uthread->uu_arg[0], (unsigned long long)uthread->uu_arg[1],
++		    (unsigned long long)get_saved_state_pc(regs), (unsigned long long)get_saved_state_lr(regs));
++	}
+ 	error = (*(callp->sy_call))(proc, &uthread->uu_arg[0], &(uthread->uu_rval[0]));
++	if (bbk_bt_observe) {
++		printf("M140 bt syscall: return pid=%d tid=%llu code=%u error=%d ret=0x%llx\n",
++		    proc_getpid(proc), (unsigned long long)thread_tid(current_thread()), code, error,
++		    (unsigned long long)*((uint64_t *)(&uthread->uu_rval[0])));
++	}
++
+ 	AUDIT_SYSCALL_EXIT(code, proc, uthread, error);
+ 
+ 	/* Observe the failed database I/O contract without changing its result. */
