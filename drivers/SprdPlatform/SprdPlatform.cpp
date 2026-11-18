@@ -22,6 +22,7 @@
 #include "SprdBus.h"
 #include "SprdBacklight.h"
 #include "SprdTouchPins.h"
+#include "SprdTouchGeometry.h"
 #include "SprdFuelGauge.h"
 #include "SprdBattery.h"
 #include "SprdSdio.h"
@@ -647,7 +648,7 @@ bool NativeSprdPlatform::publishInput() {
         touch=sprd_hid_allocate(true);
         if(!touch || !touch->init() || !touch->attach(this))return false;
         touchStarted=touch->start(this);if(!touchStarted)return false;
-        IOLog("bbk input: touch HID published kind=%u dimensions=%ux%u\n",touchKind,touchW,touchH);
+        IOLog("bbk input: touch HID published kind=%u dimensions=%ux%u\n",touchKind,kA2PanelWidth,kA2PanelHeight);
     }
     return true;
 }
@@ -751,7 +752,11 @@ void NativeSprdPlatform::identifyTouch() {
         r=bus3.readRegister(0x14,0x8047,2,config,sizeof(config));
         goodixConfigResult=r;
         unsigned w=config[1]|((unsigned)config[2]<<8),h=config[3]|((unsigned)config[4]<<8);
-        if(r==Ok && w>=64 && h>=64 && w<=4096 && h<=4096){touchKind=1;touchW=w;touchH=h;return;}
+        if(r==Ok && w==kA2TouchRawWidth && h==kA2TouchRawHeight) {
+            touchKind=1;touchW=w;touchH=h;
+            IOLog("M146 touch: measured transform raw=%ux%u panel=%ux%u x=1199-y y=x\n",w,h,kA2PanelWidth,kA2PanelHeight);
+            return;
+        }
         IOLog("bbk touch: Goodix config invalid status=%d size=%ux%u\n",r,w,h);return;
     }
     uint8_t *fts=ftsId;Result a=bus3.readRegister(0x38,0xa3,1,&fts[0],1);
@@ -784,19 +789,20 @@ void NativeSprdPlatform::readTouch() {
     uint8_t status=0,raw[80]={};Result r=bus3.readRegister(0x14,0x814e,2,&status,1);
     if(r!=Ok){if(touchErrors++<8)IOLog("bbk touch: status read failed %d\n",r);return;}
     if(!(status&0x80))return;
-    Frame frame={};unsigned count=status&15;
+    Frame rawFrame={},frame={};unsigned count=status&15;
     if(count<=10 && count)r=bus3.readRegister(0x14,0x814f,2,raw,count*8);
-    if(r==Ok)r=goodixFrame(raw,sizeof(raw),count,touchW,touchH,frame);
+    if(r==Ok)r=goodixFrame(raw,sizeof(raw),count,touchW,touchH,rawFrame);
+    if(r==Ok)r=a2GoodixPanelFrame(rawFrame,touchW,touchH,frame);
     const uint8_t clear=0;
     if(r!=Ok){bus3.writeRegister(0x14,0x814e,2,&clear,1);if(touchErrors++<8)IOLog("bbk touch: invalid frame=%d status=0x%x\n",r,status);return;}
-    IOReturn sent=sprd_hid_contacts(touch,&frame,touchW,touchH);
+    IOReturn sent=sprd_hid_contacts(touch,&frame,kA2PanelWidth,kA2PanelHeight);
     // Keep a valid hardware sample pending until the real consumer accepts
     // it. In particular do not discard reset's measured zero-contact state
     // while IOHIDEventDriver is still opening its interface.
     if(sent!=kIOReturnSuccess){if(touchErrors++<8)IOLog("M107 touch: report pending hid=0x%x contacts=%u\n",sent,frame.count);return;}
     Result ack=bus3.writeRegister(0x14,0x814e,2,&clear,1);
     if(ack!=Ok){if(touchErrors++<8)IOLog("bbk touch: ack error=%d status=0x%x\n",ack,status);return;}
-    if(frame.count!=lastFrame.count || touchReports<6)IOLog("bbk touch: frame contacts=%u first=%u,%u hid=0x%x\n",frame.count,frame.contacts[0].x,frame.contacts[0].y,sent);
+    if(frame.count!=lastFrame.count || touchReports<6)IOLog("M146 touch: contacts=%u raw=%u,%u panel=%u,%u hid=0x%x\n",frame.count,rawFrame.contacts[0].x,rawFrame.contacts[0].y,frame.contacts[0].x,frame.contacts[0].y,sent);
     lastFrame=frame;touchReports++;
 }
 void NativeSprdPlatform::poll() {

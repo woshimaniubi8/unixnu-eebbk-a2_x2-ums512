@@ -285,9 +285,14 @@ qualified. They are not filled with fixed values. REG09 is read consecutively
 twice to separate latched and current charger faults. Charger termination alone
 does not force the factory-OCV estimate to100%.
 
-M109-M113 also verify GT9110fw5023 at the factory address and attachment of the
-original IOHIDEventDriver and its user client. Physical touch contacts and the
-1920x1200-to-1200x1920 transform remain unobserved. M112 verifies CoreBrightness
+M109-M113 verify GT9110fw5023 at the factory address and attachment of the
+original IOHIDEventDriver and its user client. On2026-11-18 the user identified
+four physical contacts in TL/TR/BL/BR order. Their raw samples were75/1119,
+109/23,1879/1142 and1869/54. M146 converts the retained1920x1200 controller
+configuration to the1200x1920 panel using x'=1199-y,y'=x before HID scaling.
+Unqualified configuration dimensions are rejected rather than assigned an
+assumed orientation. Contact IDs and zero-contact releases are preserved.
+M112 verifies CoreBrightness
 dim/off/on requests reaching PWM2 with logical1/duty1, off0/0 and on1/1, with
 strict register readback. Physical display appearance is a separate observation.
 
