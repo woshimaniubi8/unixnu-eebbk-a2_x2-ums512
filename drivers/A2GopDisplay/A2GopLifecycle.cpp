@@ -253,6 +253,30 @@ void native_legacy_copy_timing_observed(uint64_t ticks,uint64_t bytes) {
         printf("bbk display: copy %u: %llu bytes in %llu us\n",(unsigned)native_legacy_copy_n,bytes,frequency?ticks*1000000/frequency:0);
     }
 }
+
+static uint64_t elapsedMicroseconds(uint64_t start, uint64_t end) {
+    uint64_t nanoseconds = 0;
+    absolutetime_to_nanoseconds(end - start, &nanoseconds);
+    return nanoseconds / 1000;
+}
+
+void native_legacy_cpu_present_timing(uint64_t mapStart, uint64_t mapEnd,
+    uint64_t cacheEnd, uint64_t copyStart, uint64_t copyEnd,
+    uint32_t sourceSpan, uint64_t mappingBytes) {
+    // Frame submission on this board is serialized by the display work loop.
+    static uint64_t sequence = 0;
+    static uint64_t previous = 0;
+    const uint64_t frame = ++sequence;
+    const uint64_t prior = previous;
+    previous = copyEnd;
+    if (frame > 12 && frame % 120) return;
+
+    printf("M151 display: cpu frame=%llu source=%u/%llu map_us=%llu cache_us=%llu copy_us=%llu total_us=%llu interval_us=%llu\n",
+        frame, sourceSpan, mappingBytes, elapsedMicroseconds(mapStart, mapEnd),
+        elapsedMicroseconds(mapEnd, cacheEnd), elapsedMicroseconds(copyStart, copyEnd),
+        elapsedMicroseconds(mapStart, copyEnd), prior ? elapsedMicroseconds(prior, copyEnd) : 0ULL);
+}
+
 __attribute__((noinline)) void native_legacy_transfer_observed(IOReturn status,const void *request,uint64_t bytes) {
     native_legacy_transfer_calls=native_legacy_transfer_calls+1;
     if(native_legacy_transfer_calls<=8 || status!=kIOReturnSuccess)printf("bbk display: transfer n=%u status=0x%x bytes=%llu\n",native_legacy_transfer_calls,(unsigned)status,bytes);

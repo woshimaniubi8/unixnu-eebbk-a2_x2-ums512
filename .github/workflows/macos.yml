@@ -194,6 +194,7 @@ jobs:
           # BBK display integration is pinned; never silently substitute another ABI.
           test "$(git -C UniXNU/drivers/GopFramebuffer rev-parse HEAD)" = b0d812d578efa2acb005b66f73168891719af09a
           git -C UniXNU/drivers/GopFramebuffer apply "$GITHUB_WORKSPACE/device/patches/unixnu/gop-bbk-cpu-only.patch"
+          git -C UniXNU/drivers/GopFramebuffer apply "$GITHUB_WORKSPACE/device/patches/unixnu/gop-bbk-frame-timing.patch"
           du -sh UniXNU
 
       - uses: actions/setup-python@v5
@@ -324,6 +325,13 @@ jobs:
               -fno-omit-frame-pointer "device/scripts/test-sprd-${unit}.cpp" -o "bt-${unit}-host-test"
             "./bt-${unit}-host-test"
           done
+
+      - name: Check framebuffer source bounds
+        run: |
+          set -euxo pipefail
+          xcrun clang -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            UniXNU/drivers/GopFramebuffer/Test/request-state.c -o framebuffer-host-test
+          ./framebuffer-host-test
 
       - name: Check native radio and Mali host contracts
         run: |
