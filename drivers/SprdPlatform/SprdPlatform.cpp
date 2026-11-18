@@ -209,7 +209,7 @@ public:
             IORegistryEntry *entry=IORegistryEntry::fromPath("/arm-io/bluetooth",gIODTPlane);
             IORegistryEntry *chosen=IORegistryEntry::fromPath("/chosen",gIODTPlane);
             OSData *mac=chosen?OSDynamicCast(OSData,chosen->getProperty("mac-address-bluetooth0")):nullptr;
-            const uint32_t encoding=1,speed=3200000;
+            uint32_t encoding=1,speed=3200000;
             const bool published=entry && mac && mac->getLength()==6 &&
                 entry->setProperty("local-mac-address",mac) &&
                 entry->setProperty("transport-encoding",&encoding,sizeof(encoding)) &&
@@ -230,6 +230,11 @@ public:
     Result bluetoothWrite(const uint8_t *bytes,size_t length) override {
         if(!bluetoothEnabled)return Invalid;
         return bluetoothTx.consume(bytes,length,false,[this](const uint8_t *frame,size_t n) {
+            if(bluetoothTx.frames<32 || (bluetoothTx.frames&255)==0) {
+                const unsigned opcode=frame[0]==1 && n>=4?SprdWcn::le16(frame+1):0;
+                IOLog("M137 bt: H4 TX frame=%u type=%u opcode=0x%x bytes=%llu\n",
+                      bluetoothTx.frames+1,frame[0],opcode,(unsigned long long)n);
+            }
             size_t used=0;Result result=SprdWcn::encodeH4Packet(frame,n,bluetoothPacket,sizeof(bluetoothPacket),used);
             if(result==Ok)result=session.wake();
             if(result==Ok)result=host.packets(true,bluetoothPacket,used);

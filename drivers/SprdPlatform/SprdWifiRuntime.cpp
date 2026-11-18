@@ -112,6 +112,13 @@ void bluetoothReceived(void *,const uint8_t *bytes,size_t length) {
     if(!state.bt || !state.btEnabled || state.bt->fault)return;
     auto &b=*state.bt;flushBluetooth();
     SprdBus::Result result=b.rx.consume(bytes,length,true,[&b](const uint8_t *frame,size_t n) {
+        if(b.rx.frames<32 || (b.rx.frames&255)==0) {
+            unsigned event=frame[0]==4 && n>=3?frame[1]:0,opcode=0,status=0x100;
+            if(event==0xe && n>=7){opcode=SprdWcn::le16(frame+4);status=frame[6];}
+            if(event==0xf && n>=7){opcode=SprdWcn::le16(frame+5);status=frame[3];}
+            IOLog("M137 bt: H4 RX frame=%u type=%u event=0x%x opcode=0x%x status=0x%x bytes=%llu\n",
+                  b.rx.frames+1,frame[0],event,opcode,status,(unsigned long long)n);
+        }
         size_t taken=b.length?0:sprd_bt_transport_receive(frame,(uint32_t)n);
         if(taken==n)return SprdBus::Ok;
         if(n-taken>sizeof(b.pending)-b.length)return SprdBus::Busy;
