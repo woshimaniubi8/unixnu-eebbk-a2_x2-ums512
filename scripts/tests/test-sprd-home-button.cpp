@@ -10,7 +10,7 @@ using namespace SprdKeys;
 
 struct Rig {
     SprdBus::Debounce debounce;
-    VolumeHome mapper;
+    HomeChord mapper;
     uint64_t now = 0;
     uint8_t last = 0;
     uint8_t homePresses = 0;
@@ -40,20 +40,24 @@ struct Rig {
 };
 
 int main() {
-    // Normal taps are not lost while distinguishing a hold.
+    constexpr uint8_t chord = HomeChord::Keys;
+    // Single-key taps, including ones released before the pairing window.
     {
         Rig rig;
         rig.hold(0, 40);
-        for (unsigned i = 0; i < 2; ++i) {
-            rig.hold(VolumeDown, 90);
-            rig.hold(0, 110);
-        }
-        rig.expect({VolumeDown, 0, VolumeDown, 0});
+        rig.hold(VolumeDown, 90);
+        rig.hold(0, 110);
+        rig.hold(Power, 100);
+        rig.hold(0, 110);
+        rig.hold(VolumeUp, 100);
+        rig.hold(0, 110);
+        rig.expect({VolumeDown, 0, Power, 0, VolumeUp, 0});
     }
     {
         Rig rig;
         rig.hold(0, 40);
-        rig.hold(VolumeDown, 1800);
+        rig.hold(chord, 3600);
+        // The long press by itself cannot unlock or trigger an event.
         rig.expect({});
         rig.hold(0, 30);
         rig.expect({Home});
@@ -62,71 +66,102 @@ int main() {
         rig.hold(0, 20);
         rig.expect({Home, 0});
     }
-    // A held key when starting is only a physical press, not a Home gesture.
-    {
+    // Distinguish a short combo from a recovery-length hold. Neither sends
+    // Home or taps the power key after the gesture had claimed the combo.
+    for (unsigned ms : {290, 2990, 3000, 3380, 5000, 5010, 13500}) {
         Rig rig;
-        rig.hold(VolumeDown, 1500);
-        rig.hold(0, 100);
-        rig.expect({VolumeDown, 0});
-        rig.hold(VolumeDown, 850);
+        rig.hold(0, 40);
+        rig.hold(chord, ms);
         rig.hold(0, 110);
-        rig.expect({VolumeDown, 0, Home, 0});
+        if (ms >= HomeChord::MinHoldMs && ms <= HomeChord::MaxHoldMs) {
+            rig.expect({Home, 0});
+        } else {
+            rig.expect({});
+        }
     }
     {
+        Rig rig;
+        rig.hold(chord, 3500);
+        rig.hold(0, 110);
+        rig.expect({chord, 0}); // Held at start, never Home.
+        rig.hold(chord, 3500);
+        rig.hold(0, 110);
+        rig.expect({chord, 0, Home, 0});
+    }
+    {
+        // Staggered but near-simultaneous press/release.
         Rig rig;
         rig.hold(0, 40);
         rig.hold(Power, 100);
-        rig.hold(0, 50);
-        rig.hold(VolumeUp, 100);
-        rig.hold(0, 50);
-        rig.hold(Power | VolumeDown, 1100);
-        rig.hold(VolumeDown, 1000);
+        rig.hold(chord, 3350);
+        rig.hold(VolumeDown, 180);
+        rig.expect({});
         rig.hold(0, 110);
-        rig.expect({Power, 0, VolumeUp, 0, Power | VolumeDown, VolumeDown, 0});
+        rig.expect({Home, 0});
     }
     {
         Rig rig;
         rig.hold(0, 40);
+        rig.hold(chord, 3500);
         rig.hold(VolumeDown, 500);
-        // A power key arriving even before its debounced edge cancels Home.
-        rig.hold(VolumeDown | Power, 10);
-        rig.hold(VolumeDown, 600);
         rig.hold(0, 110);
-        assert(rig.homePresses == 0);
-    }
-    // Time thresholds on a continuously sampled press.
-    for (unsigned ms : {790, 800, 900}) {
-        Rig rig;
-        rig.hold(0, 40);
-        rig.hold(VolumeDown, ms);
-        rig.hold(0, 110);
-        rig.expect({ms >= VolumeHome::HoldMs ? Home : VolumeDown, 0});
+        rig.expect({});
     }
     {
         Rig rig;
         rig.hold(0, 40);
-        rig.hold(VolumeDown, 720);
-        rig.miss(500);
+        rig.hold(chord, 3300);
         rig.hold(VolumeDown, 100);
+        rig.hold(chord, 100);
         rig.hold(0, 110);
-        assert(rig.homePresses == 0);
-    }
-    {
-        Rig rig;
-        rig.hold(0, 40);
-        rig.hold(VolumeDown, 500);
-        rig.now += VolumeHome::MaxSampleGapMs;
-        rig.hold(VolumeDown, 100);
-        rig.hold(0, 110);
-        assert(rig.homePresses == 0);
+        rig.expect({});
     }
     {
         Rig rig;
         rig.hold(0, 40);
         rig.hold(VolumeDown, 900);
+        rig.expect({VolumeDown}); // Single long holds still reach the OS.
+        rig.hold(chord, 3500);
+        rig.hold(0, 110);
+        rig.expect({VolumeDown, chord, 0});
+        rig.hold(Power | VolumeUp, 3500);
+        rig.hold(0, 110);
+        rig.expect({VolumeDown, chord, 0, Power | VolumeUp, 0});
+    }
+    {
+        Rig rig;
+        rig.hold(0, 40);
+        rig.hold(chord, 2200);
+        rig.hold(chord | VolumeUp, 1000);
+        rig.hold(chord, 850);
+        rig.hold(0, 110);
+        rig.expect({VolumeUp, 0});
+    }
+    {
+        Rig rig;
+        rig.hold(0, 40);
+        rig.hold(chord, 2800);
+        rig.miss(500);
+        rig.hold(chord, 100);
+        rig.hold(0, 110);
+        rig.expect({});
+    }
+    {
+        Rig rig;
+        rig.hold(0, 40);
+        rig.hold(chord, 2700);
+        rig.now += HomeChord::MaxSampleGapMs;
+        rig.hold(chord, 100);
+        rig.hold(0, 110);
+        rig.expect({});
+    }
+    {
+        Rig rig;
+        rig.hold(0, 40);
+        rig.hold(chord, 3450);
         rig.hold(0, 30);
-        rig.miss(VolumeHome::PulseMs);
+        rig.miss(HomeChord::PulseMs);
         rig.expect({Home, 0});
     }
-    std::puts("PASS: volume tap, Home hold/release, held-at-boot, power/volume combos, threshold and polling errors");
+    std::puts("PASS: single keys, 3-5 s Home chord, staggered release, no boot/recovery trigger, polling errors");
 }

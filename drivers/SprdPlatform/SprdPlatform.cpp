@@ -344,7 +344,7 @@ class NativeSprdPlatform : public IOService {
     int goodixResult=Invalid,goodixConfigResult=Invalid,ftsResult[3]={Invalid,Invalid,Invalid},chargerResult=Invalid;
     uint32_t lastPhysicalMask=0xffffffffu;
     Frame lastFrame={};Debounce debounce;
-    SprdKeys::VolumeHome volumeHome;
+    SprdKeys::HomeChord homeChord;
     Adi<Registers> adi{mmio[0]};I2c<Registers> bus3{mmio[4]},bus4{mmio[5]};
     static void tick(OSObject *o,IOTimerEventSource *) {static_cast<NativeSprdPlatform *>(o)->poll();}
     bool prepare();bool publishInput();void identifyTouch();void recoverTouchReset();void prepareFuelGauge();void readBattery();void requirePollingPower();void poll();void readTouch();void restore();void identifyRadioGpu();
@@ -650,8 +650,9 @@ bool NativeSprdPlatform::publishInput() {
     if(!keys || !keys->init() || !keys->attach(this))return false;
     keysStarted=keys->start(this);if(!keysStarted)return false;
     IOLog("bbk input: physical keys HID published (power/vol+/vol-)\n");
-    IOLog("M159 home: hold volume-down for %u ms and release\n",
-        static_cast<unsigned>(SprdKeys::VolumeHome::HoldMs));
+    IOLog("M160 home: hold power+volume-down for %u-%u ms and release\n",
+        static_cast<unsigned>(SprdKeys::HomeChord::MinHoldMs),
+        static_cast<unsigned>(SprdKeys::HomeChord::MaxHoldMs));
     if(touchKind) {
         touch=sprd_hid_allocate(true);
         if(!touch || !touch->init() || !touch->attach(this))return false;
@@ -823,14 +824,14 @@ void NativeSprdPlatform::poll() {
         const uint8_t mask=(!(raw&(1u<<1))?SprdKeys::Power:0)|
             ((raw&(1u<<4))?SprdKeys::VolumeUp:0)|(!(gpio&(1u<<12))?SprdKeys::VolumeDown:0);
         debounce.sample(mask);
-        const uint8_t report=volumeHome.sample(mask,static_cast<uint8_t>(debounce.stable),nowMs);
+        const uint8_t report=homeChord.sample(mask,static_cast<uint8_t>(debounce.stable),nowMs);
         const IOReturn sent=keys?sprd_hid_buttons(keys,report):kIOReturnNotReady;
         if(mask!=lastPhysicalMask || ticks<3 || !(ticks%1000)) {
             IOLog("M102 keys: tick=%u eic=0x%x gpio124=%u mask=0x%x stable=0x%x hid=0x%x\n",ticks,raw,(gpio>>12)&1,mask,debounce.stable,sent);
             lastPhysicalMask=mask;
         }
     } else {
-        const uint8_t report=volumeHome.missed(nowMs);
+        const uint8_t report=homeChord.missed(nowMs);
         if(keys)(void)sprd_hid_buttons(keys,report);
         if(keyErrors++<8)IOLog("bbk input: PMIC read failed %d; physical levels unchanged\n",r);
     }

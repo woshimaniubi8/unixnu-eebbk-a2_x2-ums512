@@ -93,7 +93,7 @@ public:
         uint8_t bytes[]={SprdKeys::ConsumerReportId,keys};IOReturn r=send(bytes,sizeof(bytes));
         if(r==kIOReturnSuccess){
             if((keys^lastKeys)&SprdKeys::Home) {
-                IOLog("M159 home: %s consumer=0x0c:0x40 report=0x%x\n",
+                IOLog("M160 home: %s consumer=0x0c:0x40 report=0x%x\n",
                     keys&SprdKeys::Home?"down":"up",r);
             }
             sentKeys=true;lastKeys=keys;IOLog("bbk input: keys mask=0x%x report=0x%x\n",keys,r);
