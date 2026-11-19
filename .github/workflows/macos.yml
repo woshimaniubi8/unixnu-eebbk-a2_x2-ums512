@@ -287,7 +287,6 @@ jobs:
           python3 device/scripts/test-mali-probe-boot.py device/build/mali-user-probe/mali-user-probe
           python3 device/scripts/prepare-mali-probe-boot.py \
             --probe device/build/mali-user-probe/mali-user-probe \
-            --prewarm-patch device/patches/xnu/bbk-a2-splashboard-prewarm.patch \
             --output device/patches/xnu/bbk-a2-mali-user-stage.patch \
             --report device/build/mali-user-probe/probe-stage.json
           printf '\nbbk-a2-mali-user-stage.patch\n' >> device/patches/xnu/series
