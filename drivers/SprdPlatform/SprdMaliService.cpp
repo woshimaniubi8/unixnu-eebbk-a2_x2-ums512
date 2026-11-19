@@ -10,7 +10,10 @@
 #include "mali/NativeMaliRegs.h"
 #include "SprdMaliSession.h"
 #include "SprdMaliRender.h"
+#include "SprdMaliFullFrame.h"
 #include <kern/task.h>
+#include <machine/machine_routines.h>
+#include <pexpert/pexpert.h>
 
 namespace {
 
@@ -233,6 +236,20 @@ public:
             stop(provider);
             return false;
         }
+        uint32_t fullFrame=0;
+        if(PE_parse_boot_argn("bbk-mali-fullframe",&fullFrame,sizeof(fullFrame)) && fullFrame==1) {
+            const IOReturn frameTest=exerciseFullFrame();
+            setProperty("gpu-full-frame-test",static_cast<uint32_t>(frameTest),32);
+            if(frameTest!=kIOReturnSuccess) {
+                ready_=false;
+                setProperty("service-ready",static_cast<unsigned long long>(0),32);
+                // Do not publish a failed backend, or drop an unconfirmed DMA
+                // mapping. Keep the attached service alive for platform stop.
+                if(!sessions_)stopHardware();
+                IOLog("M161 mali: service not published after full-frame test\n");
+                return true;
+            }
+        }
         registerService();
         return true;
     }
@@ -248,6 +265,7 @@ public:
     }
     IOReturn newUserClient(task_t,void *,UInt32,OSDictionary *,IOUserClient **) override;
     IOReturn exerciseSession();
+    IOReturn exerciseFullFrame();
 
     void free() override {
         if(sessionLock_ && !sessions_) { IOLockFree(sessionLock_); sessionLock_=nullptr; }
@@ -514,6 +532,13 @@ IOReturn sessionCall(IOUserClient *client,uint32_t selector,const void *input,
     args.structureOutputSize=outputBytes;
     return client->externalMethod(selector,&args,nullptr,nullptr,nullptr);
 }
+
+uint64_t gpuElapsedUs(uint64_t start)
+{
+    uint64_t ns=0;
+    absolutetime_to_nanoseconds(mach_absolute_time()-start,&ns);
+    return ns/1000;
+}
 }
 
 IOReturn NativeSprdMaliService::exerciseSession()
@@ -617,6 +642,102 @@ IOReturn NativeSprdMaliService::exerciseSession()
     if(result==kIOReturnSuccess)result=cleanup;
     IOLog("M153 mali: client image result=0x%x pixels=4096 mismatches=%u guards=%u faults=%llu resets=%llu cleanup=0x%x sessions=%u\n",
         result,mismatches,guards,status.faults,status.resets,cleanup,sessions_);
+    return result;
+}
+
+IOReturn NativeSprdMaliService::exerciseFullFrame()
+{
+    namespace Frame=SprdMaliFullFrame;
+    constexpr uint64_t gpu=0x2000000;
+    IOUserClient *client=nullptr;
+    IOMemoryDescriptor *memory=nullptr;
+    IOMemoryMap *mapping=nullptr;
+    const char *stage="open";
+    const uint64_t start=mach_absolute_time();
+    IOReturn result=newUserClient(kernel_task,nullptr,0,nullptr,&client);
+    unsigned verified=0;
+    NativeMaliAbiStatus status{};
+    if(result==kIOReturnSuccess)result=[&]() -> IOReturn {
+        stage="allocate";
+        NativeMaliAbiBoAlloc alloc{Frame::BufferBytes};
+        NativeMaliAbiBoAllocReply allocated{};
+        IOReturn ret=sessionCall(client,NativeMaliMethodBoAlloc,&alloc,sizeof(alloc),
+            &allocated,sizeof(allocated));
+        if(ret!=kIOReturnSuccess)return ret;
+
+        stage="gpu-map";
+        const NativeMaliAbiBoMap map{allocated.handle,gpu,NativeMaliBoRead|NativeMaliBoWrite,0};
+        NativeMaliAbiBoMapReply mapped{};
+        ret=sessionCall(client,NativeMaliMethodBoMap,&map,sizeof(map),&mapped,sizeof(mapped));
+        if(ret!=kIOReturnSuccess)return ret;
+        if(mapped.iova!=gpu)return kIOReturnIOError;
+
+        stage="cpu-map";
+        const NativeMaliAbiBoCpuMap cpuMap{allocated.handle};
+        NativeMaliAbiBoCpuMapReply cpuMapped{};
+        ret=sessionCall(client,NativeMaliMethodBoCpuMap,&cpuMap,sizeof(cpuMap),
+            &cpuMapped,sizeof(cpuMapped));
+        if(ret!=kIOReturnSuccess)return ret;
+        if(cpuMapped.bytes!=Frame::BufferBytes)return kIOReturnIOError;
+        IOOptionBits options=0;
+        ret=client->clientMemoryForType(cpuMapped.token,&options,&memory);
+        if(ret!=kIOReturnSuccess)return ret;
+        if(!memory)return kIOReturnIOError;
+        mapping=memory->map(options);
+        if(!mapping || !mapping->getVirtualAddress() ||
+            mapping->getLength()<Frame::BufferBytes)return kIOReturnNoMemory;
+        auto *cpu=reinterpret_cast<uint8_t *>(mapping->getVirtualAddress());
+        memset(cpu,0xa5,Frame::BufferBytes);
+        IOLog("M161 mali: frame target=%ux%u stride=%u bytes=%lu setup_us=%llu\n",
+            Frame::Width,Frame::Height,Frame::Stride,
+            static_cast<unsigned long>(Frame::ImageBytes),gpuElapsedUs(start));
+
+        for(unsigned pass=0;pass<Frame::Passes;++pass) {
+            stage="pack";
+            if(!Frame::build(cpu,Frame::BufferBytes,gpu,pass))return kIOReturnBadArgument;
+            stage="submit";
+            const NativeMaliAbiSubmit submit{gpu,0,0,0,0};
+            NativeMaliAbiSubmitReply submitted{};
+            const uint64_t submitStart=mach_absolute_time();
+            ret=sessionCall(client,NativeMaliMethodSubmit,&submit,sizeof(submit),
+                &submitted,sizeof(submitted));
+            const uint64_t submitUs=gpuElapsedUs(submitStart);
+            if(ret!=kIOReturnSuccess)return ret;
+
+            stage="wait";
+            const NativeMaliAbiWaitFence wait{submitted.fence,100000000ULL};
+            const uint64_t waitStart=mach_absolute_time();
+            ret=sessionCall(client,NativeMaliMethodWaitFence,&wait,sizeof(wait),nullptr,0);
+            const uint64_t waitUs=gpuElapsedUs(waitStart);
+            if(ret!=kIOReturnSuccess)return ret;
+
+            stage="verify";
+            Frame::Check check{};
+            const uint64_t verifyStart=mach_absolute_time();
+            const bool match=Frame::verify(cpu,Frame::BufferBytes,pass,check);
+            IOLog("M161 mali: frame pass=%u fence=0x%llx submit_us=%llu wait_sync_us=%llu verify_us=%llu mismatches=%u padding=%u guards=%u\n",
+                pass,submitted.fence,submitUs,waitUs,gpuElapsedUs(verifyStart),
+                check.pixels,check.padding,check.guards);
+            if(!match)return kIOReturnIOError;
+            ++verified;
+        }
+        stage="status";
+        return sessionCall(client,NativeMaliMethodGetStatus,nullptr,0,&status,sizeof(status));
+    }();
+    if(client && result!=kIOReturnSuccess)
+        (void)sessionCall(client,NativeMaliMethodGetStatus,nullptr,0,&status,sizeof(status));
+    if(mapping)mapping->release();
+    if(memory)memory->release();
+    const IOReturn cleanup=client?client->clientClose():kIOReturnSuccess;
+    if(client)client->release();
+    if(result==kIOReturnSuccess) {
+        stage="cleanup";
+        if(cleanup!=kIOReturnSuccess)result=cleanup;
+        else if(sessions_ || status.faults || status.resets)result=kIOReturnIOError;
+        else stage="complete";
+    }
+    IOLog("M161 mali: frame result=0x%x stage=%s verified=%u faults=%llu resets=%llu cleanup=0x%x sessions=%u\n",
+        result,stage,verified,status.faults,status.resets,cleanup,sessions_);
     return result;
 }
 
