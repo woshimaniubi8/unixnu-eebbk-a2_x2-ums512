@@ -21,6 +21,7 @@
 #include <pexpert/pexpert.h>
 #include "SprdBus.h"
 #include "SprdBacklight.h"
+#include "SprdHomeButton.h"
 #include "SprdTouchPins.h"
 #include "SprdTouchGeometry.h"
 #include "SprdFuelGauge.h"
@@ -343,6 +344,7 @@ class NativeSprdPlatform : public IOService {
     int goodixResult=Invalid,goodixConfigResult=Invalid,ftsResult[3]={Invalid,Invalid,Invalid},chargerResult=Invalid;
     uint32_t lastPhysicalMask=0xffffffffu;
     Frame lastFrame={};Debounce debounce;
+    SprdKeys::VolumeHome volumeHome;
     Adi<Registers> adi{mmio[0]};I2c<Registers> bus3{mmio[4]},bus4{mmio[5]};
     static void tick(OSObject *o,IOTimerEventSource *) {static_cast<NativeSprdPlatform *>(o)->poll();}
     bool prepare();bool publishInput();void identifyTouch();void recoverTouchReset();void prepareFuelGauge();void readBattery();void requirePollingPower();void poll();void readTouch();void restore();void identifyRadioGpu();
@@ -648,6 +650,8 @@ bool NativeSprdPlatform::publishInput() {
     if(!keys || !keys->init() || !keys->attach(this))return false;
     keysStarted=keys->start(this);if(!keysStarted)return false;
     IOLog("bbk input: physical keys HID published (power/vol+/vol-)\n");
+    IOLog("M159 home: hold volume-down for %u ms and release\n",
+        static_cast<unsigned>(SprdKeys::VolumeHome::HoldMs));
     if(touchKind) {
         touch=sprd_hid_allocate(true);
         if(!touch || !touch->init() || !touch->attach(this))return false;
@@ -812,15 +816,24 @@ void NativeSprdPlatform::readTouch() {
 void NativeSprdPlatform::poll() {
     requirePollingPower();
     uint16_t raw=0;Result r=adi.read(0x280,raw);
+    uint64_t nowNs=0;absolutetime_to_nanoseconds(mach_absolute_time(),&nowNs);
+    const uint64_t nowMs=nowNs/1000000;
     if(r==Ok) {
         uint32_t gpio=mmio[1].read32(7*0x80);
-        uint32_t mask=(!(raw&(1u<<1))?2:0)|((raw&(1u<<4))?4:0)|(!(gpio&(1u<<12))?8:0);
-        debounce.sample(mask);IOReturn sent=keys?sprd_hid_buttons(keys,(uint8_t)debounce.stable):kIOReturnNotReady;
+        const uint8_t mask=(!(raw&(1u<<1))?SprdKeys::Power:0)|
+            ((raw&(1u<<4))?SprdKeys::VolumeUp:0)|(!(gpio&(1u<<12))?SprdKeys::VolumeDown:0);
+        debounce.sample(mask);
+        const uint8_t report=volumeHome.sample(mask,static_cast<uint8_t>(debounce.stable),nowMs);
+        const IOReturn sent=keys?sprd_hid_buttons(keys,report):kIOReturnNotReady;
         if(mask!=lastPhysicalMask || ticks<3 || !(ticks%1000)) {
             IOLog("M102 keys: tick=%u eic=0x%x gpio124=%u mask=0x%x stable=0x%x hid=0x%x\n",ticks,raw,(gpio>>12)&1,mask,debounce.stable,sent);
             lastPhysicalMask=mask;
         }
-    } else if(keyErrors++<8)IOLog("bbk input: PMIC read failed %d; no fabricated key state\n",r);
+    } else {
+        const uint8_t report=volumeHome.missed(nowMs);
+        if(keys)(void)sprd_hid_buttons(keys,report);
+        if(keyErrors++<8)IOLog("bbk input: PMIC read failed %d; physical levels unchanged\n",r);
+    }
     // Print remembered probe results after the early console transition too.
     // This records observed IDs; it does not reinitialize or reset devices.
     if(!(ticks%1000) && (ticks<6000 || !(ticks%6000))) {

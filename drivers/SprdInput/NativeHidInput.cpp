@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-2-Clause-Patent
 // IOHIDDevice frontend adapted from UniXNU/ShengHidInput. Physical data comes
-// only from SprdPlatform; no synthetic Home key or automatic input sequence.
+// only from SprdPlatform. Consumer Menu is the board's release-gated Home key.
 #include "OriginalHidDeviceABI.h"
 #include <IOKit/IOBufferMemoryDescriptor.h>
 #include <IOKit/IOWorkLoop.h>
@@ -9,6 +9,7 @@
 #include <libkern/c++/OSBoolean.h>
 #include <libkern/libkern.h>
 #include "../SprdPlatform/SprdBus.h"
+#include "../SprdPlatform/SprdHomeButton.h"
 
 static const uint8_t keysDescriptor[]={
     0x05,0x01,0x09,0x06,0xa1,0x01,0x85,0x01,
@@ -87,10 +88,16 @@ public:
     void free() override {OSSafeReleaseNULL(report);OSSafeReleaseNULL(loop);IOHIDDevice::free();}
     IOReturn buttons(uint8_t keys) {
         if(touchOnly || !ready()){notReady++;return kIOReturnNotReady;}
-        keys&=14; // Physical board has Power/Vol+/Vol-, no Home GPIO.
+        keys&=SprdKeys::ReportMask;
         if(sentKeys && keys==lastKeys)return kIOReturnSuccess;
-        uint8_t bytes[]={2,keys};IOReturn r=send(bytes,sizeof(bytes));
-        if(r==kIOReturnSuccess){sentKeys=true;lastKeys=keys;IOLog("bbk input: keys mask=0x%x report=0x%x\n",keys,r);}
+        uint8_t bytes[]={SprdKeys::ConsumerReportId,keys};IOReturn r=send(bytes,sizeof(bytes));
+        if(r==kIOReturnSuccess){
+            if((keys^lastKeys)&SprdKeys::Home) {
+                IOLog("M159 home: %s consumer=0x0c:0x40 report=0x%x\n",
+                    keys&SprdKeys::Home?"down":"up",r);
+            }
+            sentKeys=true;lastKeys=keys;IOLog("bbk input: keys mask=0x%x report=0x%x\n",keys,r);
+        }
         return r;
     }
     void describeTree(IORegistryEntry *entry,unsigned depth,unsigned &budget) {

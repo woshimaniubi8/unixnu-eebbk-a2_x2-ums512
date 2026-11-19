@@ -10,7 +10,10 @@ and its base DTB merged with DTBO #3 (`ums512_1h190`).
 - ADIv3 transactions: physical slave window `0x32120000`, original address echo
   comparison `read_data[30:16] == physical_address[16:2]`; bounded timeouts.
 - AP GPIO124 active-low volume down. SC2730 EIC1 active-low power and EIC4
-  active-high volume up. Normal press/release/debounce HID reports; no Home key.
+  active-high volume up. A short volume-down tap adjusts volume; holding it for
+  at least 800 ms and releasing emits one Consumer Menu (Home) pulse. Power,
+  volume up, and physical combinations pass through. No Home key is generated
+  at boot or on missing samples. The gesture does not change lock authentication.
 - I2C3 `0x70600000` and I2C4 `0x70700000`, stock AP_APB gate bits12/13;
   26MHz source, 400kHz SCL, FIFO-bounded register transfers.
 - Read-only identification of Goodix@14 / FocalTech@38 and BQ2560x@6b.

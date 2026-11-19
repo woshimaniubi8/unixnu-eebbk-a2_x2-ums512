@@ -346,6 +346,13 @@ jobs:
             "./bt-${unit}-host-test"
           done
 
+      - name: Check physical key and Home gesture reports
+        run: |
+          set -euxo pipefail
+          xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            -fno-omit-frame-pointer device/scripts/tests/test-sprd-home-button.cpp -o home-button-host-test
+          ./home-button-host-test
+
       - name: Check framebuffer source bounds
         run: |
           set -euxo pipefail
