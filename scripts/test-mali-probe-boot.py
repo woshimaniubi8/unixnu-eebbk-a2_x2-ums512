@@ -44,6 +44,12 @@ def main():
         assert int(re.search(r"configuration_size = (\d+);", after)[1]) == len(cache)
         decoded = plistlib.loads(cache)
         job = decoded["LaunchDaemons"].pop(module.JOB_PATH)
+        disk_plist = module.array_bytes(after, "probe_job_plist")
+        assert plistlib.loads(disk_plist) == job == module.probe_job()
+        assert hashlib.sha256(disk_plist).hexdigest() == report["daemon_plist_sha256"]
+        assert len(disk_plist) == report["daemon_plist_bytes"]
+        assert report["daemon_plist_source"] == module.JOB_SOURCE
+        assert set(report["stock_daemon_checks"]) == set(module.STOCK_JOBS)
         assert job["ProgramArguments"] == [module.PROBE_PATH]
         assert job["RunAtLoad"] is True and job["KeepAlive"] is False
         assert decoded == plistlib.loads(zlib.decompress(module.array_bytes(before, "packed")))
@@ -56,7 +62,7 @@ def main():
             pass
         else:
             raise AssertionError("unbounded/non-ARM64 executable accepted")
-    print("PASS: signed image byte round trip, executable SHA, exact cache SHA/length, one finite job, unchanged stock policies, patch rollback and invalid image refusal")
+    print("PASS: signed image round trip, identical disk and cache jobs, unchanged stock policies, patch rollback and invalid image refusal")
 
 
 if __name__ == "__main__":

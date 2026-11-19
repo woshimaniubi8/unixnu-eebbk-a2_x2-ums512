@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Stage the signed board GPU probe through the existing owner boot writer.
 
-The unchanged Apple launchd reads the existing merged XPC cache.  Add one
-RunAtLoad job to that cache and embed the exact signed executable in the kernel
-patch.  No APFS metadata or vendor daemon is edited to install the probe.
+Publish one RunAtLoad job as both a real daemon plist and a cache record, as
+for a stock system daemon. Keep the original daemons visible through a
+read-only union and stage only the exact signed probe executable.
 """
 import argparse
 import copy
@@ -15,11 +15,15 @@ import re
 import struct
 import subprocess
 import zlib
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 PREWARM_SHA256 = "94433b3eee2e4fefe8f938a79f472cca384d8c0563d59d08c72f15cc3d0aa953"
 PROBE_PATH = "/private/var/ngpu/mali-user/mali-user-probe"
 JOB_PATH = "/System/Library/LaunchDaemons/org.unixnu.bbk.mali-probe.plist"
+JOB_DIR = str(PurePosixPath(JOB_PATH).parent)
+JOB_SOURCE_DIR = "/private/var/ngpu/mali-user/LaunchDaemons"
+JOB_SOURCE = f"{JOB_SOURCE_DIR}/{PurePosixPath(JOB_PATH).name}"
+STOCK_JOBS = ("com.apple.splashboardd.plist", "com.apple.watchdogd.plist")
 
 
 def c_array(name, data):
@@ -67,15 +71,8 @@ def replace_array(function, name, value):
     return result
 
 
-def build_cache(original):
-    if hashlib.sha256(original).hexdigest() != PREWARM_SHA256:
-        raise ValueError("the qualified launchd prewarm cache changed")
-    baseline = plistlib.loads(original)
-    merged = copy.deepcopy(baseline)
-    jobs = merged["LaunchDaemons"]
-    if JOB_PATH in jobs:
-        raise ValueError("GPU probe job already present")
-    jobs[JOB_PATH] = {
+def probe_job():
+    return {
         "Label": "org.unixnu.bbk.mali-probe",
         "ProgramArguments": [PROBE_PATH],
         "UserName": "root",
@@ -85,6 +82,17 @@ def build_cache(original):
         "StandardOutPath": "/private/var/ngpu/mali-user/stdout.log",
         "StandardErrorPath": "/private/var/ngpu/mali-user/stderr.log",
     }
+
+
+def build_cache(original, job):
+    if hashlib.sha256(original).hexdigest() != PREWARM_SHA256:
+        raise ValueError("the qualified launchd prewarm cache changed")
+    baseline = plistlib.loads(original)
+    merged = copy.deepcopy(baseline)
+    jobs = merged["LaunchDaemons"]
+    if JOB_PATH in jobs or any(record.get("Label") == job["Label"] for record in jobs.values()):
+        raise ValueError("GPU probe job already present")
+    jobs[JOB_PATH] = job
     encoded = plistlib.dumps(merged, fmt=plistlib.FMT_BINARY, sort_keys=False)
     # Compare the full decoded record, including all stock launch policies.
     restored = plistlib.loads(encoded)
@@ -94,12 +102,39 @@ def build_cache(original):
     return encoded
 
 
-def stage_function(probe):
+def stage_function(probe, job_plist):
     packed = zlib.compress(probe, 9)
-    return ("static int\nnative_mali_user_probe_prepare(proc_t p, user_addr_t scratch)\n{\n"
+    stock_jobs = "".join(f'        "{JOB_DIR}/{name}",\n' for name in STOCK_JOBS)
+    return ("static int\nnative_mali_probe_check_file(const char *path, const uint8_t *bytes, size_t size,\n"
+            "    uint32_t mode, vfs_context_t ctx)\n{\n"
+            "    vnode_t vp = NULLVP;\n"
+            "    int error = vnode_open(path, FREAD | O_NOFOLLOW, 0, 0, &vp, ctx);\n"
+            "    if (error) return error;\n"
+            "    struct vnode_attr attr;\n"
+            "    VATTR_INIT(&attr);\n"
+            "    VATTR_WANTED(&attr, va_uid);\n"
+            "    error = vnode_getattr(vp, &attr, ctx);\n"
+            "    if (!error && (!VATTR_IS_SUPPORTED(&attr, va_uid) || attr.va_uid != 0 || vnode_vtype(vp) != VREG ||\n"
+            "        !native_gpu_addon_equal(vp, bytes, size, mode, ctx))) error = EIO;\n"
+            "    const int closed = vnode_close(vp, FREAD, ctx);\n"
+            "    return error ? error : closed;\n}\n\n"
+            "static int\nnative_mali_probe_install_file(proc_t p, user_addr_t scratch, const char *path,\n"
+            "    const uint8_t *bytes, size_t size, uint32_t mode, vfs_context_t ctx)\n{\n"
+            "    int error = native_gpu_addon_parents(p, scratch, path);\n"
+            "    if (error) return error;\n"
+            "    error = native_gpu_addon_write(path, bytes, size, mode, ctx);\n"
+            "    if (error && error != -1) return error;\n"
+            "    return native_mali_probe_check_file(path, bytes, size, mode, ctx);\n}\n\n"
+            "static int\nnative_mali_user_probe_prepare(proc_t p, user_addr_t scratch)\n{\n"
             f'    static const char path[] = "{PROBE_PATH}";\n'
+            f'    static const char job_source[] = "{JOB_SOURCE}";\n'
+            f'    static const char job_path[] = "{JOB_PATH}";\n'
+            f'    static const char source_dir[] = "{JOB_SOURCE_DIR}";\n'
+            f'    static const char target_dir[] = "{JOB_DIR}";\n'
+            "    static const char *const stock_jobs[] = {\n" + stock_jobs + "    };\n"
             + c_array("probe_packed", packed) + "\n"
             + c_array("probe_sha", hashlib.sha256(probe).digest()) + "\n"
+            + c_array("probe_job_plist", job_plist) + "\n"
             f"    const size_t bytes = {len(probe)};\n"
             "    vfs_context_t ctx = vfs_context_current();\n"
             "    uint8_t *buffer = kalloc_data(bytes, Z_WAITOK);\n"
@@ -111,22 +146,47 @@ def stage_function(probe):
             "        SHA256_Init(&hash); SHA256_Update(&hash, buffer, bytes); SHA256_Final(digest, &hash);\n"
             "        if (memcmp(digest, probe_sha, sizeof(digest))) error = EINVAL;\n"
             "    }\n"
-            "    if (!error) error = native_gpu_addon_parents(p, scratch, path);\n"
-            "    if (!error) {\n"
-            "        error = native_gpu_addon_write(path, buffer, bytes, 0755, ctx);\n"
-            "        if (error == -1) error = 0;\n"
-            "    }\n"
-            "    vnode_t vp = NULLVP;\n"
-            "    int verified = 0;\n"
-            "    if (!error) error = vnode_open(path, FREAD | O_NOFOLLOW, 0, 0, &vp, ctx);\n"
-            "    if (!error) {\n"
-            "        verified = native_gpu_addon_equal(vp, buffer, bytes, 0755, ctx);\n"
-            "        const int closed = vnode_close(vp, FREAD, ctx);\n"
-            "        if (closed) error = closed;\n"
-            "        else if (!verified) error = EIO;\n"
-            "    }\n"
+            "    if (!error) error = native_mali_probe_install_file(p, scratch, path, buffer, bytes, 0755, ctx);\n"
             "    kfree_data(buffer, bytes);\n"
-            '    printf("M155 mali-user: staged bytes=%u verified=%d err=%d\\n", (unsigned)bytes, verified, error);\n'
+            '    printf("M156 mali-user: staged bytes=%u verified=%d err=%d\\n", (unsigned)bytes, !error, error);\n'
+            "    if (error) return error;\n"
+            "    vnode_t existing = NULLVP;\n"
+            "    error = vnode_lookup(job_path, 0, &existing, ctx);\n"
+            "    if (!error) { vnode_put(existing); error = EEXIST; }\n"
+            "    else if (error == ENOENT) {\n"
+            "        /* Only a fresh directory containing this one job can cover the system directory. */\n"
+            "        error = vnode_lookup(source_dir, 0, &existing, ctx);\n"
+            "        if (!error) { vnode_put(existing); error = EEXIST; }\n"
+            "        else if (error == ENOENT) error = native_mali_probe_install_file(p, scratch, job_source,\n"
+            "            probe_job_plist, sizeof(probe_job_plist), 0644, ctx);\n"
+            "    }\n"
+            "    int mounted = 0;\n"
+            "    if (!error) {\n"
+            "        error = native_cryptex_os_bind(p, scratch, source_dir, target_dir, MNT_UNION);\n"
+            "        mounted = !error;\n"
+            "    }\n"
+            "    if (!error) error = native_mali_probe_check_file(job_path, probe_job_plist, sizeof(probe_job_plist), 0644, ctx);\n"
+            "    const int job_visible = !error;\n"
+            "    unsigned stock_visible = 0;\n"
+            "    for (size_t i = 0; !error && i < sizeof(stock_jobs) / sizeof(stock_jobs[0]); ++i) {\n"
+            "        vnode_t vp = NULLVP;\n"
+            "        error = vnode_lookup(stock_jobs[i], 0, &vp, ctx);\n"
+            "        if (!error) {\n"
+            "            if (vnode_vtype(vp) == VREG) ++stock_visible;\n"
+            "            else error = EINVAL;\n"
+            "            vnode_put(vp);\n"
+            "        }\n"
+            "    }\n"
+            "    int rollback = 0;\n"
+            "    if (error && mounted) {\n"
+            "        struct unmount_args request = {.path = scratch + 0xa20, .flags = 0};\n"
+            "        int32_t result = 0;\n"
+            "        rollback = copyout(target_dir, request.path, sizeof(target_dir));\n"
+            "        if (!rollback) rollback = unmount(p, &request, &result);\n"
+            "    }\n"
+            '    printf("M156 mali-user: daemon plist visible=%d stock=%u/%u err=%d rollback=%d\\n",\n'
+            "        job_visible, stock_visible, (unsigned)(sizeof(stock_jobs) / sizeof(stock_jobs[0])), error, rollback);\n"
+            '    if (rollback) panic("A2 Mali daemon overlay rollback failed: %d", rollback);\n'
             "    return error;\n}\n\n")
 
 
@@ -137,18 +197,22 @@ def generate(prewarm_patch, probe):
         raise ValueError("probe must be a thin ARM64 Mach-O")
     before = extract_function(prewarm_patch)
     original = zlib.decompress(array_bytes(before, "packed"))
-    cache = build_cache(original)
+    job = probe_job()
+    job_plist = plistlib.dumps(job, fmt=plistlib.FMT_BINARY, sort_keys=False)
+    cache = build_cache(original, job)
     after = replace_array(before, "packed", zlib.compress(cache, 9))
     after = replace_array(after, "modified_sha", hashlib.sha256(cache).digest())
     after, count = re.subn(r"configuration_size = \d+;", f"configuration_size = {len(cache)};", after)
     if count != 1:
         raise ValueError("missing cache size")
-    anchor = '    if (!PE_parse_boot_argn("launchd_unsecure_cache", &enabled, sizeof(enabled)) || enabled != 1) return EINVAL;\n'
+    anchor = '        !error, visible, (unsigned)configuration_size, error);\n'
     if after.count(anchor) != 1:
         raise ValueError("owner cache staging gate changed")
-    after = after.replace(anchor, anchor + "    const int probe_error = native_mali_user_probe_prepare(p, scratch);\n"
-                          "    if (probe_error) return probe_error;\n")
-    after = stage_function(probe) + after
+    after = after.replace(anchor, anchor + "    if (!error) {\n"
+                          "        const int probe_error = native_mali_user_probe_prepare(p, scratch);\n"
+                          '        if (probe_error) printf("M156 mali-user: probe setup failed err=%d\\n", probe_error);\n'
+                          "    }\n")
+    after = stage_function(probe, job_plist) + after
     patch = "".join(difflib.unified_diff(before.splitlines(True), after.splitlines(True),
                                          fromfile="a/bsd/kern/kern_exec.c",
                                          tofile="b/bsd/kern/kern_exec.c"))
@@ -163,6 +227,10 @@ def generate(prewarm_patch, probe):
         "probe_sha256": hashlib.sha256(probe).hexdigest(),
         "cache_bytes": len(cache), "cache_sha256": hashlib.sha256(cache).hexdigest(),
         "baseline_cache_sha256": PREWARM_SHA256, "one_run_at_load_job": JOB_PATH,
+        "daemon_plist_source": JOB_SOURCE,
+        "daemon_plist_bytes": len(job_plist),
+        "daemon_plist_sha256": hashlib.sha256(job_plist).hexdigest(),
+        "stock_daemon_checks": list(STOCK_JOBS),
         "existing_jobs_unchanged": True,
     }
 
