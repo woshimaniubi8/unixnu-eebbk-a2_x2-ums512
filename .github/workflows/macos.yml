@@ -19,6 +19,7 @@ on:
         options:
           - kernel
           - kernel payload
+          - mali probe
         default: kernel payload
       runner:
         description: Official GitHub macOS runner pool; all kernels/components explicitly target ARM64 regardless of host CPU
@@ -67,6 +68,7 @@ defaults:
 
 jobs:
   kernel:
+    if: inputs.steps != 'mali probe'
     name: XNU kernel + payload
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 360
@@ -532,3 +534,29 @@ jobs:
             UniXNU/build/owner-data-fixture/J120AP-Info.plist
           if-no-files-found: error
           retention-days: 3
+
+  mali_probe:
+    if: inputs.steps == 'mali probe'
+    runs-on: macos-26-intel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.6'
+      - name: Compile original IOKit boundary probe
+        run: |
+          set -euxo pipefail
+          sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
+          mkdir -p out
+          xcrun clang++ -std=c++17 -target arm64-apple-ios17.0 -isysroot "$sdk" \
+            -Wall -Wextra -Werror -F"$sdk/System/Library/PrivateFrameworks" \
+            scripts/tools/mali-user-probe.cpp -framework CoreFoundation -framework IOKit \
+            -Wl,-pagezero_size,0x4000 -o out/mali-user-probe
+          codesign --force --sign - --pagesize 4096 --identifier org.unixnu.bbk.mali-probe out/mali-user-probe
+          codesign --verify --strict --verbose=2 out/mali-user-probe
+          codesign -d --verbose=4 out/mali-user-probe 2>out/signature.txt
+          shasum -a 256 out/mali-user-probe | tee out/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mali-user-probe
+          path: out/
