@@ -162,3 +162,6 @@ bbk-a2-bluetooth-native-trace.patch
 
 # Enable deep UI stack traces and Stackshot sampling only when requested.
 bbk-a2-ui-diagnostics-opt-in.patch
+
+# Forward bounded native GPU probe stdout to UART without changing file writes.
+bbk-a2-mali-user-probe-trace.patch

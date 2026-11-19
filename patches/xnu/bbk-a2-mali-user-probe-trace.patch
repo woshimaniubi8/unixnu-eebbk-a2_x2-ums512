@@ -1,0 +1,40 @@
+diff --git a/bsd/kern/sys_generic.c b/bsd/kern/sys_generic.c
+index c438eb0e4a9d7e8fa1184e6d23d30ce326357517..e8011a0030f95ab754046af5e45229d51c91ee01 100644
+--- a/bsd/kern/sys_generic.c
++++ b/bsd/kern/sys_generic.c
+@@ -701,11 +701,12 @@ write_internal(struct proc *p, int fd, user_addr_t buf, user_size_t nbyte,
+ static void
+ bbk_bluetooth_write_trace(struct proc *p, int fd, user_addr_t address, user_size_t size)
+ {
+-	static uint32_t messages;
+-	if ((fd != 1 && fd != 2) || size == 0 || strcmp(proc_best_name(p), "bluetoothd") != 0) {
++	static uint32_t messages, gpu_messages;
++	bool gpu = strcmp(proc_best_name(p), "mali-user-probe") == 0;
++	if ((fd != 1 && fd != 2) || size == 0 || (!gpu && strcmp(proc_best_name(p), "bluetoothd") != 0)) {
+ 		return;
+ 	}
+-	if (__atomic_fetch_add(&messages, 1u, __ATOMIC_RELAXED) >= 256) {
++	if (__atomic_fetch_add(gpu ? &gpu_messages : &messages, 1u, __ATOMIC_RELAXED) >= 256) {
+ 		return;
+ 	}
+ 	char text[256] = {0};
+@@ -724,7 +725,8 @@ bbk_bluetooth_write_trace(struct proc *p, int fd, user_addr_t address, user_size
+ 	if (strnstr(text, "Got local-mac-address:", sizeof(text)) != NULL) {
+ 		strlcpy(text, "bluetooth: Got local-mac-address: [private-address]", sizeof(text));
+ 	}
+-	printf("M139 bt native: pid=%d fd=%d bytes=%u copy=%d text=%s\n",
++	printf(gpu ? "M154 mali-user: pid=%d fd=%d bytes=%u copy=%d text=%s\n" :
++	    "M139 bt native: pid=%d fd=%d bytes=%u copy=%d text=%s\n",
+ 	    proc_getpid(p), fd, bytes, error, text);
+ }
+ 
+@@ -817,7 +819,8 @@ writev_uio(struct proc *p, int fd,
+ 	}
+ 
+ 	/* fprintf/fwrite may use either scalar write or writev. UIO is validated. */
+-	if ((fd == 1 || fd == 2) && strcmp(proc_best_name(p), "bluetoothd") == 0) {
++	if ((fd == 1 || fd == 2) && (strcmp(proc_best_name(p), "bluetoothd") == 0 ||
++	    strcmp(proc_best_name(p), "mali-user-probe") == 0)) {
+ 		for (int i = 0; i < iovcnt && i < 4; ++i) {
+ 			user_addr_t address = 0;
+ 			user_size_t size = 0;
