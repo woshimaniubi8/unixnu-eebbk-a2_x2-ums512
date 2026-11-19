@@ -28,7 +28,9 @@ def main():
         tree = Path(directory)
         source = tree / "bsd/kern/kern_exec.c"
         source.parent.mkdir(parents=True)
-        source.write_text(before, encoding="utf-8", newline="\n")
+        prefix = "/* Other kernel code before the interior excerpt. */\n" * 32
+        suffix = "\n/* Other kernel code after the interior excerpt. */\n"
+        source.write_text(prefix + before + suffix, encoding="utf-8", newline="\n")
         patchfile = tree / "probe.patch"
         patchfile.write_text(patch, encoding="utf-8", newline="\n")
         subprocess.run(["git", "apply", "--check", str(patchfile)], cwd=tree, check=True)
@@ -46,7 +48,7 @@ def main():
         assert job["RunAtLoad"] is True and job["KeepAlive"] is False
         assert decoded == plistlib.loads(zlib.decompress(module.array_bytes(before, "packed")))
         subprocess.run(["git", "apply", "--reverse", str(patchfile)], cwd=tree, check=True)
-        assert source.read_text() == before
+        assert source.read_text() == prefix + before + suffix
     for malformed in (b"", probe[:16], b"\x00" * 32, probe * 9):
         try:
             module.generate(original, malformed)

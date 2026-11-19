@@ -37,6 +37,19 @@ def extract_function(patch):
     return additions[start:end]
 
 
+def function_line(patch):
+    line = None
+    for text in patch.splitlines():
+        hunk = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", text)
+        if hunk:
+            line = int(hunk[1])
+        elif line is not None and text.startswith("+/* The original loader consumes"):
+            return line
+        elif line is not None and text.startswith((" ", "+")):
+            line += 1
+    raise ValueError("missing prewarm function source location")
+
+
 def array_bytes(function, name):
     match = re.search(rf"static const uint8_t {name}\[(?:32)?\] = \{{(.*?)\n    \}};",
                       function, re.S)
@@ -139,6 +152,12 @@ def generate(prewarm_patch, probe):
     patch = "".join(difflib.unified_diff(before.splitlines(True), after.splitlines(True),
                                          fromfile="a/bsd/kern/kern_exec.c",
                                          tofile="b/bsd/kern/kern_exec.c"))
+    # The excerpt is inside kern_exec.c. A hunk at line one would tell git
+    # that its context must match the beginning of the translation unit.
+    offset = function_line(prewarm_patch) - 1
+    patch = re.sub(r"(?m)^@@ -(\d+)(,\d+)? \+(\d+)(,\d+)? @@",
+                   lambda m: f"@@ -{int(m[1]) + offset}{m[2] or ''} "
+                             f"+{int(m[3]) + offset}{m[4] or ''} @@", patch)
     return patch, {
         "probe_path": PROBE_PATH, "probe_bytes": len(probe),
         "probe_sha256": hashlib.sha256(probe).hexdigest(),
