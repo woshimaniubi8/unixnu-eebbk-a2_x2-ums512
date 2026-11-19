@@ -329,6 +329,8 @@ IOReturn NativeMaliBoTable::maintainMapped(bool forDevice)
     if(!open_)return kIOReturnNotReady;
     for(auto &slot : slot_) {
         if(!slot.live || !slot.mapped)continue;
+        // A GPU read-only PTE cannot have made the CPU's copy stale.
+        if(!forDevice && !(slot.permissions & NativeMaliBoWrite))continue;
         const IOReturn result = forDevice
             ? slot.memory.cleanForDevice(0, slot.memory.bytes())
             : slot.memory.invalidateForCpu(0, slot.memory.bytes());

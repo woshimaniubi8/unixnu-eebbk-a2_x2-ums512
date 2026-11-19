@@ -52,6 +52,7 @@ IOReturn NativeMaliUserClient::open(NativeMaliMemorySource *source,
     maxBoBytes_ = cap;
     for(uint32_t &seqno : submitted_)seqno = 0;
     for(uint32_t &seqno : deadSeqno_)seqno = 0;
+    pendingSync_ = NativeMaliFence{};
     nextSlot_ = 0;
     faults_ = 0;
     resets_ = 0;
@@ -146,6 +147,7 @@ IOReturn NativeMaliUserClient::deviceInfo(NativeMaliAbiDeviceInfo *reply)
 
 bool NativeMaliUserClient::hasOutstanding() const
 {
+    if(pendingSync_.valid())return true;
     for(uint32_t js=0;js<NativeMaliJobSlotCount;++js)
         if(ownOutstanding(js))return true;
     return false;
@@ -188,6 +190,13 @@ bool NativeMaliUserClient::ownOutstanding(uint32_t js) const
         jobs_->latestSeqno(js) <= submitted_[js];
 }
 
+IOReturn NativeMaliUserClient::finishCpuSync()
+{
+    const IOReturn result=bo_.maintainMapped(false);
+    if(result==kIOReturnSuccess)pendingSync_=NativeMaliFence{};
+    return result;
+}
+
 IOReturn NativeMaliUserClient::waitForFence(const NativeMaliFence &fence,
     uint64_t timeout_ns, NativeMaliJobCompletion *completion)
 {
@@ -198,12 +207,11 @@ IOReturn NativeMaliUserClient::waitForFence(const NativeMaliFence &fence,
      * another client's newest job (or one not submitted yet), and reaping it
      * here would steal its completion and hide its error. */
     if(fence.seqno > submitted_[fence.js])return kIOReturnBadArgument;
-    /* Destroyed by a GPU reset without a completion. This is the error fence
-     * panfrost would have signaled; it is not a fault, so only the reset
-     * counter moved. */
     if(deadSeqno_[fence.js] == fence.seqno)return kIOReturnIOError;
-    /* Already reaped: an older own fence, or another client's earlier job on
-     * the same slot, which this client's later job had to wait for anyway. */
+    if(pendingSync_.valid() && pendingSync_.js == fence.js &&
+        pendingSync_.seqno == fence.seqno)return finishCpuSync();
+    /* An older fence is a query. Invalidating here would cross ownership
+     * into a newer job or discard CPU writes made since the earlier sync. */
     if(jobs_->fenceSignaled(fence))return kIOReturnSuccess;
 
     /* Not signaled, so this must be the slot's newest submission, and it must
@@ -217,8 +225,14 @@ IOReturn NativeMaliUserClient::waitForFence(const NativeMaliFence &fence,
     const IOReturn result = jobs_->waitForCompletion(fence.js,
         completion ? completion : &local, timeoutMicroseconds(timeout_ns),
         CompletionPollUs);
-    if(result == kIOReturnIOError && (completion ? completion : &local)->isFault())
-        ++faults_;
+    if(result == kIOReturnSuccess) {
+        pendingSync_=fence;
+        return finishCpuSync();
+    }
+    if(result == kIOReturnIOError && !jobs_->outstanding(fence.js)) {
+        deadSeqno_[fence.js]=fence.seqno;
+        if((completion ? completion : &local)->isFault())++faults_;
+    }
     return result;
 }
 
@@ -274,8 +288,7 @@ IOReturn NativeMaliUserClient::waitFence(const NativeMaliAbiWaitFence &request)
         NativeMaliAbiValidate::fenceSlot(request.fence),
         NativeMaliAbiValidate::fenceSeqno(request.fence)};
     if(request.timeout_ns>1000000000ULL)return kIOReturnBadArgument;
-    const IOReturn done=waitForFence(fence, request.timeout_ns, nullptr);
-    return done==kIOReturnSuccess ? bo_.maintainMapped(false) : done;
+    return waitForFence(fence, request.timeout_ns, nullptr);
 }
 
 IOReturn NativeMaliUserClient::status(NativeMaliAbiStatus *reply)

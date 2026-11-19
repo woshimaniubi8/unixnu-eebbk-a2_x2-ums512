@@ -719,6 +719,15 @@ IOReturn NativeSprdMaliService::exerciseFullFrame()
                 pass,submitted.fence,submitUs,waitUs,gpuElapsedUs(verifyStart),
                 check.pixels,check.padding,check.guards);
             if(!match)return kIOReturnIOError;
+
+            stage="recheck-fence";
+            const NativeMaliAbiWaitFence recheck{submitted.fence,0};
+            const uint64_t recheckStart=mach_absolute_time();
+            ret=sessionCall(client,NativeMaliMethodWaitFence,&recheck,sizeof(recheck),nullptr,0);
+            const uint64_t recheckUs=gpuElapsedUs(recheckStart);
+            IOLog("M162 mali: retired fence=0x%llx result=0x%x query_us=%llu\n",
+                submitted.fence,ret,recheckUs);
+            if(ret!=kIOReturnSuccess)return ret;
             ++verified;
         }
         stage="status";

@@ -225,7 +225,8 @@ struct NativeMaliAbiBoCpuUnmap {
  * descriptor crosses this boundary.
  *
  * wait_fence is zero or an earlier fence of this client; it is waited for
- * before the job is submitted, with wait_timeout_ns (0 polls once).
+ * before the job is submitted, with wait_timeout_ns (0 polls once). The
+ * dependency uses the same CPU synchronization as WaitFence.
  */
 struct NativeMaliAbiSubmit {
     uint64_t job_chain;           /* GPU address, 64-byte aligned, nonzero */
@@ -238,6 +239,9 @@ struct NativeMaliAbiSubmitReply {
     uint64_t fence;               /* nonzero, opaque */
 };
 
+/* The first successful wait after completion also makes GPU writes visible
+ * to the CPU. Later waits on that fence are status queries. The client must
+ * not access a BO on the CPU while an in-flight job can write it. */
 struct NativeMaliAbiWaitFence {
     uint64_t fence;               /* a fence this client received */
     uint64_t timeout_ns;          /* 0 polls once */

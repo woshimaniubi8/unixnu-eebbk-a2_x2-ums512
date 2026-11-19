@@ -15,6 +15,8 @@ class RegisterFile final : public NativeMaliRegisterTarget {
 public:
     uint32_t data[0x4000/4]={};
     std::vector<unsigned> submitted;
+    bool completeOnStart=true;
+    void complete(unsigned js) {data[JOB_INT_RAWSTAT/4]|=JOB_INT_MASK_DONE(js);}
     IOReturn read32(uint32_t at,uint32_t *v) override {
         if(!v || at>=sizeof(data) || (at&3))return kIOReturnBadArgument;
         *v=data[at/4];return kIOReturnSuccess;
@@ -25,7 +27,7 @@ public:
         else data[at/4]=v;
         for(unsigned js=0;js<3;++js)if(at==JS_COMMAND_NEXT(js) && v==JS_COMMAND_START) {
             submitted.push_back(js); data[at/4]=0;
-            data[JOB_INT_RAWSTAT/4]|=JOB_INT_MASK_DONE(js);
+            if(completeOnStart)complete(js);
         }
         return kIOReturnSuccess;
     }
@@ -60,9 +62,22 @@ public:
 class Cache final : public NativeMaliCacheMaintainer {
 public:
     unsigned clean=0,invalidate=0;
-    IOReturn maintain(void *,size_t,NativeMaliCacheOperation op) override {
-        if(op==NativeMaliCacheClean)++clean;
-        if(op==NativeMaliCacheInvalidate)++invalidate;
+    const void *watch=nullptr;
+    unsigned watchClean=0,watchInvalidate=0;
+    bool failNextInvalidate=false;
+    IOReturn maintain(void *address,size_t,NativeMaliCacheOperation op) override {
+        if(op==NativeMaliCacheClean) {
+            ++clean;
+            if(address==watch)++watchClean;
+        }
+        if(op==NativeMaliCacheInvalidate) {
+            ++invalidate;
+            if(address==watch)++watchInvalidate;
+            if(failNextInvalidate) {
+                failNextInvalidate=false;
+                return kIOReturnIOError;
+            }
+        }
         return kIOReturnSuccess;
     }
 };
@@ -88,6 +103,10 @@ int main() {
     assert(a->mapBo(map,&mapped)==0);
     auto *memory=a->memoryForHandle(bo.handle);assert(memory && memory->mapped());
     auto *cpu=static_cast<uint8_t *>(memory->cpu());
+    NativeMaliAbiBoAllocReply input{};
+    assert(a->allocBo(req,&input)==0);
+    assert(a->mapBo({input.handle,0x1100000,NativeMaliBoRead,0},&mapped)==0);
+    cache.watch=a->memoryForHandle(input.handle)->cpu();
     NativeMaliAbiSubmit submit{0x1000000,0,0,0,0};NativeMaliAbiSubmitReply reply{};
     auto writeHeader=[&](unsigned type,uint64_t next=0) {
         NativeMaliJobHeader h;h.type=type;h.index=1;h.next=next;
@@ -102,15 +121,36 @@ int main() {
     // Busy cleared the reply; the fence was the first JS0 submission.
     NativeMaliAbiWaitFence wait{NativeMaliAbiValidate::packFence(0,1),100000000};
     assert(b->waitFence(wait)==kIOReturnBadArgument);
-    assert(a->waitFence(wait)==0 && cache.invalidate>0 && cache.clean>0);
+    assert(a->waitFence(wait)==0 && cache.invalidate==1 && cache.watchClean==1 && cache.watchInvalidate==0);
+    const NativeMaliAbiWaitFence first=wait;
+    assert(a->waitFence(first)==0 && cache.invalidate==1);
     wait.timeout_ns=1000000001;
     assert(a->waitFence(wait)==kIOReturnBadArgument);
     writeHeader(NativeMaliJobWriteValue);
+    regs.completeOnStart=false;
     assert(a->submit(submit,&reply)==0 && regs.submitted.back()==1);
-    wait={reply.fence,100000000};assert(a->waitFence(wait)==0);
+    wait={reply.fence,0};
+    assert(a->waitFence(wait)==kIOReturnTimeout && cache.invalidate==1);
+    assert(a->waitFence(first)==0 && cache.invalidate==1 && jobs.outstanding(1));
+    regs.complete(1);
+    cache.failNextInvalidate=true;
+    assert(a->waitFence(wait)==kIOReturnIOError && cache.invalidate==2 && !jobs.outstanding(1));
+    assert(a->waitFence(first)==0 && cache.invalidate==2);
+    assert(a->freeBo(free)==kIOReturnBusy && a->submit(submit,&reply)==kIOReturnBusy);
+    assert(a->waitFence(wait)==0 && cache.invalidate==3);
+    assert(a->waitFence(wait)==0 && cache.invalidate==3);
+    regs.completeOnStart=true;
     writeHeader(NativeMaliJobCompute);
     assert(a->submit(submit,&reply)==0 && regs.submitted.back()==2);
-    wait={reply.fence,100000000};assert(a->waitFence(wait)==0);
+    const uint64_t dependency=reply.fence;
+    submit.wait_fence=dependency;
+    // Submitting with a dependency reaps and synchronizes that fence once.
+    assert(a->submit(submit,&reply)==0 && regs.submitted.back()==2 && cache.invalidate==4);
+    assert(a->waitFence({dependency,0})==0 && cache.invalidate==4 && jobs.outstanding(2));
+    wait={reply.fence,100000000};
+    assert(a->waitFence(wait)==0 && cache.invalidate==5);
+    assert(cache.watchClean==4 && cache.watchInvalidate==0);
+    submit.wait_fence=0;
     const auto starts=regs.submitted.size();
     writeHeader(NativeMaliJobFragment,0x1000040);
     NativeMaliJobHeader next;next.type=NativeMaliJobCompute;next.index=2;
@@ -129,11 +169,22 @@ int main() {
     uint8_t output[sizeof(query)];memset(output,0x5a,sizeof(output));
     assert(a->dispatch(NativeMaliMethodQuery,&query,sizeof(query)-1,output,sizeof(output))==kIOReturnBadArgument);
     for(auto v:output)assert(v==0x5a);
+    // A failed hardware completion cannot turn into success on a retry.
+    submit.job_chain=0x1000000;
+    writeHeader(NativeMaliJobFragment);
+    assert(a->submit(submit,&reply)==0);
+    regs.data[JS_STATUS(0)/4]=0x40;
+    regs.data[JOB_INT_RAWSTAT/4]|=JOB_INT_MASK_ERR(0);
+    wait={reply.fence,0};
+    assert(a->waitFence(wait)==kIOReturnIOError && cache.invalidate==5);
+    assert(a->waitFence(wait)==kIOReturnIOError && cache.invalidate==5);
+    NativeMaliAbiStatus status{};
+    assert(a->status(&status)==0 && status.faults==1);
     assert(a->freeBo(free)==0);
     assert(a->releaseAll()==0 && b->releaseAll()==0);
     assert(mmu.disable(aa)==0 && mmu.disable(ab)==0);
     assert(mmu.release(aa)==0 && mmu.release(ab)==0);
     va.reset();vb.reset();
     assert(buffers.live==0 && pages.live==0 && mmu.allocatedMask()==0);
-    puts("PASS: actual per-AS clients route FS/WRITE_VALUE/compute to JS0/1/2; reject foreign IOVAs, mixed/cyclic chains, stale fences and malformed records; maintain caches and release all pages.");
+    puts("PASS: per-AS routing, fence-bound DMA sync, read-only BOs, sticky faults and cleanup.");
 }

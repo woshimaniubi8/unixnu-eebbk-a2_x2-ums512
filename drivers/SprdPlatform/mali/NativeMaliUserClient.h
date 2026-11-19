@@ -23,13 +23,9 @@
  *     choose.
  *   - The fence is the slot's emit seqno (panfrost_job.c:106), packed as the
  *     ABI documents. A dependency fence and WaitFence must be one this client
- *     was handed: each slot keeps the highest seqno this client submitted
- *     there. A seqno above that is another client's (or not submitted yet) and
- *     is refused, so this client cannot reap someone else's completion. A
- *     seqno below it that this client skipped belongs to another client's
- *     earlier job on the same slot; the slot runs one job at a time, so that
- *     job must already have been reaped and fenceSignaled() answers true
- *     without touching the hardware.
+ *     was handed. Only the newest in-flight fence of this client can reap a
+ *     slot. Older, completed seqnos are queries; they never access the
+ *     client's GPU buffers while a newer job might be using them.
  *   - Completion is polled synchronously (NativeMaliJobSlot), so a wait here
  *     blocks. The interrupt-driven form is still blocked on
  *     docs/OPEN_QUESTIONS.md item 14.
@@ -84,11 +80,12 @@ class NativeMaliUserClient final {
     /* The highest seqno this client received on each slot. 0 means it never
      * submitted there, which is also why fence seqno 0 is invalid. */
     uint32_t submitted_[NativeMaliJobSlotCount]{};
-    /* The seqno that was in flight on each slot when the service last reset
-     * the GPU. That job was destroyed without a completion, so a wait on its
-     * fence answers IOError (context lost) instead of timing out forever. A
-     * later job has a higher seqno, so the marker cannot hit it. */
+    /* Last failed or reset-killed fence on each slot. The same fence stays
+     * failed on a repeated wait, even after the hardware has been reaped. */
     uint32_t deadSeqno_[NativeMaliJobSlotCount]{};
+    // One job per client. A reaped job still owns the buffers until its CPU
+    // sync succeeds, including when the cache maintainer reports an error.
+    NativeMaliFence pendingSync_{};
     uint32_t nextSlot_ = 0;
     uint64_t faults_ = 0;
     uint64_t resets_ = 0;
@@ -96,6 +93,7 @@ class NativeMaliUserClient final {
 
     IOReturn chooseSlot(uint64_t chain, uint32_t *slot);
     bool hasOutstanding() const;
+    IOReturn finishCpuSync();
     bool ownOutstanding(uint32_t js) const;
     IOReturn waitForFence(const NativeMaliFence &fence, uint64_t timeout_ns,
         NativeMaliJobCompletion *completion);
