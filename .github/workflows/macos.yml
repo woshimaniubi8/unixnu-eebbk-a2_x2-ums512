@@ -273,6 +273,25 @@ jobs:
           echo "Selected Xcode: $chosen"
           xcodebuild -version
 
+      - name: Prepare native Mali userspace boot probe
+        run: |
+          set -euxo pipefail
+          sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
+          mkdir -p device/build/mali-user-probe
+          xcrun clang++ -std=c++17 -target arm64-apple-ios17.0 -isysroot "$sdk" \
+            -Wall -Wextra -Werror -F"$sdk/System/Library/PrivateFrameworks" \
+            device/scripts/tools/mali-user-probe.cpp -framework CoreFoundation -framework IOKit \
+            -Wl,-pagezero_size,0x4000 -o device/build/mali-user-probe/mali-user-probe
+          codesign --force --sign - --pagesize 4096 --identifier org.unixnu.bbk.mali-probe \
+            device/build/mali-user-probe/mali-user-probe
+          python3 device/scripts/test-mali-probe-boot.py device/build/mali-user-probe/mali-user-probe
+          python3 device/scripts/prepare-mali-probe-boot.py \
+            --probe device/build/mali-user-probe/mali-user-probe \
+            --prewarm-patch device/patches/xnu/bbk-a2-splashboard-prewarm.patch \
+            --output device/patches/xnu/bbk-a2-mali-user-stage.patch \
+            --report device/build/mali-user-probe/probe-stage.json
+          printf '\nbbk-a2-mali-user-stage.patch\n' >> device/patches/xnu/series
+
       - name: Check inputs
         run: |
           set -eux
@@ -532,6 +551,7 @@ jobs:
             UniXNU/build/owner-data-fixture/owner-data-32.cdr
             UniXNU/build/owner-data-fixture/trustcache.bundle
             UniXNU/build/owner-data-fixture/J120AP-Info.plist
+            device/build/mali-user-probe/
           if-no-files-found: error
           retention-days: 3
 
