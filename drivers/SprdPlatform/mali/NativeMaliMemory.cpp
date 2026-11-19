@@ -3,6 +3,7 @@
  */
 #include "NativeMaliMemory.h"
 #include <string.h>
+#include <IOKit/IOLib.h>
 
 namespace {
 
@@ -35,7 +36,15 @@ IOReturn NativeMaliMemory::prepare(NativeMaliMemorySource *source, size_t bytes,
      * silently skipping the clean/invalidate the hardware needs. */
     if(!cpuCoherent && !maintainer)return kIOReturnBadArgument;
 
-    NativeMaliMemorySpan spans[NativeMaliMemoryMaxSpans]{};
+    // The 1024-span ABI needs 24 KiB, larger than a usable kernel stack frame.
+    // Keep scratch ownership scoped so every validation failure releases it.
+    struct Scratch {
+        NativeMaliMemorySpan *data=IONewData(NativeMaliMemorySpan,NativeMaliMemoryMaxSpans);
+        ~Scratch() { if(data)IODeleteData(data,NativeMaliMemorySpan,NativeMaliMemoryMaxSpans); }
+    } scratch;
+    if(!scratch.data)return kIOReturnNoMemory;
+    NativeMaliMemorySpan *spans=scratch.data;
+    memset(spans,0,sizeof(*spans)*NativeMaliMemoryMaxSpans);
     void *cpu = nullptr;
     size_t count = 0;
     IOReturn result = source->alloc(bytes, &cpu, spans, &count);

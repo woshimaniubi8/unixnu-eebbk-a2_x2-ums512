@@ -219,13 +219,14 @@ public:
         setProperty("gpu-id", observation_.gpuId, 32);
         setProperty("job-slots", observation_.jsPresent, 32);
         setProperty("service-ready", 1, 32);
-        setName("Mali-G52");
+        setName("NativeMaliGpuService");
+        setProperty("model","Mali-G52");
         ready_ = true;
         setProperty("NativeMaliABI",NativeMaliAbiVersion,32);
         IOLog("M150 mali: service published ready=1 id=0x%x js=0x%x\n",
             observation_.gpuId, observation_.jsPresent);
         const IOReturn test=exerciseSession();
-        setProperty("gpu-session-test",test,32);
+        setProperty("gpu-session-test",static_cast<unsigned long long>(static_cast<uint32_t>(test)),32);
         IOLog("M153 mali: userclient ready abi=%u session_test=0x%x cpu_page=16384 gpu_page=4096\n",
             NativeMaliAbiVersion,test);
         if(test!=kIOReturnSuccess) {
@@ -242,7 +243,7 @@ public:
     IOReturn closeSession(SprdMaliSession *session);
     void quarantine(SprdMaliSession *session) {
         ready_=false;
-        setProperty("service-ready",0,32);
+        setProperty("service-ready",static_cast<unsigned long long>(0),32);
         if(session && session->as<NativeMaliMmuMaxAs)quarantined_[session->as]=session;
     }
     IOReturn newUserClient(task_t,void *,UInt32,OSDictionary *,IOUserClient **) override;
@@ -529,7 +530,7 @@ IOReturn NativeSprdMaliService::exerciseSession()
     if(result==kIOReturnSuccess)result=sessionCall(client,NativeMaliMethodGetDeviceInfo,
         nullptr,0,&info,sizeof(info));
     if(result==kIOReturnSuccess && (info.gpu_id!=0x74021000 ||
-        queryReply.input_bits!=48 || queryReply.output_bits!=40))result=kIOReturnIOError;
+        queryReply.input_bits!=observation_.ias || queryReply.output_bits!=observation_.oas))result=kIOReturnIOError;
     IOLog("M153 mali: client query result=0x%x abi=%u gpu=0x%x bits=%u/%u\n",
         result,queryReply.abi_version,info.gpu_id,queryReply.input_bits,queryReply.output_bits);
     NativeMaliAbiBoAlloc allocation{SprdMaliRender::BufferBytes};
