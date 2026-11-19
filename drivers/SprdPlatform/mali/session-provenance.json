@@ -1,0 +1,65 @@
+{
+  "repository": "https://github.com/Dracen-W/Mali-G52",
+  "commit": "ddabc6e4ec4e9a32666f8d7b25bd8b1765a7a523",
+  "files": [
+    {
+      "path": "NativeMaliABI.h",
+      "upstream_sha256": "ad113627423a59b422f0dde7532be619a42f901d1cdeb2d43a3cc738665431fe",
+      "board_sha256": "ad113627423a59b422f0dde7532be619a42f901d1cdeb2d43a3cc738665431fe"
+    },
+    {
+      "path": "NativeMaliAbiValidate.h",
+      "upstream_sha256": "21e1bda36963b713f00c057ad89dcfb5d5e2279859a3bb16dce79f8c2c2cc07d",
+      "board_sha256": "21e1bda36963b713f00c057ad89dcfb5d5e2279859a3bb16dce79f8c2c2cc07d"
+    },
+    {
+      "path": "NativeMaliAbiValidate.cpp",
+      "upstream_sha256": "7cae4dfe33e8288b9e26bb5d882fe551acbe4962157450cbbefd9dc6dd0602a9",
+      "board_sha256": "7cae4dfe33e8288b9e26bb5d882fe551acbe4962157450cbbefd9dc6dd0602a9"
+    },
+    {
+      "path": "NativeMaliHandleIndex.h",
+      "upstream_sha256": "38d8ab77ee5830b68fd1c7dd2cc325bd57d26b4e1df85686c23fd91826a93839",
+      "board_sha256": "38d8ab77ee5830b68fd1c7dd2cc325bd57d26b4e1df85686c23fd91826a93839"
+    },
+    {
+      "path": "NativeMaliMemory.h",
+      "upstream_sha256": "51c4ce15bd4d00dc5f3a0ccd2380cb02dc795504b01d7023b4b48bcc66c28422",
+      "board_sha256": "51c4ce15bd4d00dc5f3a0ccd2380cb02dc795504b01d7023b4b48bcc66c28422"
+    },
+    {
+      "path": "NativeMaliMemory.cpp",
+      "upstream_sha256": "261690f9477642c71e0dc9273fd10878cd52332f1f1d36073eb09ac8f1670f6e",
+      "board_sha256": "261690f9477642c71e0dc9273fd10878cd52332f1f1d36073eb09ac8f1670f6e"
+    },
+    {
+      "path": "NativeMaliBoTable.h",
+      "upstream_sha256": "d4ef5808fb8af9f7c93a0569aab195fb7dadf9756e19d8610838ef24445ffbdd",
+      "board_sha256": "5efdc45a3511d19ede621b7d58e2bdf99de67943567c5da9f8253ea6809fa3ec"
+    },
+    {
+      "path": "NativeMaliBoTable.cpp",
+      "upstream_sha256": "964b5a23af53d05b3fec53c3dd0bce550848c4339d62dfbc76b14b8b60026e3b",
+      "board_sha256": "d13bb7c227f46f37175bcbbd5d6ad1d635a75f9691c2780f28495f1cd78dac1f"
+    },
+    {
+      "path": "NativeMaliUserClient.h",
+      "upstream_sha256": "e9860e5d4b83e76cee3c475acfa7cce706b0e2d1ebef3fbbdf438bb0ff4888a5",
+      "board_sha256": "e02d23e5a35a9f3405b6fbae49d60c0f4ecd68f6b5423df17b3532b21ea0ffbd"
+    },
+    {
+      "path": "NativeMaliUserClient.cpp",
+      "upstream_sha256": "09143d33dba3833c675379a8a2631d069bf4e9f8f4595e77cd429d8335cc9b5f",
+      "board_sha256": "69e0b2716f0dcd2f78f0a2b226c049e7d2e5a95815c9068dbe26f09e91223617"
+    }
+  ],
+  "adaptations": [
+    "Use the existing Sprd PMIC/AON/clock owner; no MediaTek power code is linked.",
+    "Allocate host memory in 16K pages, expose requested buffer lengths and build 4K GPU tables.",
+    "Bound and route mapped job chains to JS0/1/2; reject mixed queues, cycles and foreign addresses.",
+    "Clean mapped BOs before submit, invalidate after completed fences, reject BO retirement with live jobs.",
+    "Use a 64-BO limit and one active job per connection for the current synchronous interface.",
+    "Publish the board service after Query/BO/two-AS isolation/fragment image/close validation.",
+    "Preserve reset as unsupported until device-wide recovery is implemented."
+  ]
+}

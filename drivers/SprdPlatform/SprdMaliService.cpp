@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Persistent board-owned Mali service. User-client/Metal publication remains
-// a separate integration step after the hardware lifetime is proven.
+// Persistent board-owned Mali service and upstream NativeMali user-client ABI.
+// Metal/PanVK frontend publication remains a separate integration step.
 #include <IOKit/IODeviceMemory.h>
 #include <IOKit/IOLib.h>
 #include <IOKit/IOService.h>
@@ -8,6 +8,9 @@
 #include "mali/NativeMaliJobSlot.h"
 #include "mali/NativeMaliMmu.h"
 #include "mali/NativeMaliRegs.h"
+#include "SprdMaliSession.h"
+#include "SprdMaliRender.h"
+#include <kern/task.h>
 
 namespace {
 
@@ -68,6 +71,9 @@ class NativeSprdMaliService final : public IOService {
     bool mmuPrepared_ = false;
     bool jobsPrepared_ = false;
     bool ready_ = false;
+    IOLock *sessionLock_=nullptr;
+    uint32_t sessions_=0;
+    SprdMaliSession *quarantined_[NativeMaliMmuMaxAs]={};
 
     void describeWindows()
     {
@@ -132,6 +138,8 @@ public:
     bool start(IOService *provider) override
     {
         if(!IOService::start(provider))return false;
+        sessionLock_=IOLockAlloc();
+        if(!sessionLock_)return false;
         describeWindows();
         const IOReturn mapping = [&]() {
             for(auto &window : windows_) {
@@ -212,16 +220,47 @@ public:
         setProperty("job-slots", observation_.jsPresent, 32);
         setProperty("service-ready", 1, 32);
         setName("Mali-G52");
-        registerService();
         ready_ = true;
+        setProperty("NativeMaliABI",NativeMaliAbiVersion,32);
         IOLog("M150 mali: service published ready=1 id=0x%x js=0x%x\n",
             observation_.gpuId, observation_.jsPresent);
+        const IOReturn test=exerciseSession();
+        setProperty("gpu-session-test",test,32);
+        IOLog("M153 mali: userclient ready abi=%u session_test=0x%x cpu_page=16384 gpu_page=4096\n",
+            NativeMaliAbiVersion,test);
+        if(test!=kIOReturnSuccess) {
+            stop(provider);
+            return false;
+        }
+        registerService();
         return true;
+    }
+
+    IOLock *sessionLock() const { return sessionLock_; }
+    bool ready() const { return ready_; }
+    IOReturn openSession(SprdMaliSession *session);
+    IOReturn closeSession(SprdMaliSession *session);
+    void quarantine(SprdMaliSession *session) {
+        ready_=false;
+        setProperty("service-ready",0,32);
+        if(session && session->as<NativeMaliMmuMaxAs)quarantined_[session->as]=session;
+    }
+    IOReturn newUserClient(task_t,void *,UInt32,OSDictionary *,IOUserClient **) override;
+    IOReturn exerciseSession();
+
+    void free() override {
+        if(sessionLock_ && !sessions_) { IOLockFree(sessionLock_); sessionLock_=nullptr; }
+        IOService::free();
     }
 
     void stop(IOService *provider) override
     {
         IOLog("M150 mali: service stop ready=%u\n", ready_ ? 1u : 0u);
+        ready_=false;
+        if(sessions_) {
+            IOLog("M153 mali: stop retains %u session(s) and hardware ownership\n",sessions_);
+            return;
+        }
         stopHardware();
         releaseWindows();
         IOService::stop(provider);
@@ -229,6 +268,356 @@ public:
 };
 
 OSDefineMetaClassAndStructors(NativeSprdMaliService, IOService)
+
+
+
+IOReturn NativeSprdMaliService::openSession(SprdMaliSession *s)
+{
+    if(!s || !ready_ || s->allocated)return kIOReturnNotReady;
+    s->pages.setOutputLimit(observation_.oas);
+    s->buffers.setOutputLimit(observation_.oas);
+    IOReturn result=mmu_.allocate(&s->as);
+    if(result!=kIOReturnSuccess)return result;
+    s->allocated=true;
+    ++sessions_;
+    result=s->vm.prepare(&s->pages,observation_.ias,observation_.oas,false,&s->cache);
+    if(result==kIOReturnSuccess) {
+        // Preserve all table pages until disable has proved that AS is inactive.
+        s->enabled=true;
+        result=mmu_.enable(s->as,s->vm);
+    }
+    if(result==kIOReturnSuccess) {
+        result=s->core.open(&s->buffers,&s->cache,false,&s->vm,&mmu_,s->as,
+            &jobs_,&core_,observation_,NATIVE_MALI_ABI_MAX_BO_BYTES);
+        s->opened=result==kIOReturnSuccess;
+    }
+    IOLog("M153 mali: session open as=%u result=0x%x sessions=%u\n",s->as,result,sessions_);
+    return result;
+}
+
+IOReturn NativeSprdMaliService::closeSession(SprdMaliSession *s)
+{
+    if(!s)return kIOReturnBadArgument;
+    IOReturn result=kIOReturnSuccess;
+    if(s->opened) {
+        result=s->core.releaseAll();
+        if(result!=kIOReturnSuccess)return result;
+        s->opened=false;
+    }
+    if(s->enabled) {
+        result=mmu_.disable(s->as);
+        if(result!=kIOReturnSuccess)return result;
+        s->enabled=false;
+    }
+    if(s->allocated) {
+        result=mmu_.release(s->as);
+        if(result!=kIOReturnSuccess)return result;
+        s->allocated=false;
+        --sessions_;
+    }
+    s->vm.reset();
+    IOLog("M153 mali: session close as=%u result=0x%x sessions=%u\n",s->as,result,sessions_);
+    return result;
+}
+
+OSDefineMetaClassAndStructors(NativeSprdMaliUserClient,IOUserClient)
+
+bool NativeSprdMaliUserClient::initWithTask(task_t task,void *security,UInt32 type,
+    OSDictionary *properties)
+{
+    return type==0 && IOUserClient::initWithTask(task,security,type,properties);
+}
+
+bool NativeSprdMaliUserClient::start(IOService *provider)
+{
+    if(!IOUserClient::start(provider))return false;
+    owner_=OSDynamicCast(NativeSprdMaliService,provider);
+    if(!owner_ || !owner_->sessionLock())return false;
+    session_=new SprdMaliSession;
+    if(!session_)return false;
+    IOLockLock(owner_->sessionLock());
+    const IOReturn result=owner_->openSession(session_);
+    if(result!=kIOReturnSuccess) {
+        const IOReturn closed=owner_->closeSession(session_);
+        if(closed==kIOReturnSuccess)delete session_;
+        else owner_->quarantine(session_);
+        session_=nullptr;
+    }
+    IOLockUnlock(owner_->sessionLock());
+    return result==kIOReturnSuccess;
+}
+
+void NativeSprdMaliUserClient::releaseViews()
+{
+    for(auto &view:views_) {
+        if(view)view->release();
+        view=nullptr;
+    }
+}
+
+IOReturn NativeSprdMaliUserClient::shutdown()
+{
+    if(!owner_ || !session_)return kIOReturnSuccess;
+    IOLockLock(owner_->sessionLock());
+    const IOReturn result=owner_->closeSession(session_);
+    if(result==kIOReturnSuccess) {
+        releaseViews();
+        delete session_;
+        session_=nullptr;
+    }
+    IOLockUnlock(owner_->sessionLock());
+    return result;
+}
+
+void NativeSprdMaliUserClient::stop(IOService *provider)
+{
+    const IOReturn result=shutdown();
+    if(result!=kIOReturnSuccess && session_) {
+        IOLockLock(owner_->sessionLock());
+        owner_->quarantine(session_);
+        session_=nullptr;
+        IOLockUnlock(owner_->sessionLock());
+        IOLog("M153 mali: stop quarantined AS after error=0x%x\n",result);
+    }
+    releaseViews();
+    IOUserClient::stop(provider);
+}
+
+void NativeSprdMaliUserClient::free()
+{
+    const IOReturn result=shutdown();
+    if(result!=kIOReturnSuccess && owner_ && session_) {
+        IOLockLock(owner_->sessionLock());
+        owner_->quarantine(session_);
+        session_=nullptr;
+        IOLockUnlock(owner_->sessionLock());
+    }
+    releaseViews();
+    IOUserClient::free();
+}
+
+IOReturn NativeSprdMaliUserClient::clientClose()
+{
+    const IOReturn result=shutdown();
+    if(result==kIOReturnSuccess)terminate();
+    return result;
+}
+
+IOReturn NativeSprdMaliService::newUserClient(task_t task,void *security,UInt32 type,
+    OSDictionary *properties,IOUserClient **handler)
+{
+    if(!handler)return kIOReturnBadArgument;
+    *handler=nullptr;
+    if(type!=0)return kIOReturnUnsupported;
+    if(task!=kernel_task && IOUserClient::clientHasPrivilege(
+        task,kIOClientPrivilegeAdministrator)!=kIOReturnSuccess)
+        return kIOReturnNotPrivileged;
+    if(!ready_)return kIOReturnNotReady;
+    auto *client=new NativeSprdMaliUserClient;
+    if(!client)return kIOReturnNoMemory;
+    if(!client->initWithTask(task,security,type,properties)) {
+        client->release();
+        return kIOReturnNoMemory;
+    }
+    if(!client->attach(this)) {client->release();return kIOReturnNoResources;}
+    if(!client->start(this)) {
+        client->detach(this);
+        client->release();
+        return kIOReturnNotReady;
+    }
+    *handler=client;
+    IOLog("M153 mali: client attached type=%u kernel=%u\n",type,task==kernel_task);
+    return kIOReturnSuccess;
+}
+
+IOReturn NativeSprdMaliUserClient::clientMemoryForType(UInt32 token,
+    IOOptionBits *options,IOMemoryDescriptor **output)
+{
+    if(!options || !output)return kIOReturnBadArgument;
+    *output=nullptr;
+    if(!owner_ || !owner_->sessionLock())return kIOReturnNotReady;
+    IOLockLock(owner_->sessionLock());
+    IOReturn result=kIOReturnBadArgument;
+    if(session_ && token && token<=NativeMaliBoTableCapacity) {
+        auto *memory=session_->core.memoryForToken(token);
+        if(memory) {
+            auto *&view=views_[token-1];
+            if(!view)view=session_->buffers.descriptor(memory->cpu());
+            if(view) {
+                view->retain();
+                *output=view;
+                *options=kIOMapAnywhere|kIOMapCopybackCache;
+                result=kIOReturnSuccess;
+            }
+        }
+    }
+    IOLockUnlock(owner_->sessionLock());
+    return result;
+}
+
+IOReturn NativeSprdMaliUserClient::action(OSObject *target,void *,
+    IOExternalMethodArguments *args)
+{
+    auto *client=OSDynamicCast(NativeSprdMaliUserClient,target);
+    if(!client || !args || !client->owner_)return kIOReturnBadArgument;
+    auto *owner=client->owner_;
+    IOLockLock(owner->sessionLock());
+    IOReturn result=kIOReturnNotReady;
+    auto *s=client->session_;
+    if(s && owner->ready()) {
+        result=s->core.dispatch(args->selector,args->structureInput,
+            args->structureInputSize,args->structureOutput,args->structureOutputSize);
+        if(result==kIOReturnSuccess && args->selector==NativeMaliMethodBoCpuUnmap) {
+            NativeMaliAbiBoCpuUnmap request{};
+            memcpy(&request,args->structureInput,sizeof(request));
+            if(request.token && request.token<=NativeMaliBoTableCapacity) {
+                auto *&view=client->views_[request.token-1];
+                if(view)view->release();
+                view=nullptr;
+            }
+        }
+    }
+    IOLockUnlock(owner->sessionLock());
+    return result;
+}
+
+IOReturn NativeSprdMaliUserClient::externalMethod(uint32_t selector,
+    IOExternalMethodArguments *args,IOExternalMethodDispatch *,OSObject *,void *)
+{
+    if(!args)return kIOReturnBadArgument;
+    // Reset requires a device-wide recovery implementation; it stays unsupported.
+    if(selector==NativeMaliMethodReset)return kIOReturnUnsupported;
+    const size_t input=NativeMaliUserClient::inputSize(selector);
+    const size_t output=NativeMaliUserClient::outputSize(selector);
+    if(input==NativeMaliUserClient::kUnsupportedSize ||
+        output==NativeMaliUserClient::kUnsupportedSize)return kIOReturnUnsupported;
+    if(args->structureInputDescriptor || args->structureOutputDescriptor)
+        return kIOReturnBadArgument;
+    IOExternalMethodDispatch dispatch{};
+    dispatch.function=&NativeSprdMaliUserClient::action;
+    dispatch.checkStructureInputSize=static_cast<uint32_t>(input);
+    dispatch.checkStructureOutputSize=selector==NativeMaliMethodGetDeviceInfo
+        ? kIOUCVariableStructureSize : static_cast<uint32_t>(output);
+    return IOUserClient::externalMethod(selector,args,&dispatch,this,nullptr);
+}
+
+namespace {
+IOReturn sessionCall(IOUserClient *client,uint32_t selector,const void *input,
+    size_t inputBytes,void *output,size_t outputBytes)
+{
+    IOExternalMethodArguments args{};
+    args.selector=selector;
+    args.structureInput=input;
+    args.structureInputSize=inputBytes;
+    args.structureOutput=output;
+    args.structureOutputSize=outputBytes;
+    return client->externalMethod(selector,&args,nullptr,nullptr,nullptr);
+}
+}
+
+IOReturn NativeSprdMaliService::exerciseSession()
+{
+    IOUserClient *client=nullptr,*other=nullptr;
+    IOMemoryDescriptor *memory=nullptr;
+    IOMemoryMap *mapping=nullptr;
+    IOReturn result=newUserClient(kernel_task,nullptr,0,nullptr,&client);
+    NativeMaliAbiQuery query{},queryReply{};
+    query.abi_version=NativeMaliAbiVersion;
+    if(result==kIOReturnSuccess)result=sessionCall(client,NativeMaliMethodQuery,
+        &query,sizeof(query),&queryReply,sizeof(queryReply));
+    NativeMaliAbiDeviceInfo info{};
+    if(result==kIOReturnSuccess)result=sessionCall(client,NativeMaliMethodGetDeviceInfo,
+        nullptr,0,&info,sizeof(info));
+    if(result==kIOReturnSuccess && (info.gpu_id!=0x74021000 ||
+        queryReply.input_bits!=48 || queryReply.output_bits!=40))result=kIOReturnIOError;
+    IOLog("M153 mali: client query result=0x%x abi=%u gpu=0x%x bits=%u/%u\n",
+        result,queryReply.abi_version,info.gpu_id,queryReply.input_bits,queryReply.output_bits);
+    NativeMaliAbiBoAlloc allocation{SprdMaliRender::BufferBytes};
+    NativeMaliAbiBoAllocReply allocated{};
+    if(result==kIOReturnSuccess)result=sessionCall(client,NativeMaliMethodBoAlloc,
+        &allocation,sizeof(allocation),&allocated,sizeof(allocated));
+    constexpr uint64_t gpu=0x1000000;
+    NativeMaliAbiBoMap gpuMap{allocated.handle,gpu,NativeMaliBoRead|NativeMaliBoWrite,0};
+    NativeMaliAbiBoMapReply mapped{};
+    if(result==kIOReturnSuccess)result=sessionCall(client,NativeMaliMethodBoMap,
+        &gpuMap,sizeof(gpuMap),&mapped,sizeof(mapped));
+    NativeMaliAbiBoCpuMap cpuMap{allocated.handle};
+    NativeMaliAbiBoCpuMapReply cpuMapped{};
+    if(result==kIOReturnSuccess)result=sessionCall(client,NativeMaliMethodBoCpuMap,
+        &cpuMap,sizeof(cpuMap),&cpuMapped,sizeof(cpuMapped));
+    IOOptionBits options=0;
+    if(result==kIOReturnSuccess)result=client->clientMemoryForType(cpuMapped.token,&options,&memory);
+    if(result==kIOReturnSuccess) {
+        mapping=memory->map(options);
+        if(!mapping || !mapping->getVirtualAddress() ||
+            mapping->getLength()<SprdMaliRender::BufferBytes)result=kIOReturnNoMemory;
+    }
+    auto *cpu=mapping?reinterpret_cast<uint8_t *>(mapping->getVirtualAddress()):nullptr;
+    if(result==kIOReturnSuccess)result=newUserClient(kernel_task,nullptr,0,nullptr,&other);
+    IOReturn isolated=kIOReturnNotReady;
+    if(result==kIOReturnSuccess) {
+        NativeMaliAbiSubmit invalid{gpu,0,0,0,0};
+        NativeMaliAbiSubmitReply ignored{};
+        isolated=sessionCall(other,NativeMaliMethodSubmit,
+            &invalid,sizeof(invalid),&ignored,sizeof(ignored));
+        if(isolated!=kIOReturnBadArgument)result=kIOReturnIOError;
+    }
+    IOLog("M153 mali: client BO result=0x%x bytes=%llu isolation=0x%x\n",
+        result,cpuMapped.bytes,isolated);
+    if(cpu)memset(cpu,0xa5,SprdMaliRender::BufferBytes);
+    for(unsigned pass=0;pass<4 && result==kIOReturnSuccess;++pass) {
+        if(!SprdMaliRender::build(cpu,SprdMaliRender::BufferBytes,gpu,pass))
+            {result=kIOReturnBadArgument;break;}
+        NativeMaliAbiSubmit submit{gpu,0,0,0,0};
+        NativeMaliAbiSubmitReply submitted{};
+        result=sessionCall(client,NativeMaliMethodSubmit,&submit,sizeof(submit),
+            &submitted,sizeof(submitted));
+        NativeMaliAbiWaitFence wait{submitted.fence,100000000ULL};
+        if(result==kIOReturnSuccess)result=sessionCall(client,NativeMaliMethodWaitFence,
+            &wait,sizeof(wait),nullptr,0);
+        IOLog("M153 mali: client fragment pass=%u result=0x%x fence=0x%llx\n",
+            pass,result,submitted.fence);
+    }
+    unsigned mismatches=0,guards=0;
+    if(result==kIOReturnSuccess) {
+        auto *pixels=reinterpret_cast<volatile uint32_t *>(cpu+SprdMaliRender::ImageOffset);
+        for(unsigned y=0;y<SprdMaliRender::Height;++y)
+            for(unsigned x=0;x<SprdMaliRender::Width;++x)
+                mismatches+=pixels[y*SprdMaliRender::Width+x]!=SprdMaliRender::expected(x,y);
+        for(size_t i=0x4000;i<SprdMaliRender::ImageOffset;++i)guards+=cpu[i]!=0xa5;
+        for(size_t i=SprdMaliRender::ImageOffset+SprdMaliRender::ImageBytes;
+            i<SprdMaliRender::BufferBytes;++i)guards+=cpu[i]!=0xa5;
+        if(mismatches || guards)result=kIOReturnIOError;
+    }
+    NativeMaliAbiStatus status{};
+    if(result==kIOReturnSuccess)result=sessionCall(client,NativeMaliMethodGetStatus,
+        nullptr,0,&status,sizeof(status));
+    if(mapping)mapping->release();
+    if(memory)memory->release();
+    IOReturn cleanup=kIOReturnSuccess;
+    if(client && cpuMapped.token) {
+        NativeMaliAbiBoCpuUnmap unmap{allocated.handle,cpuMapped.token,0};
+        cleanup=sessionCall(client,NativeMaliMethodBoCpuUnmap,&unmap,sizeof(unmap),nullptr,0);
+    }
+    if(client && cleanup==kIOReturnSuccess && allocated.handle) {
+        NativeMaliAbiBoFree freeBo{allocated.handle};
+        cleanup=sessionCall(client,NativeMaliMethodBoFree,&freeBo,sizeof(freeBo),nullptr,0);
+    }
+    if(other) {
+        const IOReturn closed=other->clientClose();
+        if(cleanup==kIOReturnSuccess)cleanup=closed;
+        other->release();
+    }
+    if(client) {
+        const IOReturn closed=client->clientClose();
+        if(cleanup==kIOReturnSuccess)cleanup=closed;
+        client->release();
+    }
+    if(result==kIOReturnSuccess)result=cleanup;
+    IOLog("M153 mali: client image result=0x%x pixels=4096 mismatches=%u guards=%u faults=%llu resets=%llu cleanup=0x%x sessions=%u\n",
+        result,mismatches,guards,status.faults,status.resets,cleanup,sessions_);
+    return result;
+}
 
 extern "C" IOService *sprd_mali_service_create(bool factorySupplyQualified)
 {

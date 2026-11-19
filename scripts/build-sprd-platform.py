@@ -6,7 +6,7 @@ ROOT=Path(__file__).resolve().parents[1]
 subprocess.run([sys.executable,ROOT/'scripts/build-arm-driver.py','SprdPlatform'],check=True)
 OUT=ROOT/'build/sprdplatform';SOURCE=ROOT/'drivers/SprdPlatform'
 record=json.loads((ROOT/'build/xnu/ios-obj/DEVELOPMENT_ARM64_BCM2837/iokit/DEVELOPMENT/IOPlatformExpert.cpo.json').read_text().strip().rstrip(','))
-names=['NativeMaliGpu','NativeMaliGpuCore','NativeMaliVm','NativeMaliMmu','NativeMaliFault','NativeMaliJob','NativeMaliJobSlot']
+names=['NativeMaliGpu','NativeMaliGpuCore','NativeMaliVm','NativeMaliMmu','NativeMaliFault','NativeMaliJob','NativeMaliJobSlot','NativeMaliMemory','NativeMaliBoTable','NativeMaliAbiValidate','NativeMaliUserClient','NativeMaliXnuSupport']
 sources=[SOURCE/'SprdMaliTest.cpp',SOURCE/'SprdMaliService.cpp',SOURCE/'SprdWifiRuntime.cpp',SOURCE/'SprdWifiNet.cpp']+[SOURCE/'mali'/(name+'.cpp') for name in names]
 objects=[]
 for source in sources:
