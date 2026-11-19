@@ -50,6 +50,7 @@ def main():
         assert array_bytes(after, "probe_sha") == hashlib.sha256(probe).digest()
         assert report["probe_bytes"] == len(probe) and report["probe_path"] in after
         assert report["probe_sha256"] == hashlib.sha256(probe).hexdigest()
+        assert report["pagezero_bytes"] == module.HARD_PAGEZERO
         assert report["changes_stock_launchd"] is False
         assert 'PE_parse_boot_argn("bbk-mali-userspace", &mali_probe, sizeof(mali_probe)) && mali_probe == 1' in after
         assert after.index("int data_error = native_owner_data_prepare") < after.index(
@@ -61,6 +62,16 @@ def main():
         assert "daemon plist visible=" not in patch and "/System/Library/LaunchDaemons" not in patch
         subprocess.run([*apply, "--reverse", str(patch_file)], cwd=tree, check=True)
         assert source.read_bytes() == before.encode("utf-8")
+    zero_segment = probe.find(b"__PAGEZERO\0")
+    assert zero_segment >= 40
+    bad_zero = bytearray(probe)
+    struct.pack_into("<Q", bad_zero, zero_segment + 16 + 8, 0x4000)
+    try:
+        module.validate_layout(bad_zero)
+    except ValueError as error:
+        assert "4 GiB hard __PAGEZERO" in str(error)
+    else:
+        raise AssertionError("M157's invalid 16 KiB __PAGEZERO was accepted")
     for malformed in (b"", probe[:16], bytes(32), probe[:12] + struct.pack("<I", 1) + probe[16:],
                       bytes(512 * 1024 + 1)):
         try:

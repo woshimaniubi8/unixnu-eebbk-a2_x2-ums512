@@ -12,6 +12,7 @@ from pathlib import Path
 
 PROBE_PATH = "/private/var/ngpu/mali-user/mali-user-probe"
 BOOT_ARG = "bbk-mali-userspace"
+HARD_PAGEZERO = 0x100000000
 TEMPLATE = Path(__file__).with_name("tools") / "mali-user-stage.inc"
 HELPER_CONTEXT = (
     "}\n#endif\n\n"
@@ -47,12 +48,49 @@ def anchored_hunk(before, after, offset):
                             f"+{int(m[3]) + offset}{m[4] or ''} @@", "".join(diff[2:]))
 
 
-def generate(probe):
+def validate_layout(probe):
     if not 32 <= len(probe) <= 512 * 1024:
         raise ValueError("unexpected signed probe size")
-    magic, cpu, _, filetype = struct.unpack_from("<4I", probe)
+    magic, cpu, _, filetype, commands, command_size, _, _ = struct.unpack_from("<8I", probe)
     if (magic, cpu, filetype) != (0xFEEDFACF, 0x0100000C, 2):
         raise ValueError("probe must be a thin ARM64 Mach-O executable")
+    end = 32 + command_size
+    if end > len(probe) or commands > command_size // 8:
+        raise ValueError("invalid Mach-O command table")
+    at = 32
+    pagezero = text = None
+    for _ in range(commands):
+        if at + 8 > end:
+            raise ValueError("truncated Mach-O load command")
+        command, size = struct.unpack_from("<II", probe, at)
+        if size < 8 or size % 8 or at + size > end:
+            raise ValueError("invalid Mach-O load command size")
+        if command == 0x19:  # LC_SEGMENT_64
+            if size < 72:
+                raise ValueError("truncated 64-bit segment")
+            name, va, vm_size, offset, length, max_prot, init_prot = struct.unpack_from(
+                "<16s4Q2I", probe, at + 8)
+            name = name.rstrip(b"\0")
+            if name == b"__PAGEZERO":
+                if pagezero is not None or va or offset or length or max_prot or init_prot:
+                    raise ValueError("invalid __PAGEZERO")
+                pagezero = vm_size
+            if name == b"__TEXT":
+                if text is not None or offset or length < end or length > len(probe) or init_prot != 5:
+                    raise ValueError("invalid __TEXT")
+                text = va
+        at += size
+    if at != end:
+        raise ValueError("Mach-O command extent does not match header")
+    if pagezero is None or pagezero < HARD_PAGEZERO:
+        raise ValueError(f"ARM64 XNU requires a 4 GiB hard __PAGEZERO (got {pagezero or 0:#x})")
+    if text is None or text < pagezero or text % 0x4000:
+        raise ValueError("__TEXT overlaps __PAGEZERO or is not 16 KiB aligned")
+    return pagezero
+
+
+def generate(probe):
+    pagezero = validate_layout(probe)
     split = "\n/* @MALI_PROBE_BOOT_CALL@ */\n"
     helper, invoke = TEMPLATE.read_text(encoding="utf-8").split(split)
     helper = helper.replace("@PROBE_PATH@", PROBE_PATH).replace("@BOOT_ARG@", BOOT_ARG)
@@ -74,6 +112,7 @@ def generate(probe):
         "probe_path": PROBE_PATH, "probe_bytes": len(probe),
         "probe_sha256": hashlib.sha256(probe).hexdigest(),
         "boot_arg": BOOT_ARG + "=1",
+        "pagezero_bytes": pagezero,
         "launch_mode": "boot-posix-spawn-child",
         "changes_stock_launchd": False,
     }
