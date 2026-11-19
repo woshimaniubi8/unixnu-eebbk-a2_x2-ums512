@@ -34,13 +34,13 @@ bool call(io_connect_t c,uint32_t method,const void *in,size_t ins,void *out,siz
 int main() {
     setvbuf(stdout,nullptr,_IONBF,0);
     puts("M154 mali-user: starting actual IOKit client");
-    io_service_t service=IO_OBJECT_NULL;
+    io_service_t service=MACH_PORT_NULL;
     for(unsigned attempt=0;attempt<60 && !service;++attempt) {
         service=IOServiceGetMatchingService(0,IOServiceNameMatching("NativeMaliGpuService"));
         if(!service)sleep(1);
     }
     if(!service){puts("M154 mali-user: service absent");return 1;}
-    io_connect_t connection=IO_OBJECT_NULL;
+    io_connect_t connection=MACH_PORT_NULL;
     const auto opened=IOServiceOpen(service,mach_task_self(),0,&connection);
     IOObjectRelease(service);
     if(opened!=KERN_SUCCESS || !connection) {
