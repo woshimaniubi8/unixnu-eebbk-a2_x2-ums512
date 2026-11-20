@@ -1,11 +1,15 @@
 /* SPDX-License-Identifier: MIT */
 /* Qualification uses original IOSurface Mach rights, not a replacement root. */
 #include <IOSurface/IOSurfaceRef.h>
-#include <servers/bootstrap.h>
 #include <spawn.h>
 #include <sys/wait.h>
 #include <signal.h>
 extern char **environ;
+// iOS's SDK omits launchd's public bootstrap header. These declarations match
+// Apple launchd/liblaunch/bootstrap.h; implementations remain in libSystem.
+extern mach_port_t bootstrap_port;
+extern kern_return_t bootstrap_check_in(mach_port_t,const char *,mach_port_t *);
+extern kern_return_t bootstrap_look_up(mach_port_t,const char *,mach_port_t *);
 #define NM_SURFACE_SERVICE "org.unixnu.bbk.mali-metal.surface"
 enum { NmSurfaceRequest=0x4d188001, NmSurfaceReply=0x4d188002 };
 struct NmSurfaceMessage {
