@@ -17,7 +17,11 @@
 #include <mach/vm_param.h>
 #include <machine/machine_routines.h>
 #include <pexpert/pexpert.h>
-#include <vm/pmap.h>
+#include <arm/pmap_public.h>
+
+// The component SDK exports the public PA type, not arm/pmap/pmap.h.
+// Match XNU 10063.141.1's C definition without importing its private structs.
+extern "C" boolean_t pmap_valid_address(pmap_paddr_t address);
 
 namespace {
 
