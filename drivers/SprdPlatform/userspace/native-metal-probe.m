@@ -12,13 +12,14 @@
 #include <mach/arm/thread_status.h>
 #include <pthread.h>
 #include <time.h>
+#include <errno.h>
 static thread_t probeThread;
 static void *sampleProbe(void *unused)
 {
     (void)unused;
-    for(unsigned sample=0;sample<10;sample++){
+    for(unsigned sample=0;sample<32;sample++){
         struct timespec delay={30,0};
-        while(nanosleep(&delay,&delay)!=0){}
+        while(nanosleep(&delay,&delay)!=0){if(errno!=EINTR)return NULL;}
         thread_basic_info_data_t basic={0};
         mach_msg_type_number_t count=THREAD_BASIC_INFO_COUNT;
         kern_return_t info=thread_info(probeThread,THREAD_BASIC_INFO,(thread_info_t)&basic,&count);
