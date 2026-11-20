@@ -82,7 +82,7 @@ jobs:
             codesign --verify --strict "$executable"
           done
           git -C viva-gpu diff --binary > g52-frontend.patch
-          shasum -a 256 "$bundle"/* viva-gpu/g52-source-receipt.json > SHA256SUMS
+          python3 -c 'import hashlib,pathlib; b=pathlib.Path("viva-gpu/ios/out/VivaMTLDriver.bundle"); paths=[*b.rglob("*"),pathlib.Path("viva-gpu/g52-source-receipt.json")]; print("\n".join(hashlib.sha256(p.read_bytes()).hexdigest()+"  "+str(p) for p in sorted(paths) if p.is_file()))' > SHA256SUMS
           echo 'Build-only frontend: no kernel Viva UAPI, original IOSurface fence contract, or Metal runtime qualification is claimed.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
