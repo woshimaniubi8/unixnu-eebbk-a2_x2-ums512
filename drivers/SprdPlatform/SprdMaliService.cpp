@@ -11,6 +11,7 @@
 #include "SprdMaliSession.h"
 #include "SprdMaliRender.h"
 #include "SprdMaliFullFrame.h"
+#include "SprdMaliCompute.h"
 #include <kern/task.h>
 #include <machine/machine_routines.h>
 #include <pexpert/pexpert.h>
@@ -250,6 +251,18 @@ public:
                 return true;
             }
         }
+        uint32_t compute=0;
+        if(PE_parse_boot_argn("bbk-mali-compute",&compute,sizeof(compute)) && compute==1) {
+            const IOReturn result=exerciseCompute();
+            setProperty("gpu-compute-test",static_cast<uint32_t>(result),32);
+            if(result!=kIOReturnSuccess) {
+                ready_=false;
+                setProperty("service-ready",static_cast<unsigned long long>(0),32);
+                if(!sessions_)stopHardware();
+                IOLog("M163 mali: service not published after compute test\n");
+                return true;
+            }
+        }
         registerService();
         return true;
     }
@@ -266,6 +279,7 @@ public:
     IOReturn newUserClient(task_t,void *,UInt32,OSDictionary *,IOUserClient **) override;
     IOReturn exerciseSession();
     IOReturn exerciseFullFrame();
+    IOReturn exerciseCompute();
 
     void free() override {
         if(sessionLock_ && !sessions_) { IOLockFree(sessionLock_); sessionLock_=nullptr; }
@@ -757,4 +771,99 @@ extern "C" IOService *sprd_mali_service_create(bool factorySupplyQualified)
     if(!service->init()){service->release();return nullptr;}
     service->setFactorySupplyQualified(factorySupplyQualified);
     return service;
+}
+
+IOReturn NativeSprdMaliService::exerciseCompute()
+{
+    namespace Compute=SprdMaliCompute;
+    IOUserClient *client=nullptr;
+    IOMemoryDescriptor *memory=nullptr;
+    IOMemoryMap *mapping=nullptr;
+    const char *stage="open";
+    unsigned verified=0;
+    NativeMaliAbiStatus status{};
+    IOReturn result=newUserClient(kernel_task,nullptr,0,nullptr,&client);
+    if(result==kIOReturnSuccess)result=[&]() -> IOReturn {
+        stage="allocate";
+        const NativeMaliAbiBoAlloc alloc{Compute::BufferBytes};
+        NativeMaliAbiBoAllocReply allocated{};
+        IOReturn ret=sessionCall(client,NativeMaliMethodBoAlloc,&alloc,sizeof(alloc),
+            &allocated,sizeof(allocated));
+        if(ret!=kIOReturnSuccess)return ret;
+
+        stage="gpu-map";
+        const NativeMaliAbiBoMap map{allocated.handle,Compute::Gpu,
+            NativeMaliBoRead|NativeMaliBoWrite,0};
+        NativeMaliAbiBoMapReply mapped{};
+        ret=sessionCall(client,NativeMaliMethodBoMap,&map,sizeof(map),&mapped,sizeof(mapped));
+        if(ret!=kIOReturnSuccess)return ret;
+        if(mapped.iova!=Compute::Gpu)return kIOReturnIOError;
+
+        stage="cpu-map";
+        const NativeMaliAbiBoCpuMap cpuMap{allocated.handle};
+        NativeMaliAbiBoCpuMapReply cpuMapped{};
+        ret=sessionCall(client,NativeMaliMethodBoCpuMap,&cpuMap,sizeof(cpuMap),
+            &cpuMapped,sizeof(cpuMapped));
+        if(ret!=kIOReturnSuccess)return ret;
+        if(cpuMapped.bytes!=Compute::BufferBytes)return kIOReturnIOError;
+        IOOptionBits options=0;
+        ret=client->clientMemoryForType(cpuMapped.token,&options,&memory);
+        if(ret!=kIOReturnSuccess)return ret;
+        if(!memory)return kIOReturnIOError;
+        mapping=memory->map(options);
+        if(!mapping || !mapping->getVirtualAddress() ||
+            mapping->getLength()<Compute::BufferBytes)return kIOReturnNoMemory;
+        auto *cpu=reinterpret_cast<uint8_t *>(mapping->getVirtualAddress());
+
+        for(unsigned pass=0;pass<Compute::Passes;++pass) {
+            stage="prepare";
+            if(!Compute::prepare(cpu,Compute::BufferBytes,pass))return kIOReturnBadArgument;
+            stage="submit";
+            const NativeMaliAbiSubmit submit{Compute::Gpu,0,0,0,0};
+            NativeMaliAbiSubmitReply submitted{};
+            const uint64_t start=mach_absolute_time();
+            ret=sessionCall(client,NativeMaliMethodSubmit,&submit,sizeof(submit),
+                &submitted,sizeof(submitted));
+            if(ret!=kIOReturnSuccess)return ret;
+            const unsigned slot=static_cast<unsigned>(submitted.fence>>32);
+            IOLog("M163 mali: compute issued pass=%u slot=%u fence=0x%llx\n",
+                pass,slot,submitted.fence);
+            stage="wait";
+            const NativeMaliAbiWaitFence wait{submitted.fence,100000000ULL};
+            ret=sessionCall(client,NativeMaliMethodWaitFence,&wait,sizeof(wait),nullptr,0);
+            const uint64_t elapsedUs=gpuElapsedUs(start);
+            if(ret!=kIOReturnSuccess)return ret;
+            if(slot!=2) {
+                stage="slot";
+                return kIOReturnIOError;
+            }
+            stage="verify";
+            Compute::Check check{};
+            const bool match=Compute::verify(cpu,Compute::BufferBytes,pass,check);
+            uint32_t jobStatus=0;
+            memcpy(&jobStatus,cpu,sizeof(jobStatus));
+            IOLog("M163 mali: compute pass=%u checked=%u submit_wait_us=%llu status=0x%x mismatches=%u input_changed=%u guards=%u first_bad=%u\n",
+                pass,static_cast<unsigned>(Compute::Words),elapsedUs,jobStatus,
+                check.mismatches,check.inputChanged,check.guards,check.firstBad);
+            if(!match)return kIOReturnIOError;
+            ++verified;
+        }
+        stage="status";
+        return sessionCall(client,NativeMaliMethodGetStatus,nullptr,0,&status,sizeof(status));
+    }();
+    if(client && result!=kIOReturnSuccess)
+        (void)sessionCall(client,NativeMaliMethodGetStatus,nullptr,0,&status,sizeof(status));
+    if(mapping)mapping->release();
+    if(memory)memory->release();
+    const IOReturn cleanup=client?client->clientClose():kIOReturnSuccess;
+    if(client)client->release();
+    if(result==kIOReturnSuccess) {
+        stage="cleanup";
+        if(cleanup!=kIOReturnSuccess)result=cleanup;
+        else if(sessions_ || status.faults || status.resets)result=kIOReturnIOError;
+        else stage="complete";
+    }
+    IOLog("M163 mali: compute result=0x%x stage=%s verified=%u faults=%llu resets=%llu cleanup=0x%x sessions=%u\n",
+        result,stage,verified,status.faults,status.resets,cleanup,sessions_);
+    return result;
 }
