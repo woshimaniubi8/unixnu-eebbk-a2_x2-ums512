@@ -1,13 +1,15 @@
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -1189,3 +1189,12 @@
+@@ -1189,3 +1189,14 @@
 +static bool
 +native_owner_metal_image(const struct image_params *imgp)
 +{
 +	/* exec_save_path has already copied this string into the kernel buffer. */
 +	return imgp && imgp->ip_strings &&
++	       (strcmp(imgp->ip_strings + strlen(EXECUTABLE_KEY),
++	       "/private/var/ngpu/bin/mali-user-probe") == 0 ||
 +	       strcmp(imgp->ip_strings + strlen(EXECUTABLE_KEY),
-+	       "/private/var/ngpu/bin/mali-user-probe") == 0;
++	       "/System/Library/Extensions/mali-user-probe") == 0);
 +}
 +
  static int
