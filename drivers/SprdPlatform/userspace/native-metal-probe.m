@@ -10,7 +10,29 @@
 #include <objc/runtime.h>
 @interface NSObject (NativeMaliDevice)
 - (instancetype)initWithDriver:(const char *)driver;
+- (NSData *)bitcodeData;
 @end
+static int traceGpuQueue(Class cls)
+{
+    SEL selector=sel_registerName("gpuSync:");
+    Method method=class_getInstanceMethod(cls,selector);
+    if(!method || method_getNumberOfArguments(method)!=3)return 0;
+    char result[8]={0};method_getReturnType(method,result,sizeof(result));
+    if(strcmp(result,"v"))return 0;
+    void (*original)(id,SEL,dispatch_block_t)=(void (*)(id,SEL,dispatch_block_t))method_getImplementation(method);
+    IMP traced=imp_implementationWithBlock(^(id object,dispatch_block_t operation){
+        printf("nm metal: gpuSync enter\n");
+        original(object,selector,^{
+            printf("nm metal: gpuSync block enter\n");
+            operation();
+            printf("nm metal: gpuSync block returned\n");
+        });
+        printf("nm metal: gpuSync returned\n");
+    });
+    if(!traced)return 0;
+    method_setImplementation(method,traced);
+    return 1;
+}
 static int completed(id<MTLCommandBuffer> cb)
 {
     [cb commit];[cb waitUntilCompleted];
@@ -27,6 +49,7 @@ int main(int argc,char **argv) {
     printf("nm metal: Foundation ready\n");
     if(argc!=3){fprintf(stderr,"usage: native-metal-probe BUNDLE SHADERS.metallib\n");return 64;}
     char executable[1024];
+    if(setenv("TSMTL_LOG","1",1)!=0)return 64;
     int pathBytes=snprintf(executable,sizeof(executable),"%s/VivaMTLDriver",argv[1]);
     if(pathBytes<0 || (size_t)pathBytes>=sizeof(executable))return 64;
     printf("nm metal: dlopen begin path=%s\n",executable);
@@ -43,6 +66,7 @@ int main(int argc,char **argv) {
     if(!imageName || strcmp(imageName+1,"VivaMTLDriver")){
         fprintf(stderr,"nm metal: VMDevice did not come from the loaded driver\n");return 3;
     }
+    if(!traceGpuQueue(cls)){fprintf(stderr,"nm metal: gpuSync diagnostic ABI mismatch\n");return 3;}
     printf("nm metal: Panfrost device init begin\n");
     id<MTLDevice> device=cls?[[cls alloc] initWithDriver:"panfrost"]:nil;
     if(!device){fprintf(stderr,"nm metal: real Panfrost device init failed\n");return 3;}
@@ -52,6 +76,13 @@ int main(int argc,char **argv) {
     if(!lib){fprintf(stderr,"nm metal: metallib %s\n",error.description.UTF8String);return 4;}
     id<MTLCommandQueue> queue=[device newCommandQueue];
     id<MTLFunction> kernel=[lib newFunctionWithName:@"nm_double"];
+    if(!kernel || ![(id)kernel respondsToSelector:@selector(bitcodeData)]){
+        fprintf(stderr,"nm metal: real function AIR accessor unavailable\n");return 5;
+    }
+    printf("nm metal: AIR accessor begin\n");
+    NSData *bitcode=[(id)kernel bitcodeData];
+    printf("nm metal: AIR accessor returned bytes=%lu\n",(unsigned long)bitcode.length);
+    if(!bitcode.length)return 5;
     printf("nm metal: compute pipeline begin\n");
     id<MTLComputePipelineState> compute=[device newComputePipelineStateWithFunction:kernel error:&error];
     if(!queue || !compute){fprintf(stderr,"nm metal: compute pipeline %s\n",error.description.UTF8String);return 5;}
