@@ -13,7 +13,6 @@
 #include "SprdMaliFullFrame.h"
 #include "SprdMaliCompute.h"
 #include "SprdMaliPresent.h"
-#include <arm/caches_internal.h>
 #include <kern/task.h>
 #include <mach/vm_param.h>
 #include <machine/machine_routines.h>
@@ -729,7 +728,9 @@ IOReturn NativeSprdMaliService::presentFrame(IOMemoryDescriptor *source,IOMemory
             input=source->map(kIOMapAnywhere|kIOMapReadOnly|kIOMapCopybackCache);
             if(!input || !input->getVirtualAddress() || input->getLength()<Frame::SourceBytes)
                 return kIOReturnNoMemory;
-            clean_dcache64(input->getVirtualAddress(),static_cast<unsigned>(Frame::SourceBytes),false);
+            rc=p->cache.maintain(reinterpret_cast<void *>(input->getVirtualAddress()),
+                Frame::SourceBytes,NativeMaliCacheClean);
+            if(rc!=kIOReturnSuccess)return rc;
             stage="map";
             rc=p->vm.mapSpans(Frame::SourceIova,Frame::SourceBytes,p->spans,segments,
                 NativeMaliVmRead|NativeMaliVmCached|NativeMaliVmNoExec);
