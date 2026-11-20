@@ -144,6 +144,7 @@ IOReturn NativeMaliBoTable::map(const NativeMaliAbiBoMap &request,
 
     uint32_t prot = NativeMaliVmRead | NativeMaliVmCached;
     if(request.permissions & NativeMaliBoWrite)prot |= NativeMaliVmWrite;
+    if(request.permissions & NativeMaliBoNoExec)prot |= NativeMaliVmNoExec;
 
     result = slot->memory.map(vm_, mmu_, as_, request.iova, prot);
     if(result != kIOReturnSuccess)return result;

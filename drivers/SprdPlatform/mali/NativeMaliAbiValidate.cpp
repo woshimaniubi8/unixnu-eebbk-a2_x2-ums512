@@ -53,11 +53,11 @@ IOReturn NativeMaliAbiValidate::boMap(const NativeMaliAbiBoMap &map,
 {
     if(map.handle == 0 || map.reserved != 0)return kIOReturnBadArgument;
     if(map.iova == 0 || (map.iova % kPage) != 0)return kIOReturnBadArgument;
-    /* Read is always part of the mapping (panfrost maps IOMMU_READ |
-     * IOMMU_WRITE | IOMMU_CACHE); write is the only optional bit. */
+    /* Read is required. Write and execute-never are independent permissions;
+     * data-only Mesa BOs must not become GPU-executable mappings. */
     if((map.permissions & NativeMaliBoRead) == 0)return kIOReturnBadArgument;
     if((map.permissions & ~static_cast<uint32_t>(NativeMaliBoRead |
-        NativeMaliBoWrite)) != 0)return kIOReturnUnsupported;
+        NativeMaliBoWrite | NativeMaliBoNoExec)) != 0)return kIOReturnUnsupported;
     if(boBytes == 0 || (boBytes % kPage) != 0)return kIOReturnBadArgument;
     if(map.iova >= kVaSize || boBytes > kVaSize - map.iova)
         return kIOReturnBadArgument;

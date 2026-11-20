@@ -145,6 +145,59 @@ IOReturn NativeMaliUserClient::deviceInfo(NativeMaliAbiDeviceInfo *reply)
     return kIOReturnSuccess;
 }
 
+IOReturn NativeMaliUserClient::getParam(const NativeMaliAbiParam &request,
+    NativeMaliAbiParam *reply)
+{
+    if(!reply || request.reserved || request.value)return kIOReturnBadArgument;
+    if(!open_)return kIOReturnNotReady;
+    uint64_t value=0;
+    switch(request.parameter) {
+    case 0: value=observation_.gpuId>>16; break;
+    case 1: value=observation_.gpuId&0xffff; break;
+    case 2: value=observation_.shaderPresent; break;
+    case 3: value=observation_.tilerPresent; break;
+    case 4: value=observation_.l2Present; break;
+    case 5: value=observation_.stackPresent; break;
+    case 6: value=observation_.asPresent; break;
+    case 7: value=observation_.jsPresent; break;
+    case 8: value=observation_.l2Features; break;
+    case 9: value=observation_.coreFeatures; break;
+    case 10: value=observation_.tilerFeatures; break;
+    case 11: value=observation_.memFeatures; break;
+    case 12: value=observation_.mmuFeatures; break;
+    case 13: value=observation_.threadFeatures; break;
+    case 14: value=observation_.maxThreads; break;
+    case 15: value=observation_.maxWorkgroupSize; break;
+    case 16: value=observation_.maxBarrierSize; break;
+    case 38: value=observation_.coreGroups; break;
+    case 39: value=observation_.threadTlsAlloc; break;
+    case 40: value=observation_.afbcFeatures; break;
+    default:
+        if(request.parameter>=18 && request.parameter<=21)
+            value=observation_.textureFeatures[request.parameter-18];
+        else if(request.parameter>=22 && request.parameter<=37)
+            value=observation_.jsFeatures[request.parameter-22];
+        else return kIOReturnUnsupported;
+    }
+    *reply={request.parameter,0,value};
+    return kIOReturnSuccess;
+}
+
+IOReturn NativeMaliUserClient::cacheSync(const NativeMaliAbiBoCacheSync &request)
+{
+    if(!open_)return kIOReturnNotReady;
+    if(request.reserved || request.type>1 || !request.bytes)
+        return kIOReturnBadArgument;
+    if(hasOutstanding())return kIOReturnBusy;
+    auto *memory=bo_.memory(request.handle);
+    if(!memory || request.offset>=memory->bytes() ||
+        request.bytes>memory->bytes()-request.offset)return kIOReturnBadArgument;
+    IOReturn result=memory->cleanForDevice(request.offset,request.bytes);
+    if(result==kIOReturnSuccess && request.type==1)
+        result=memory->invalidateForCpu(request.offset,request.bytes);
+    return result;
+}
+
 bool NativeMaliUserClient::hasOutstanding() const
 {
     if(pendingSync_.valid())return true;
@@ -315,6 +368,8 @@ size_t NativeMaliUserClient::inputSize(uint32_t method)
     case NativeMaliMethodWaitFence: return sizeof(NativeMaliAbiWaitFence);
     case NativeMaliMethodGetStatus: return 0;
     case NativeMaliMethodReset: return 0;
+    case NativeMaliMethodGetParam: return sizeof(NativeMaliAbiParam);
+    case NativeMaliMethodBoCacheSync: return sizeof(NativeMaliAbiBoCacheSync);
     default: return kUnsupportedSize;
     }
 }
@@ -333,6 +388,8 @@ size_t NativeMaliUserClient::outputSize(uint32_t method)
     case NativeMaliMethodWaitFence: return 0;
     case NativeMaliMethodGetStatus: return sizeof(NativeMaliAbiStatus);
     case NativeMaliMethodReset: return 0;
+    case NativeMaliMethodGetParam: return sizeof(NativeMaliAbiParam);
+    case NativeMaliMethodBoCacheSync: return 0;
     default: return kUnsupportedSize;
     }
 }
@@ -435,6 +492,19 @@ IOReturn NativeMaliUserClient::dispatch(uint32_t method, const void *input,
         if(result != kIOReturnSuccess)return result;
         memcpy(output, &reply, sizeof(reply));
         return kIOReturnSuccess;
+    }
+    case NativeMaliMethodGetParam: {
+        NativeMaliAbiParam request{},reply{};
+        memcpy(&request,input,sizeof(request));
+        const IOReturn result=getParam(request,&reply);
+        if(result!=kIOReturnSuccess)return result;
+        memcpy(output,&reply,sizeof(reply));
+        return kIOReturnSuccess;
+    }
+    case NativeMaliMethodBoCacheSync: {
+        NativeMaliAbiBoCacheSync request{};
+        memcpy(&request,input,sizeof(request));
+        return cacheSync(request);
     }
     case NativeMaliMethodReset:
         /* The target is the device-wide owner; this client cannot reset the

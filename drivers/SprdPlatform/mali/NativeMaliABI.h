@@ -103,7 +103,9 @@ enum {
     NativeMaliMethodGetStatus = 10,
     /* Device-wide recovery. No records exist for it. */
     NativeMaliMethodReset = 11,
-    NativeMaliMethodLast = NativeMaliMethodReset,
+    NativeMaliMethodGetParam = 12,
+    NativeMaliMethodBoCacheSync = 13,
+    NativeMaliMethodLast = NativeMaliMethodBoCacheSync,
 
     /* The single page size the MMU layer maps. */
     NativeMaliAbiPageBytes = 4096,
@@ -187,7 +189,8 @@ struct NativeMaliAbiBoAllocReply {
  * address space owns, is refused. */
 enum {
     NativeMaliBoRead = 1u << 0,   /* required: panfrost maps IOMMU_READ always */
-    NativeMaliBoWrite = 1u << 1
+    NativeMaliBoWrite = 1u << 1,
+    NativeMaliBoNoExec = 1u << 2
 };
 struct NativeMaliAbiBoMap {
     uint64_t handle;
@@ -254,6 +257,24 @@ struct NativeMaliAbiStatus {
     uint64_t resets;
 };
 
+/* Optional v2 methods: Panfrost register property numbers (not MMIO offsets).
+ * Unsupported properties return Unsupported; no synthetic register values. */
+struct NativeMaliAbiParam {
+    uint32_t parameter;
+    uint32_t reserved;
+    uint64_t value;
+};
+
+/* Synchronize one owned BO range. type 0 cleans; type 1 cleans then
+ * invalidates. Refused until this client's jobs are completed and reaped. */
+struct NativeMaliAbiBoCacheSync {
+    uint64_t handle;
+    uint64_t offset;
+    uint64_t bytes;
+    uint32_t type;
+    uint32_t reserved;
+};
+
 #if defined(__cplusplus)
 static_assert(sizeof(NativeMaliAbiQuery) == 24, "Mali ABI query layout");
 static_assert(sizeof(NativeMaliAbiDeviceInfo) == NativeMaliAbiDeviceInfoBytes,
@@ -272,5 +293,7 @@ static_assert(sizeof(NativeMaliAbiSubmit) == 32, "Mali ABI submit layout");
 static_assert(sizeof(NativeMaliAbiSubmitReply) == 8, "Mali ABI submit reply layout");
 static_assert(sizeof(NativeMaliAbiWaitFence) == 16, "Mali ABI wait layout");
 static_assert(sizeof(NativeMaliAbiStatus) == 16, "Mali ABI status layout");
+static_assert(sizeof(NativeMaliAbiParam) == 16, "Mali ABI parameter layout");
+static_assert(sizeof(NativeMaliAbiBoCacheSync) == 32, "Mali ABI cache range layout");
 #endif
 #endif

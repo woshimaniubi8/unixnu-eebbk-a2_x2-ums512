@@ -118,6 +118,8 @@ public:
         const NativeMaliGpuObservation &observation, uint64_t maxBoBytes,
         NativeMaliResetTarget *reset = nullptr);
     bool open() const { return open_; }
+    IOReturn getParam(const NativeMaliAbiParam &request, NativeMaliAbiParam *reply);
+    IOReturn cacheSync(const NativeMaliAbiBoCacheSync &request);
 
     /* Objects: the NativeMaliBoTable entry points, so the service dispatches
      * every method on this one object. Each validates and zeroes its reply
