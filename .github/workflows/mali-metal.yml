@@ -2,13 +2,24 @@ name: G52 Metal frontend build
 
 on:
   workflow_dispatch:
+    inputs:
+      signature_only:
+        description: Re-sign the pinned owned probe with 4 KiB hash pages
+        type: boolean
+        default: false
   workflow_call:
+    inputs:
+      signature_only:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   frontend:
+    if: ${{ !inputs.signature_only }}
     runs-on: macos-26
     timeout-minutes: 150
     env:
@@ -128,5 +139,27 @@ jobs:
             dependencies.txt
             g52-frontend.patch
             SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+  signature:
+    if: ${{ inputs.signature_only }}
+    runs-on: macos-26-intel
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: device
+      - uses: actions/download-artifact@v4
+        with:
+          name: g52-metal-frontend
+          run-id: 44743450966
+          github-token: ${{ github.token }}
+          path: frontend
+      - name: Verify original bytes and re-sign only the owned probe
+        run: python3 device/scripts/resign-mali-metal-probe.py frontend
+      - uses: actions/upload-artifact@v4
+        with:
+          name: g52-metal-frontend
+          path: frontend/
           if-no-files-found: error
           retention-days: 7
