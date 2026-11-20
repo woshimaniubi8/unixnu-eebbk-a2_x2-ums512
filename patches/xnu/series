@@ -168,3 +168,6 @@ bbk-a2-mali-user-probe-trace.patch
 
 # Keep persistent cache env separate from temporary Data/addon mount arguments.
 bbk-a2-owner-data-scratch.patch
+
+# Trace only the owned Metal executable; keep every exec/auth result unchanged.
+bbk-a2-owner-metal-exec-trace.patch

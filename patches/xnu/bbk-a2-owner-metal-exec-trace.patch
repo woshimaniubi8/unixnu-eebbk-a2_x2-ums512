@@ -1,0 +1,134 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -1186,6 +1186,15 @@
+  *		activators should not be given the opportunity to attempt
+  *		to activate the image.
+  */
++static bool
++native_owner_metal_image(const struct image_params *imgp)
++{
++	/* exec_save_path has already copied this string into the kernel buffer. */
++	return imgp && imgp->ip_strings &&
++	       strcmp(imgp->ip_strings + strlen(EXECUTABLE_KEY),
++	       "/private/var/ngpu/bin/mali-user-probe") == 0;
++}
++
+ static int
+ exec_mach_imgact(struct image_params *imgp)
+ {
+@@ -2215,6 +2224,7 @@
+ 	int once = 1;   /* save SGUID-ness for interpreted files */
+ 	int i;
+ 	int itercount = 0;
++	bool owner_metal_image = false;
+ 	proc_t p = vfs_context_proc(imgp->ip_vfs_context);
+ 
+ 	/*
+@@ -2235,6 +2245,9 @@
+ 		goto bad_notrans;
+ 	}
+ 
++	owner_metal_image = native_owner_metal_image(imgp);
++	if (owner_metal_image) printf("M181 metal-exec: activate enter pid=%d\n", proc_getpid(p));
++
+ 	/* Use excpath, which contains the copyin-ed exec path */
+ 	DTRACE_PROC1(exec, uintptr_t, excpath);
+ 
+@@ -2245,6 +2258,7 @@
+ 
+ again:
+ 	error = namei(ndp);
++	if (owner_metal_image) printf("M181 metal-exec: namei error=%d\n", error);
+ 	if (error) {
+ 		if (error == ERESTART) {
+ 			error = EINTR;
+@@ -2274,6 +2288,7 @@
+ 	}
+ 
+ 	error = exec_check_permissions(imgp);
++	if (owner_metal_image) printf("M181 metal-exec: permissions error=%d\n", error);
+ 	if (error) {
+ 		goto bad;
+ 	}
+@@ -2288,6 +2303,7 @@
+ 	    UIO_SYSSPACE, IO_NODELOCKED,
+ 	    vfs_context_ucred(imgp->ip_vfs_context),
+ 	    &resid, vfs_context_proc(imgp->ip_vfs_context));
++	if (owner_metal_image) printf("M181 metal-exec: header error=%d resid=%d\n", error, resid);
+ 	if (error) {
+ 		goto bad;
+ 	}
+@@ -2305,6 +2321,7 @@
+ 	error = -1;
+ 	for (i = 0; error == -1 && execsw[i].ex_imgact != NULL; i++) {
+ 		error = (*execsw[i].ex_imgact)(imgp);
++		if (owner_metal_image) printf("M181 metal-exec: imgact=%s error=%d\n", execsw[i].ex_name, error);
+ 
+ 		switch (error) {
+ 		/* case -1: not claimed: continue */
+@@ -3587,6 +3604,19 @@
+ 		struct vnode_attr origva;
+ 	} *__spawn_data;
+ 
++	bool owner_metal_spawn = false;
++	const int owner_metal_caller = proc_getpid(ap);
++	const char *owner_metal_phase = "pre-activate";
++	if (strcmp(proc_best_name(ap), "xpcproxy") == 0 && uap->path != USER_ADDR_NULL) {
++		char saved_path[128] = {0};
++		size_t copied = 0;
++		int copied_error = copyinstr(uap->path, saved_path, sizeof(saved_path), &copied);
++		owner_metal_spawn = !copied_error && copied > 0 &&
++		    strcmp(saved_path, "/private/var/ngpu/bin/mali-user-probe") == 0;
++		if (owner_metal_spawn) printf("M181 metal-exec: spawn enter caller=%d uid=%u\n",
++		    owner_metal_caller, (unsigned)kauth_cred_getuid(kauth_cred_get()));
++	}
++
+ 	/*
+ 	 * Allocate a big chunk for locals instead of using stack since these
+ 	 * structures are pretty big.
+@@ -4247,7 +4277,10 @@
+ 	 * Warning: If activation failed after point of no return, it returns error
+ 	 * as 0 and pretends the call succeeded.
+ 	 */
++	if (owner_metal_spawn) printf("M181 metal-exec: activate call flags=0x%x\n", (unsigned)px_sa.psa_flags);
+ 	error = exec_activate_image(imgp);
++	if (owner_metal_spawn) printf("M181 metal-exec: activate result=%d\n", error);
++	owner_metal_phase = "post-activate";
+ #if defined(HAS_APPLE_PAC)
+ 	const uint8_t disable_user_jop = imgp->ip_flags & IMGPF_NOJOP ? TRUE : FALSE;
+ 	ml_task_set_jop_pid_from_shared_region(new_task, disable_user_jop);
+@@ -4903,6 +4936,8 @@
+ #endif
+ 
+ 	assert(spawn_no_exec || exec_failure_reason == NULL);
++	if (owner_metal_spawn) printf("M181 metal-exec: spawn return caller=%d phase=%s error=%d\n",
++	    owner_metal_caller, owner_metal_phase, error);
+ 	return error;
+ }
+ 
+@@ -6503,6 +6538,11 @@
+ 		return error;
+ 	}
+ 
++	if (native_owner_metal_image(imgp))
++		printf("M181 metal-exec: file uid=%u gid=%u mode=%o bytes=%llu fs=%s\n",
++		    (unsigned)vap->va_uid, (unsigned)vap->va_gid, (unsigned)vap->va_mode,
++		    (unsigned long long)vap->va_data_size, vfs_statfs(vnode_mount(vp))->f_fstypename);
++
+ 	/*
+ 	 * Ensure that at least one execute bit is on - otherwise root
+ 	 * will always succeed, and we don't want to happen unless the
+@@ -6542,6 +6582,7 @@
+ 
+ #if CONFIG_MACF
+ 	error = mac_vnode_check_exec(imgp->ip_vfs_context, vp, imgp);
++	if (native_owner_metal_image(imgp)) printf("M181 metal-exec: mac_exec error=%d\n", error);
+ 	if (error) {
+ 		return error;
+ 	}
+@@ -26912,2 +26912,5 @@
+ 	int data_error = native_owner_data_prepare(p, (user_addr_t)data_scratch_addr);
++	printf("M181 addon: files=%d written=%d same=%d failed=%d error=%d\n",
++	    native_gpu_addon_files, native_gpu_addon_written, native_gpu_addon_same,
++	    native_gpu_addon_failed, native_gpu_addon_error);
+ 	int cache_env_error = init_envp ? copyin(init_envp, &cache_env_after, sizeof(cache_env_after)) : 0;
