@@ -737,7 +737,10 @@ IOReturn NativeSprdMaliService::presentFrame(IOMemoryDescriptor *source,IOMemory
                 offset+=length;
             }
             stage="input-cache";
-            input=source->map(kIOMapAnywhere|kIOMapReadOnly|kIOMapCopybackCache);
+            // DC CVAC performs a write-permission translation even though it
+            // does not alter the frame. Keep the kernel VA writable for cache
+            // cleaning; the GPU source PTEs below remain strictly read-only.
+            input=source->map(kIOMapAnywhere|kIOMapCopybackCache);
             if(!input || !input->getVirtualAddress() || input->getLength()<Frame::SourceBytes)
                 return kIOReturnNoMemory;
             rc=p->cache.maintain(reinterpret_cast<void *>(input->getVirtualAddress()),
