@@ -23,6 +23,7 @@ on:
           - mali metal
           - mali metal signature
           - mali metal deploy
+          - mali metal trace
         default: kernel payload
       runner:
         description: Official GitHub macOS runner pool; all kernels/components explicitly target ARM64 regardless of host CPU
@@ -72,7 +73,7 @@ defaults:
 
 jobs:
   kernel:
-    if: inputs.steps != 'mali probe' && inputs.steps != 'mali metal' && inputs.steps != 'mali metal signature' && inputs.steps != 'mali metal deploy'
+    if: inputs.steps != 'mali probe' && inputs.steps != 'mali metal' && inputs.steps != 'mali metal signature' && inputs.steps != 'mali metal deploy' && inputs.steps != 'mali metal trace'
     name: XNU kernel + payload
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 360
@@ -617,3 +618,29 @@ jobs:
         with:
           name: mali-user-probe
           path: out/
+
+  mali_metal_trace:
+    if: inputs.steps == 'mali metal trace'
+    runs-on: macos-26-intel
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: device
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.6'
+      - uses: actions/download-artifact@v4
+        with:
+          name: g52-metal-frontend
+          run-id: 44777745341
+          github-token: ${{ github.token }}
+          path: frontend
+      - name: Build only the owned Metal stage probe
+        run: python3 device/scripts/build-mali-metal-probe-trace.py frontend
+      - uses: actions/upload-artifact@v4
+        with:
+          name: g52-metal-frontend
+          path: frontend/
+          if-no-files-found: error
+          retention-days: 7

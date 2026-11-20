@@ -6,6 +6,7 @@
 #include <dlfcn.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 @interface NSObject (NativeMaliDevice)
 - (instancetype)initWithDriver:(const char *)driver;
 @end
@@ -17,23 +18,32 @@ static int completed(id<MTLCommandBuffer> cb)
         return 0;
     }return 1;
 }
-int main(int argc,char **argv) { @autoreleasepool {
+int main(int argc,char **argv) {
+    static const char started[]="nm metal: main enter\n";
+    (void)write(2,started,sizeof(started)-1);
+    @autoreleasepool {
     setvbuf(stdout,NULL,_IONBF,0);setvbuf(stderr,NULL,_IONBF,0);
+    printf("nm metal: Foundation ready\n");
     if(argc!=3){fprintf(stderr,"usage: native-metal-probe BUNDLE SHADERS.metallib\n");return 64;}
     NSBundle *bundle=[NSBundle bundleWithPath:@(argv[1])];NSError *error=nil;
+    printf("nm metal: bundle load begin\n");
     if(![bundle loadAndReturnError:&error]){fprintf(stderr,"nm metal: bundle %s\n",error.description.UTF8String);return 1;}
+    printf("nm metal: bundle loaded\n");
     void *image=dlopen(bundle.executablePath.fileSystemRepresentation,RTLD_NOW|RTLD_LOCAL);
     const char *(*backend)(void)=image?dlsym(image,"vgpu_backend_name"):NULL;
     void (*counters)(uint64_t *,uint64_t *)=image?dlsym(image,"vgpu_counters"):NULL;
     if(!backend || !counters || strcmp(backend(),"native-mali")){fprintf(stderr,"nm metal: physical backend missing\n");return 2;}
     Class cls=[bundle classNamed:@"VMDevice"];
+    printf("nm metal: Panfrost device init begin\n");
     id<MTLDevice> device=cls?[[cls alloc] initWithDriver:"panfrost"]:nil;
     if(!device){fprintf(stderr,"nm metal: real Panfrost device init failed\n");return 3;}
     printf("nm metal: device=%s backend=%s\n",device.name.UTF8String,backend());
+    printf("nm metal: metallib load begin\n");
     id<MTLLibrary> lib=[device newLibraryWithURL:[NSURL fileURLWithPath:@(argv[2])] error:&error];
     if(!lib){fprintf(stderr,"nm metal: metallib %s\n",error.description.UTF8String);return 4;}
     id<MTLCommandQueue> queue=[device newCommandQueue];
     id<MTLFunction> kernel=[lib newFunctionWithName:@"nm_double"];
+    printf("nm metal: compute pipeline begin\n");
     id<MTLComputePipelineState> compute=[device newComputePipelineStateWithFunction:kernel error:&error];
     if(!queue || !compute){fprintf(stderr,"nm metal: compute pipeline %s\n",error.description.UTF8String);return 5;}
     uint64_t before[64]={0},after[64]={0},jobs0=0,jobs1=0;counters(before,&jobs0);
@@ -44,7 +54,9 @@ int main(int argc,char **argv) { @autoreleasepool {
     if(!cb || !enc)return 7;
     [enc setComputePipelineState:compute];[enc setBuffer:buffer offset:0 atIndex:0];
     [enc dispatchThreadgroups:MTLSizeMake(2,1,1) threadsPerThreadgroup:MTLSizeMake(32,1,1)];[enc endEncoding];
+    printf("nm metal: compute submit begin\n");
     if(!completed(cb))return 8;
+    printf("nm metal: compute completed\n");
     for(unsigned i=0;i<64;i++)if(data[i]!=(float)(2*i+1)){
         fprintf(stderr,"nm metal: compute mismatch index=%u value=%g\n",i,data[i]);return 9;
     }
@@ -55,6 +67,7 @@ int main(int argc,char **argv) { @autoreleasepool {
     pd.vertexFunction=[lib newFunctionWithName:@"nm_triangle"];
     pd.fragmentFunction=[lib newFunctionWithName:@"nm_red"];
     pd.colorAttachments[0].pixelFormat=MTLPixelFormatRGBA8Unorm;
+    printf("nm metal: render pipeline begin\n");
     id<MTLRenderPipelineState> pipeline=[device newRenderPipelineStateWithDescriptor:pd error:&error];
     if(!texture || !pipeline){fprintf(stderr,"nm metal: render pipeline %s\n",error.description.UTF8String);return 10;}
     MTLRenderPassDescriptor *rp=[MTLRenderPassDescriptor renderPassDescriptor];
@@ -63,7 +76,8 @@ int main(int argc,char **argv) { @autoreleasepool {
     cb=[queue commandBuffer];id<MTLRenderCommandEncoder> render=[cb renderCommandEncoderWithDescriptor:rp];
     if(!cb || !render)return 11;
     [render setRenderPipelineState:pipeline];[render drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3];
-    [render endEncoding];if(!completed(cb))return 12;
+    [render endEncoding];printf("nm metal: render submit begin\n");if(!completed(cb))return 12;
+    printf("nm metal: render completed\n");
     uint8_t pixels[64*64*4];memset(pixels,0x6b,sizeof(pixels));
     [texture getBytes:pixels bytesPerRow:256 fromRegion:MTLRegionMake2D(0,0,64,64) mipmapLevel:0];
     unsigned red=0,blue=0;
