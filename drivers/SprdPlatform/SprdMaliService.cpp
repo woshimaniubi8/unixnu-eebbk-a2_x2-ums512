@@ -22,6 +22,7 @@
 // The component SDK exports the public PA type, not arm/pmap/pmap.h.
 // Match XNU 10063.141.1's C definition without importing its private structs.
 extern "C" boolean_t pmap_valid_address(pmap_paddr_t address);
+extern "C" void flush_dcache64(addr64_t address,unsigned bytes,int physical);
 
 namespace {
 
@@ -737,15 +738,13 @@ IOReturn NativeSprdMaliService::presentFrame(IOMemoryDescriptor *source,IOMemory
                 offset+=length;
             }
             stage="input-cache";
-            // DC CVAC performs a write-permission translation even though it
-            // does not alter the frame. Keep the kernel VA writable for cache
-            // cleaning; the GPU source PTEs below remain strictly read-only.
-            input=source->map(kIOMapAnywhere|kIOMapCopybackCache);
+            input=source->map(kIOMapAnywhere|kIOMapReadOnly|kIOMapCopybackCache);
             if(!input || !input->getVirtualAddress() || input->getLength()<Frame::SourceBytes)
                 return kIOReturnNoMemory;
-            rc=p->cache.maintain(reinterpret_cast<void *>(input->getVirtualAddress()),
-                Frame::SourceBytes,NativeMaliCacheClean);
-            if(rc!=kIOReturnSuccess)return rc;
+            // Imported mappings can still fault in. Unlike the owned packet
+            // pages, do not touch them inside NativeMaliXnuCache's preemption-
+            // disabled loop. Reuse the proven GOP path's XNU cache operation.
+            flush_dcache64(input->getVirtualAddress(),static_cast<unsigned>(Frame::SourceBytes),false);
             stage="map";
             rc=p->vm.mapSpans(Frame::SourceIova,Frame::SourceBytes,p->spans,segments,
                 NativeMaliVmRead|NativeMaliVmCached|NativeMaliVmNoExec);
