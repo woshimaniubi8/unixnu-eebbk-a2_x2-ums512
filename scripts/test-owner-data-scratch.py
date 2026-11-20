@@ -25,7 +25,9 @@ header=r'''
 #define VM_FLAGS_ANYWHERE 1
 #define VM_KERN_MEMORY_NONE 0
 typedef uintptr_t mach_vm_offset_t;
+#ifndef __APPLE__
 typedef uintptr_t user_addr_t;
+#endif
 typedef int kern_return_t;
 static unsigned allocations,frees;
 static int allocation_error,data_error_input;
