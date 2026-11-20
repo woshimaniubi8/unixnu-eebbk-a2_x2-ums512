@@ -8,6 +8,8 @@
 	<string>org.unixnu.bbk.mali-metal</string>
 	<key>LaunchOnlyOnce</key>
 	<true/>
+	<key>LimitLoadToSessionType</key>
+	<string>System</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/private/var/ngpu/bin/mali-user-probe</string>
