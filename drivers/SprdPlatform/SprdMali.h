@@ -16,11 +16,11 @@ struct ClockProfile {
     uint32_t coreWord=0,memoryWord=0,systemWord=0;
 };
 inline bool clockProfile(uint32_t coreMHz,ClockProfile &out){
-    // Original sharkl5pro_gpu_clk_hws: selector [10:8], divider [6:4], gate [0].
+    // Linux ums512-clk.c + composite.h: MUX [6:4], divider [10:8], gate [0].
     // Parent 0 is ext-26m; parent 1 is twpll-384m. SYS divides MEM.
     // The shipped DT's minimum GPU OPP is 384 MHz / 700000 uV.
     if(coreMHz==26){out={26,26,26,1,1,1};return true;}
-    if(coreMHz==384){out={384,384,192,0x101,0x101,0x11};return true;}
+    if(coreMHz==384){out={384,384,192,0x11,0x11,0x11};return true;}
     return false;
 }
 template<class IO> class Probe {
