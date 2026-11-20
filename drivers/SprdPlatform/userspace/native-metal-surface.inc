@@ -18,6 +18,11 @@ struct NmSurfaceMessage {
     mach_msg_port_descriptor_t surface;
     mach_msg_trailer_t trailer;
 };
+static void releaseReceiveRight(mach_port_t port)
+{
+    kern_return_t kr=mach_port_mod_refs(mach_task_self(),port,MACH_PORT_RIGHT_RECEIVE,-1);
+    if(kr!=KERN_SUCCESS)fprintf(stderr,"nm surface: receive-right release kr=0x%x\n",kr);
+}
 static IOSurfaceRef receiveSurface(uint32_t expected)
 {
     mach_port_t server=MACH_PORT_NULL,reply=MACH_PORT_NULL;
@@ -35,7 +40,7 @@ static IOSurfaceRef receiveSurface(uint32_t expected)
     struct NmSurfaceMessage response={0};
     if(kr==KERN_SUCCESS)kr=mach_msg(&response.header,MACH_RCV_MSG|MACH_RCV_TIMEOUT,
         0,sizeof(response),reply,300000,MACH_PORT_NULL);
-    mach_port_destroy(mach_task_self(),reply);
+    releaseReceiveRight(reply);
     if(kr!=KERN_SUCCESS || response.header.msgh_id!=NmSurfaceReply ||
         !(response.header.msgh_bits&MACH_MSGH_BITS_COMPLEX) ||
         response.body.msgh_descriptor_count!=1 || response.surface.type!=MACH_MSG_PORT_DESCRIPTOR){
@@ -148,7 +153,7 @@ static int surfaceParent(id<MTLDevice> device,id<MTLCommandQueue> queue,
     char *args[]={(char *)program,"--surface-child",id,(char *)bundle,(char *)metallib,NULL};
     pid_t child=0;int status=0,spawn=posix_spawn(&child,program,NULL,NULL,args,environ);
     int sent=spawn==0 && sendSurface(server,surface);
-    mach_port_destroy(mach_task_self(),server);
+    releaseReceiveRight(server);
     if(spawn){CFRelease(surface);fprintf(stderr,"nm surface: child spawn error=%d\n",spawn);return 31;}
     if(!sent)kill(child,SIGKILL);
     struct timespec started;clock_gettime(CLOCK_MONOTONIC,&started);
