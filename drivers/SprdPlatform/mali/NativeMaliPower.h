@@ -3,6 +3,7 @@
 #pragma once
 #include <IOKit/IOTypes.h>
 #include <stdint.h>
+#include "../SprdMali.h"
 class NativeMaliPower final {
     volatile uint8_t *pmu_,*aon_,*clock_;
     uint32_t savedPmu_=0,aonAdded_=0,savedClock_[3]{};
@@ -18,9 +19,11 @@ class NativeMaliPower final {
 public:
     NativeMaliPower(volatile uint8_t *p,volatile uint8_t *a,volatile uint8_t *c):pmu_(p),aon_(a),clock_(c){}
     bool prepared() const{return pmu_ && aon_ && clock_;}
-    IOReturn acquire(bool factorySupplyQualified){
+    IOReturn acquire(bool factorySupplyQualified,uint32_t coreMHz=26){
         if(!prepared() || !factorySupplyQualified)return kIOReturnNotReady;
         if(acquired_)return kIOReturnBusy;
+        SprdMali::ClockProfile profile;
+        if(!SprdMali::clockProfile(coreMHz,profile))return kIOReturnBadArgument;
         constexpr uint32_t domainOff=1u<<25,apbGate=1u<<11;
         savedPmu_=read(pmu_,0x30);
         write(pmu_,0x30,savedPmu_&~domainOff);
@@ -29,10 +32,10 @@ public:
         for(unsigned i=0;i<3;i++)savedClock_[i]=read(clock_,4+4*i);
         uint32_t expectedClock[3];
         for(unsigned i=0;i<2;i++){
-            expectedClock[i]=(savedClock_[i]&~0x771u)|1u;
+            expectedClock[i]=(savedClock_[i]&~0x771u)|(i?profile.memoryWord:profile.coreWord);
             write(clock_,4+4*i,expectedClock[i]);
         }
-        expectedClock[2]=(savedClock_[2]&~0x71u)|1u;
+        expectedClock[2]=(savedClock_[2]&~0x71u)|profile.systemWord;
         write(clock_,0xc,expectedClock[2]);
         acquired_=true;
         if((read(pmu_,0x30)&domainOff) || !(read(aon_,0)&apbGate)){

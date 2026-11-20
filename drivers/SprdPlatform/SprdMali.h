@@ -11,6 +11,18 @@ inline bool factorySupplyReady(uint16_t pd,uint16_t selector){
     // does not qualify a lower, uncharacterized voltage for GPU access.
     return !(pd&8) && (selector&0x1ff)>=224;
 }
+struct ClockProfile {
+    uint32_t coreMHz=0,memoryMHz=0,systemMHz=0;
+    uint32_t coreWord=0,memoryWord=0,systemWord=0;
+};
+inline bool clockProfile(uint32_t coreMHz,ClockProfile &out){
+    // Original sharkl5pro_gpu_clk_hws: selector [10:8], divider [6:4], gate [0].
+    // Parent 0 is ext-26m; parent 1 is twpll-384m. SYS divides MEM.
+    // The shipped DT's minimum GPU OPP is 384 MHz / 700000 uV.
+    if(coreMHz==26){out={26,26,26,1,1,1};return true;}
+    if(coreMHz==384){out={384,384,192,0x101,0x101,0x11};return true;}
+    return false;
+}
 template<class IO> class Probe {
     IO &pmu,&aon,&clock,&gpu;
     uint32_t oldPower=0,addedGate=0,oldClock[3]={},oldIrq=0;

@@ -383,6 +383,10 @@ jobs:
             -fno-omit-frame-pointer device/scripts/tests/test-sprd-mali-present.cpp \
             -o mali-present-host-test
           ./mali-present-host-test
+          xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            -fno-omit-frame-pointer device/scripts/tests/test-sprd-mali-clock.cpp \
+            -o mali-clock-host-test
+          ./mali-clock-host-test
           python3 device/scripts/run-mali-session-tests.py
           for unit in vm job; do
             case "$unit" in vm) source=NativeMaliVm;; job) source=NativeMaliJob;; esac

@@ -200,8 +200,16 @@ public:
             stop(provider);
             return false;
         }
-        IOReturn result = power_->acquire(factorySupplyQualified_);
+        uint32_t coreMHz=26;
+        PE_parse_boot_argn("bbk-mali-clock",&coreMHz,sizeof(coreMHz));
+        IOReturn result = power_->acquire(factorySupplyQualified_,coreMHz);
         powerAcquired_ = result == kIOReturnSuccess;
+        if(result==kIOReturnSuccess) {
+            SprdMali::ClockProfile profile;
+            if(SprdMali::clockProfile(coreMHz,profile))
+                IOLog("M165 mali: factory clock core=%u mem=%u sys=%u MHz voltage_qualified=%u\n",
+                    profile.coreMHz,profile.memoryMHz,profile.systemMHz,factorySupplyQualified_?1u:0u);
+        }
         IOLog("M150 mali: power acquire=0x%x factory_supply=%u pmu=0x%x aon=0x%x clocks=0x%x/0x%x/0x%x\n",
             result, factorySupplyQualified_ ? 1u : 0u,
             *reinterpret_cast<volatile uint32_t *>(reinterpret_cast<volatile uint8_t *>(windows_[1].map->getVirtualAddress()) + 0x30),
