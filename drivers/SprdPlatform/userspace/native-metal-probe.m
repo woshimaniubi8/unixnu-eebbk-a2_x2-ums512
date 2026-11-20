@@ -8,6 +8,36 @@
 #include <string.h>
 #include <unistd.h>
 #include <objc/runtime.h>
+#include <mach/mach.h>
+#include <mach/arm/thread_status.h>
+#include <pthread.h>
+#include <time.h>
+static thread_t probeThread;
+static void *sampleProbe(void *unused)
+{
+    (void)unused;
+    for(unsigned sample=0;sample<10;sample++){
+        struct timespec delay={30,0};
+        while(nanosleep(&delay,&delay)!=0){}
+        thread_basic_info_data_t basic={0};
+        mach_msg_type_number_t count=THREAD_BASIC_INFO_COUNT;
+        kern_return_t info=thread_info(probeThread,THREAD_BASIC_INFO,(thread_info_t)&basic,&count);
+        arm_thread_state64_t state={0};count=ARM_THREAD_STATE64_COUNT;
+        kern_return_t kr=thread_get_state(probeThread,ARM_THREAD_STATE64,(thread_state_t)&state,&count);
+        uintptr_t pc=kr==KERN_SUCCESS?(uintptr_t)arm_thread_state64_get_pc(state):0;
+        uintptr_t lr=kr==KERN_SUCCESS?(uintptr_t)arm_thread_state64_get_lr(state):0;
+        fprintf(stderr,"nm metal: sample=%u state_kr=0x%x info_kr=0x%x run=%d cpu=%d user=%d.%06d system=%d.%06d pc=0x%llx lr=0x%llx\n",
+            sample,(unsigned)kr,(unsigned)info,basic.run_state,basic.cpu_usage,
+            basic.user_time.seconds,basic.user_time.microseconds,basic.system_time.seconds,basic.system_time.microseconds,
+            (unsigned long long)pc,(unsigned long long)lr);
+        Dl_info image={0};
+        if(pc && dladdr((const void *)pc,&image) && image.dli_fbase){
+            fprintf(stderr,"nm metal: sample=%u image=%s rva=0x%llx symbol=%s\n",sample,
+                image.dli_fname?image.dli_fname:"?",(unsigned long long)(pc-(uintptr_t)image.dli_fbase),image.dli_sname?image.dli_sname:"?");
+        }
+    }
+    return NULL;
+}
 @interface NSObject (NativeMaliDevice)
 - (instancetype)initWithDriver:(const char *)driver;
 - (NSData *)bitcodeData;
@@ -47,6 +77,11 @@ int main(int argc,char **argv) {
     @autoreleasepool {
     setvbuf(stdout,NULL,_IONBF,0);setvbuf(stderr,NULL,_IONBF,0);
     printf("nm metal: Foundation ready\n");
+    probeThread=mach_thread_self();
+    pthread_t sampler;
+    int samplingError=pthread_create(&sampler,NULL,sampleProbe,NULL);
+    if(samplingError){fprintf(stderr,"nm metal: diagnostic thread error=%d\n",samplingError);return 70;}
+    pthread_detach(sampler);
     if(argc!=3){fprintf(stderr,"usage: native-metal-probe BUNDLE SHADERS.metallib\n");return 64;}
     char executable[1024];
     if(setenv("TSMTL_LOG","1",1)!=0)return 64;
