@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Prepare the pinned Viva userspace frontend for the G52/iOS 17 build.
 
-This does not publish an accelerator or deploy a plugin. The existing NativeMali
-ABI is not the Viva UAPI; kernel transport and IOSurface synchronization must be
-qualified separately before the built bundle can enter a device image.
+This builds the native transport and an owner-only Metal render probe. It does
+not publish a system accelerator: actual render results and shared IOSurface
+synchronization remain qualification gates before UI deployment.
 """
 import argparse
 import hashlib
@@ -22,6 +22,13 @@ def prepare(root):
     changes = []
     pending = []
 
+    def emit(relative, data):
+        path=root/relative
+        before=path.read_bytes() if path.exists() else b''
+        pending.append((path,data))
+        changes.append(dict(path=relative,before_sha256=hashlib.sha256(before).hexdigest(),
+                            after_sha256=hashlib.sha256(data).hexdigest()))
+
     def edit(relative, replacements):
         path = root / relative
         before = path.read_bytes()
@@ -36,6 +43,37 @@ def prepare(root):
                             after_sha256=hashlib.sha256(modified).hexdigest()))
 
     edit("ios/build.sh", [("arm64-apple-ios16.0", "arm64-apple-ios17.0", 1)])
+    native=Path(__file__).resolve().parents[1]/'drivers/SprdPlatform/userspace'
+    emit('vgpu/vgpu_iokit.c',(native/'vgpu_native_mali.c').read_bytes()+b'\n#include "native_mali_iokit.inc"\n')
+    emit('vgpu/native_mali_iokit.inc',(native/'native_mali_iokit.c').read_bytes())
+    emit('vgpu/mali_native_wire.h',(native/'mali_native_wire.h').read_bytes())
+    for name in ['native-metal-probe.m','native-metal-probe.metal','native-metal-probe.entitlements']:
+        emit('ios/'+name,(native/name).read_bytes())
+    edit('vgpu/vgpu.c',[(
+        '        const char *env = getenv("VGPU_BACKEND");\n'
+        '#if TARGET_OS_IPHONE || defined(VGPU_DEFAULT_IOKIT)\n'
+        '        g_backend = &vgpu_backend_iokit;\n'
+        '#else\n'
+        '        g_backend = &vgpu_backend_mock;\n'
+        '#endif\n'
+        '        if (env && !strcmp(env, "iokit")) g_backend = &vgpu_backend_iokit;\n'
+        '        if (env && !strcmp(env, "mock")) g_backend = &vgpu_backend_mock;',
+        '        g_backend = &vgpu_backend_iokit; /* NativeMali only: no simulated execution. */',1)])
+    edit('libdrm-xnu/src/xf86drm_xnu.c',[(
+        '    d->version_minor = 5;',
+        '    d->version_minor = 2; /* No timestamp/priority ABI is exposed by NativeMali. */',1)])
+    mesa_actual=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root/'mesa/src',text=True).strip()
+    if mesa_actual!=MESA:
+        raise SystemExit(f'Unexpected Mesa source: {mesa_actual}')
+    edit('mesa/src/src/gallium/drivers/panfrost/pan_device.c',[(
+        'dev, 128 * 1024 * 1024, PAN_BO_INVISIBLE | PAN_BO_GROWABLE, "Tiler heap"',
+        'dev, 16 * 1024 * 1024, PAN_BO_INVISIBLE, "NativeMali committed tiler heap"',1)])
+    edit('mesa/src/src/panfrost/lib/kmod/panfrost_kmod.c',[(
+        '   props->supported_bo_flags = PAN_KMOD_BO_FLAG_EXECUTABLE |\n'
+        '                               PAN_KMOD_BO_FLAG_ALLOC_ON_FAULT |\n'
+        '                               PAN_KMOD_BO_FLAG_NO_MMAP;',
+        '   props->supported_bo_flags = PAN_KMOD_BO_FLAG_EXECUTABLE |\n'
+        '                               PAN_KMOD_BO_FLAG_NO_MMAP;',1)])
     edit("driver/vmg_screen.c", [
         ('if (dev->screen && strstr(dev->screen->get_name(dev->screen), "Mali-G57")) g_gpu_product_id = 0x9093;',
          'if (dev->screen && strstr(dev->screen->get_name(dev->screen), "Mali-G52")) g_gpu_product_id = 0x7402;\n'
@@ -53,10 +91,14 @@ def prepare(root):
          '    if (!failure) return NO; /* Report rejected pipelines instead of successful inert states. */', 1),
     ])
     for path, modified in pending:
+        path.parent.mkdir(parents=True,exist_ok=True)
         path.write_bytes(modified)
     record = dict(upstream_repository="https://github.com/Nik300/viva-gpu", upstream_commit=VIVA,
                   mesa_commit=MESA, target="arm64-apple-ios17.0", gpu_product_id="0x7402",
                   compiler_path="AIR -> NIR -> Mesa Bifrost v7", direct_valhall_v9_enabled=False,
+                  transport='NativeMali type-0 connection, selectors 1-10/12/13',
+                  vgpu_version='1.0',drm_panfrost_version='1.2',tiler_heap_committed_bytes=16*1024*1024,
+                  mock_selectable=False,iosurface_import_qualified=False,metal_probe='native-metal-probe',
                   unsuccessful_pipelines_return_error=True, runtime_qualified=False, deployed=False, changes=changes)
     (root / "g52-source-receipt.json").write_text(json.dumps(record, indent=2) + "\n")
     return record

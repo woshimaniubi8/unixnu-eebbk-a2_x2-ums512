@@ -39,6 +39,15 @@ jobs:
           git -C viva-gpu/mesa/src fetch -q --depth 1 origin 8e87a503ebd91408c88596d1b9eeb5f4c0b2088d
           git -C viva-gpu/mesa/src checkout -q --detach FETCH_HEAD
           python3 device/scripts/prepare-mali-metal-source.py viva-gpu
+      - name: Check the shipping NativeMali transport contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 device/scripts/run-mali-native-backend-tests.py viva-gpu
+          sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
+          clang="$(xcrun --sdk iphoneos -f clang)"
+          "$clang" -target arm64-apple-ios17.0 -isysroot "$sdk" -fobjc-arc -Wall -Wextra -Werror \
+            -fsyntax-only viva-gpu/ios/native-metal-probe.m
       - name: Install upstream build dependencies
         shell: bash
         run: |
@@ -48,6 +57,7 @@ jobs:
           echo "LLVM_PREFIX=$(brew --prefix llvm)" >> "$GITHUB_ENV"
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-path
+          xcodebuild -downloadComponent metalToolchain
       - uses: actions/cache@v4
         with:
           path: .mali-metal-ccache
@@ -65,6 +75,23 @@ jobs:
           bash viva-gpu/ios/build.sh mesa 2>&1 | tee mesa-ios.log
           bash viva-gpu/ios/build.sh driver 2>&1 | tee metal-driver.log
           bash viva-gpu/ios/build.sh tests 2>&1 | tee metal-tests.log
+      - name: Build signed owner Metal render qualification
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
+          clang="$(xcrun --sdk iphoneos -f clang)"
+          "$clang" -target arm64-apple-ios17.0 -isysroot "$sdk" -fobjc-arc -O2 -Wall -Wextra -Werror \
+            viva-gpu/ios/native-metal-probe.m -framework Foundation -framework Metal \
+            -o viva-gpu/ios/out/tests/native-metal-probe
+          xcrun --sdk iphoneos metal -target air64-apple-ios17.0 -c viva-gpu/ios/native-metal-probe.metal \
+            -o viva-gpu/ios/out/tests/native-metal-probe.air
+          xcrun --sdk iphoneos metallib viva-gpu/ios/out/tests/native-metal-probe.air \
+            -o viva-gpu/ios/out/tests/native-metal-probe.metallib
+          codesign -s - -f --entitlements viva-gpu/ios/native-metal-probe.entitlements \
+            viva-gpu/ios/out/tests/native-metal-probe
+          codesign -d --entitlements :- viva-gpu/ios/out/tests/native-metal-probe \
+            > native-metal-entitlements.plist 2> native-metal-signature.txt
       - name: Verify bundle format and signing
         shell: bash
         run: |
@@ -75,15 +102,15 @@ jobs:
           codesign --verify --strict --verbose=2 "$bundle"
           codesign -d --verbose=4 "$bundle" 2>signature.txt
           otool -L "$bundle/VivaMTLDriver" > dependencies.txt
-          for test in vmprobe compute ca passbench; do
+          for test in vmprobe compute ca passbench native-metal-probe; do
             executable="viva-gpu/ios/out/tests/$test"
             test -s "$executable"
             lipo "$executable" -verify_arch arm64
             codesign --verify --strict "$executable"
           done
           git -C viva-gpu diff --binary > g52-frontend.patch
-          python3 -c 'import hashlib,pathlib; b=pathlib.Path("viva-gpu/ios/out/VivaMTLDriver.bundle"); paths=[*b.rglob("*"),pathlib.Path("viva-gpu/g52-source-receipt.json")]; print("\n".join(hashlib.sha256(p.read_bytes()).hexdigest()+"  "+str(p) for p in sorted(paths) if p.is_file()))' > SHA256SUMS
-          echo 'Build-only frontend: no kernel Viva UAPI, original IOSurface fence contract, or Metal runtime qualification is claimed.' >> "$GITHUB_STEP_SUMMARY"
+          python3 -c 'import hashlib,pathlib; b=pathlib.Path("viva-gpu/ios/out/VivaMTLDriver.bundle"); t=pathlib.Path("viva-gpu/ios/out/tests"); paths=[*b.rglob("*"),t/"native-metal-probe",t/"native-metal-probe.metallib",pathlib.Path("viva-gpu/g52-source-receipt.json")]; print("\n".join(hashlib.sha256(p.read_bytes()).hexdigest()+"  "+str(p) for p in sorted(paths) if p.is_file()))' > SHA256SUMS
+          echo 'NativeMali transport compiled; runtime Metal render and original IOSurface sharing remain qualification gates.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -96,6 +123,8 @@ jobs:
             viva-gpu/LICENSE*
             *.log
             signature.txt
+            native-metal-signature.txt
+            native-metal-entitlements.plist
             dependencies.txt
             g52-frontend.patch
             SHA256SUMS
