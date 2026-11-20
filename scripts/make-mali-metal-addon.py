@@ -31,6 +31,9 @@ def code_directory(data,executable):
     kind,count,commands=struct.unpack_from('<III',data,12)
     if kind!=(2 if executable else 8) or commands>len(data)-32:
         raise ValueError('Unexpected Mach-O kind or load commands')
+    if executable:
+        layout=module('owner_probe_layout',ROOT/'scripts/prepare-mali-probe-boot.py')
+        layout.validate_layout(data)
     at=32;signature=None
     for _ in range(count):
         command,size=struct.unpack_from('<II',data,at)
@@ -150,6 +153,7 @@ def main():
     p.add_argument('baseline_trust',type=Path);p.add_argument('output',type=Path)
     p.add_argument('--source-commit',required=True);p.add_argument('--core',type=Path,required=True)
     p.add_argument('--adt',type=Path,required=True)
+    p.add_argument('--kernel',type=Path,required=True)
     a=p.parse_args();a.output.mkdir(parents=True,exist_ok=True)
     record=json.loads(a.download_receipt.read_text())
     if record['conclusion']!='success' or record['commit']!=a.source_commit:raise ValueError('Wrong successful frontend run')
@@ -175,11 +179,11 @@ def main():
     # the signed binary, its identifier, service class, or client permissions.
     files.append(('bin/mali-user-probe',0o755,probe))
     files.append(('mali-metal/native-metal-probe.metallib',0o644,read(out/'tests/native-metal-probe.metallib')))
-    job={'Label':'org.unixnu.bbk.mali-metal','ProgramArguments':[
-        '/private/var/ngpu/bin/mali-user-probe','/private/var/ngpu/addons/VivaMTLDriver.bundle',
-        '/private/var/ngpu/mali-metal/native-metal-probe.metallib'],
-        'UserName':'root','RunAtLoad':True,'LaunchOnlyOnce':True,'KeepAlive':False,
-        'StandardOutPath':'/dev/null','StandardErrorPath':'/dev/null'}
+    cache=module('owner_metal_cache',ROOT/'scripts/prepare-mali-metal-launchd.py')
+    packed_cache,raw_cache,_=cache.verified_cache((ROOT/'patches/xnu/bbk-a2-splashboard-prewarm.patch').read_text())
+    if packed_cache not in a.kernel.read_bytes():
+        raise ValueError('Kernel does not contain the merged owner Metal launchd job')
+    job=cache.job()
     files.append(('daemons/org.unixnu.bbk.mali-metal.plist',0o644,plistlib.dumps(job,sort_keys=True)))
     upstream_packer=module('ngpu_packer',a.core/'scripts/make-gpu-addon.py')
     addon=encode(files,upstream_packer.pad)
@@ -207,6 +211,7 @@ def main():
         trust_sha256=hashlib.sha256(trusted).hexdigest(),trust_bytes=len(trusted),
         adt_before_sha256=hashlib.sha256(a.adt.read_bytes()).hexdigest(),
         adt_sha256=hashlib.sha256(tree).hexdigest(),adt_added_property='/chosen/memory-map/GpuAddon',
+        owner_launchd_cache_sha256=hashlib.sha256(raw_cache).hexdigest(),
         files=[dict(path=n,mode=oct(m),bytes=len(b),sha256=hashlib.sha256(b).hexdigest()) for n,m,b in files])
     (a.output/'addon.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result,indent=2))
 
