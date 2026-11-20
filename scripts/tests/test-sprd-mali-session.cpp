@@ -16,6 +16,7 @@ public:
     uint32_t data[0x4000/4]={};
     std::vector<unsigned> submitted;
     bool completeOnStart=true;
+    bool stopOnCommand=true;
     void complete(unsigned js) {data[JOB_INT_RAWSTAT/4]|=JOB_INT_MASK_DONE(js);}
     IOReturn read32(uint32_t at,uint32_t *v) override {
         if(!v || at>=sizeof(data) || (at&3))return kIOReturnBadArgument;
@@ -29,6 +30,8 @@ public:
             submitted.push_back(js); data[at/4]=0;
             if(completeOnStart)complete(js);
         }
+        for(unsigned js=0;js<3;++js)if(at==JS_COMMAND(js) && v==JS_COMMAND_HARD_STOP && stopOnCommand)
+            data[JOB_INT_JS_STATE/4]&=~MK_JS_MASK(js);
         return kIOReturnSuccess;
     }
     IOReturn delay(uint64_t) override {return kIOReturnSuccess;}
@@ -182,9 +185,24 @@ int main() {
     assert(a->status(&status)==0 && status.faults==1);
     assert(a->freeBo(free)==0);
     assert(a->releaseAll()==0 && b->releaseAll()==0);
+
+    NativeMaliFence present{};
+    assert(jobs.submit(2,0x04000000,aa,0,&present)==0);
+    regs.data[JOB_INT_JS_STATE/4]=MK_JS_MASK(2)|MK_JS_MASK(1);
+    regs.data[JOB_INT_RAWSTAT/4]=JOB_INT_MASK_DONE(1);
+    assert(jobs.abort({2,present.seqno+1})==kIOReturnBadArgument);
+    assert(jobs.outstanding(2));
+    regs.stopOnCommand=false;
+    assert(jobs.abort(present)==kIOReturnTimeout && jobs.outstanding(2));
+    regs.stopOnCommand=true;
+    assert(jobs.abort(present)==0 && !jobs.outstanding(2) && jobs.faulted(2));
+    assert(!jobs.fenceSignaled(present));
+    assert(regs.data[JOB_INT_JS_STATE/4]==MK_JS_MASK(1));
+    assert(regs.data[JOB_INT_RAWSTAT/4]==JOB_INT_MASK_DONE(1));
     assert(mmu.disable(aa)==0 && mmu.disable(ab)==0);
     assert(mmu.release(aa)==0 && mmu.release(ab)==0);
     va.reset();vb.reset();
     assert(buffers.live==0 && pages.live==0 && mmu.allocatedMask()==0);
     puts("PASS: per-AS routing, fence-bound DMA sync, read-only BOs, sticky faults and cleanup.");
+    puts("PASS: timeout abort requires quiesced job slot and never frees a live DMA source.");
 }

@@ -195,6 +195,36 @@ IOReturn NativeMaliJobSlot::waitForCompletion(uint32_t js,
     return kIOReturnSuccess;
 }
 
+IOReturn NativeMaliJobSlot::abort(const NativeMaliFence &fence)
+{
+    const auto js=fence.js;
+    if(!prepared())return kIOReturnNotReady;
+    if(!kWriteAuthorized)return kIOReturnUnsupported;
+    if(!fence.valid() || js>=NativeMaliJobSlotCount || !outstanding_[js] ||
+        emitSeqno_[js]!=fence.seqno)return kIOReturnBadArgument;
+    IOReturn result=power_->gpuReadable();
+    if(result!=kIOReturnSuccess)return result;
+    result=registers_->write32(JS_COMMAND_NEXT(js),JS_COMMAND_NOP);
+    if(result!=kIOReturnSuccess)return result;
+    result=registers_->write32(JS_COMMAND(js),JS_COMMAND_HARD_STOP);
+    if(result!=kIOReturnSuccess)return result;
+    for(uint64_t waited=0;;waited+=SoftStopPollUs) {
+        uint32_t active=0;
+        result=registers_->read32(JOB_INT_JS_STATE,&active);
+        if(result!=kIOReturnSuccess)return result;
+        if(!(active & MK_JS_MASK(js)))break;
+        if(waited>=SoftStopTimeoutUs)return kIOReturnTimeout;
+        result=registers_->delay(SoftStopPollUs);
+        if(result!=kIOReturnSuccess)return result;
+    }
+    result=registers_->write32(JOB_INT_CLEAR,MK_JS_MASK(js));
+    if(result!=kIOReturnSuccess)return result;
+    outstanding_[js]=false;
+    faulted_[js]=true;
+    // An aborted fence is not a successful completion.
+    return kIOReturnSuccess;
+}
+
 IOReturn NativeMaliJobSlot::resetInterrupts()
 {
     if(!prepared())return kIOReturnNotReady;

@@ -1,0 +1,47 @@
+--- a/NativeLegacyDisplay.cpp
++++ b/NativeLegacyDisplay.cpp
+@@ -50,6 +50,9 @@
+ extern "C" void native_legacy_transfer_observed(IOReturn,const void *,uint64_t);
+ extern "C" void native_legacy_copy_timing_observed(uint64_t ticks,uint64_t bytes);
+ #if defined(NATIVE_LEGACY_GOP_ONLY) && NATIVE_LEGACY_GOP_ONLY
++extern "C" IOReturn sprd_mali_present(IOMemoryDescriptor *,IOMemoryMap *,
++    uint64_t sourceStride,uint64_t destinationStride,uint32_t width,uint32_t height);
++
+ extern "C" void native_legacy_cpu_present_timing(uint64_t mapStart,
+     uint64_t mapEnd,uint64_t cacheEnd,uint64_t copyStart,uint64_t copyEnd,
+     uint32_t sourceSpan,uint64_t mappingBytes);
+@@ -718,6 +721,34 @@
+             native_legacy_direct[7]=native_legacy_direct[7]+1;
+         }
+         directToBoot();
++#if defined(NATIVE_LEGACY_GOP_ONLY) && NATIVE_LEGACY_GOP_ONLY
++        uint32_t useMali=0;
++        if(!half && !gpuBypass && PE_parse_boot_argn("bbk-mali-present",&useMali,sizeof(useMali)) && useMali==1) {
++            // Do not retire a frame while Mali can still read its IOSurface.
++            // The CPU-produced BGRA frame remains owned by this work loop
++            // until sprd_mali_present has completed DMA and unpinned it.
++            IOMemoryMap *scanout=bootMapping;
++            scanout->retain();
++            const IOReturn status=sprd_mali_present(memory,scanout,sourceStride,
++                video.v_rowBytes,width,height);
++            scanout->release();
++            if(status==kIOReturnUnsupported) {
++                native_legacy_gpu_fallback_observed(status);
++                gpuBypass=true;
++            } else if(status!=kIOReturnSuccess) {
++                native_legacy_transfer_observed(status,request,0);
++                return;
++            } else {
++            native_legacy_swap_stage(1);
++            shadowValid=false;
++            countFormat(6);
++            transferred=true;
++            native_legacy_transfer_observed(kIOReturnSuccess,request,length);
++            finishTransfer(request,true);
++            return;
++            }
++        }
++#endif
+         stat(7);note(7,-1,request);
+         if(!gpuBypass && native_legacy_gpu_offer(this,memory,sourceStride,width,height,half?halfOfferFormat():NGP_BGRX8888)) {
+             // The GPU writes the scanout memory behind the CPU's back: the differential copy's picture of it is stale from now on.

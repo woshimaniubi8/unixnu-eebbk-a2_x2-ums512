@@ -125,6 +125,10 @@ struct NativeMaliVmGeometry {
     uint64_t span;
 };
 
+struct NativeMaliVmSpan {
+    uint64_t offset, physical, bytes;
+};
+
 class NativeMaliVm final {
     struct Table {
         uint64_t *pte;
@@ -187,6 +191,9 @@ public:
      * arm_lpae_init_pte() refuses it (-EEXIST), because it would leak the
      * mapping underneath. */
     IOReturn map(uint64_t iova, uint64_t paddr, uint64_t bytes, uint32_t prot);
+    // Validate a complete scatter list before writing any leaves; publish once.
+    IOReturn mapSpans(uint64_t iova, uint64_t bytes, const NativeMaliVmSpan *spans,
+        size_t count, uint32_t prot);
     /* Clear the leaves of a range that was mapped. Empty tables stay allocated
      * until reset(); that is the documented difference from Linux. */
     IOReturn unmap(uint64_t iova, uint64_t bytes);

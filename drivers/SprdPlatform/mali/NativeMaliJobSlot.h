@@ -255,6 +255,10 @@ public:
         uint64_t timeout_us = DefaultCompletionTimeoutUs,
         uint64_t poll_us = CompletionPollUs);
 
+    // Cancel only this slot's exact fence. Success proves both job queues idle;
+    // the aborted slot stays faulted until the owner explicitly clears it.
+    IOReturn abort(const NativeMaliFence &fence);
+
     /* panfrost_jm_reset_interrupts() (panfrost_job.c:435-438): one write of
      * JOB_INT_CLEAR = ALL_JS_INT_MASK. A GPU reset can latch a job event that
      * no job of ours produced, so the whole palette is cleared before anything

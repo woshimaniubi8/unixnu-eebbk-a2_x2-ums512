@@ -197,6 +197,7 @@ jobs:
           test "$(git -C UniXNU/drivers/GopFramebuffer rev-parse HEAD)" = b0d812d578efa2acb005b66f73168891719af09a
           git -C UniXNU/drivers/GopFramebuffer apply "$GITHUB_WORKSPACE/device/patches/unixnu/gop-bbk-cpu-only.patch"
           git -C UniXNU/drivers/GopFramebuffer apply "$GITHUB_WORKSPACE/device/patches/unixnu/gop-bbk-frame-timing.patch"
+          git -C UniXNU/drivers/GopFramebuffer apply "$GITHUB_WORKSPACE/device/patches/unixnu/gop-bbk-mali-present.patch"
           du -sh UniXNU
 
       - uses: actions/setup-python@v5
@@ -377,6 +378,11 @@ jobs:
             -fno-omit-frame-pointer device/scripts/tests/test-sprd-mali-compute.cpp \
             -o mali-compute-host-test
           ./mali-compute-host-test
+          python3 device/scripts/mali-host/compute-payload.py --present
+          xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            -fno-omit-frame-pointer device/scripts/tests/test-sprd-mali-present.cpp \
+            -o mali-present-host-test
+          ./mali-present-host-test
           python3 device/scripts/run-mali-session-tests.py
           for unit in vm job; do
             case "$unit" in vm) source=NativeMaliVm;; job) source=NativeMaliJob;; esac

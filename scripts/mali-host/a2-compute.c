@@ -24,6 +24,11 @@ enum {
    Destination = 0xc000,
    LocalX = 32,
    GroupsX = 128,
+   PresentLocalX = 16,
+   PresentWidth = 1200,
+   PresentHeight = 1920,
+   PresentSourceStride = 4864,
+   PresentDestinationStride = 4800,
 };
 static const uint32_t mask = UINT32_C(0x51c39a6e);
 
@@ -38,8 +43,9 @@ static int emit(const char *path, const void *data, size_t size)
 
 int main(int argc, char **argv)
 {
-   if (argc != 3) {
-      fprintf(stderr, "usage: %s PACKETS.bin SHADER.bin\n", argv[0]);
+   const bool present = argc == 4 && strcmp(argv[1], "--present") == 0;
+   if (argc != 3 && !present) {
+      fprintf(stderr, "usage: %s [--present] PACKETS.bin SHADER.bin\n", argv[0]);
       return 2;
    }
    if (pan_arch(gpu_id) != 7)
@@ -47,21 +53,41 @@ int main(int argc, char **argv)
    struct pan_compile_inputs inputs = {.gpu_id = gpu_id};
    const nir_shader_compiler_options *options =
       pan_get_nir_shader_compiler_options(7, MESA_SHADER_COMPUTE, false);
+   const uint64_t job = present ? UINT64_C(0x04000000) : base;
+   const unsigned local_x = present ? PresentLocalX : LocalX;
+   const unsigned groups_x = present ? 5 : GroupsX;
+   const unsigned groups_y = present ? PresentHeight : 1;
    glsl_type_singleton_init_or_ref();
    nir_builder b = nir_builder_init_simple_shader(MESA_SHADER_COMPUTE, options,
-                                                  "bbk-a2-storage-xor");
-   b.shader->info.workgroup_size[0] = LocalX;
+                                                  present ? "bbk-a2-present" : "bbk-a2-storage-xor");
+   b.shader->info.workgroup_size[0] = local_x;
    b.shader->info.workgroup_size[1] = 1;
    b.shader->info.workgroup_size[2] = 1;
 
    nir_def *group = nir_channel(&b, nir_load_workgroup_id(&b), 0);
    nir_def *local = nir_channel(&b, nir_load_local_invocation_id(&b), 0);
-   nir_def *index = nir_iadd(&b, nir_imul_imm(&b, group, LocalX), local);
-   nir_def *offset = nir_u2u64(&b, nir_imul_imm(&b, index, 4));
-   nir_def *src = nir_iadd(&b, nir_imm_int64(&b, base + Source), offset);
-   nir_def *dst = nir_iadd(&b, nir_imm_int64(&b, base + Destination), offset);
-   nir_def *value = nir_load_global(&b, 1, 32, src, .align_mul = 4);
-   nir_store_global(&b, nir_ixor(&b, value, nir_imm_int(&b, mask)), dst, .align_mul = 4);
+   nir_def *index = nir_iadd(&b, nir_imul_imm(&b, group, local_x), local);
+   if (present) {
+      /* Copy sixteen packed pixels per invocation without reading row padding. */
+      nir_push_if(&b, nir_ult_imm(&b, index, PresentWidth / 16));
+      nir_def *row = nir_channel(&b, nir_load_workgroup_id(&b), 1);
+      nir_def *column = nir_imul_imm(&b, index, 16 * 4);
+      nir_def *src_offset = nir_iadd(&b, nir_imul_imm(&b, row, PresentSourceStride), column);
+      nir_def *dst_offset = nir_iadd(&b, nir_imul_imm(&b, row, PresentDestinationStride), column);
+      for (unsigned byte = 0; byte < 16 * 4; byte += 16) {
+         nir_def *src = nir_iadd(&b, nir_imm_int64(&b, 0x04200000 + byte), nir_u2u64(&b, src_offset));
+         nir_def *dst = nir_iadd(&b, nir_imm_int64(&b, 0x04c00000 + byte), nir_u2u64(&b, dst_offset));
+         nir_def *value = nir_load_global(&b, 4, 32, src, .align_mul = 16);
+         nir_store_global(&b, value, dst, .align_mul = 16);
+      }
+      nir_pop_if(&b, NULL);
+   } else {
+      nir_def *offset = nir_u2u64(&b, nir_imul_imm(&b, index, 4));
+      nir_def *src = nir_iadd(&b, nir_imm_int64(&b, base + Source), offset);
+      nir_def *dst = nir_iadd(&b, nir_imm_int64(&b, base + Destination), offset);
+      nir_def *value = nir_load_global(&b, 1, 32, src, .align_mul = 4);
+      nir_store_global(&b, nir_ixor(&b, value, nir_imm_int(&b, mask)), dst, .align_mul = 4);
+   }
    b.shader->info.writes_memory = true;
 
    struct pan_shader_info info = {0};
@@ -87,27 +113,28 @@ int main(int argc, char **argv)
       cfg.index = 1;
    }
    pan_pack_work_groups_compute(pan_section_ptr(packet, COMPUTE_JOB, INVOCATION),
-                                GroupsX, 1, 1, LocalX, 1, 1, false, false);
+                                groups_x, groups_y, 1, local_x, 1, 1, false, false);
    pan_section_pack(packet, COMPUTE_JOB, PARAMETERS, cfg) {
-      cfg.job_task_split = util_logbase2_ceil(LocalX + 1) +
+      cfg.job_task_split = util_logbase2_ceil(local_x + 1) +
                            2 * util_logbase2_ceil(2);
    }
    pan_section_pack(packet, COMPUTE_JOB, DRAW, cfg) {
-      cfg.state = base + Rsd;
-      cfg.thread_storage = base + LocalStorage;
+      cfg.state = job + Rsd;
+      cfg.thread_storage = job + LocalStorage;
    }
    pan_pack((struct mali_renderer_state_packed *)(packet + Rsd), RENDERER_STATE, cfg) {
-      pan_shader_prepare_rsd(&info, base + Shader, &cfg);
+      pan_shader_prepare_rsd(&info, job + Shader, &cfg);
    }
    pan_pack((struct mali_local_storage_packed *)(packet + LocalStorage), LOCAL_STORAGE, cfg) {}
    memcpy(packet + Shader, binary.data, binary.size);
 
    fprintf(stderr, "G52 r1 code=%u regs=%u preload=0x%" PRIx64
                    " grid=%ux%u TLS=%u WLS=%u FAU=%u\n",
-           binary.size, info.work_reg_count, info.preload, GroupsX, LocalX,
+           binary.size, info.work_reg_count, info.preload, groups_x, local_x,
            info.tls_size, info.wls_size, info.fau.count);
-   const int status = emit(argv[1], packet, Shader + binary.size) ||
-                      emit(argv[2], binary.data, binary.size);
+   const int output_arg = present ? 2 : 1;
+   const int status = emit(argv[output_arg], packet, Shader + binary.size) ||
+                      emit(argv[output_arg + 1], binary.data, binary.size);
    util_dynarray_fini(&binary);
    ralloc_free(b.shader);
    glsl_type_singleton_decref();

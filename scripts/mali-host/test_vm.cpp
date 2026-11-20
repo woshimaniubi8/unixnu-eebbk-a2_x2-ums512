@@ -475,6 +475,32 @@ int main()
         CHECK(pages.live == 0);
     }
 
+    {
+        FakeCache cache;
+        FakePages pages;
+        NativeMaliVm vm;
+        CHECK(vm.prepare(&pages,48,40,false,&cache)==kIOReturnSuccess);
+        const uint64_t start=0x04200000;
+        const uint32_t prot=NativeMaliVmRead|NativeMaliVmCached|NativeMaliVmNoExec;
+        NativeMaliVmSpan spans[]={{0,0xa4000000,0x4000},{0x4000,0xabc80000,0x4000}};
+        spans[1].offset+=0x1000;
+        CHECK(vm.mapSpans(start,0x8000,spans,2,prot)==kIOReturnBadArgument);
+        CHECK(vm.mappedPages()==0 && cache.calls.size()==1);
+        spans[1].offset-=0x1000;
+        CHECK(vm.mapSpans(start,0x8000,spans,2,prot)==kIOReturnSuccess);
+        CHECK(vm.mappedPages()==8 && cache.calls.size()==1+vm.tables());
+        for(unsigned i=0;i<8;++i) {
+            uint64_t pte=0;
+            CHECK(vm.descriptor(start+i*4096,&pte)==kIOReturnSuccess);
+            CHECK(pte==NativeMaliVm::encodeLeaf(spans[i/4].physical+(i%4)*4096,prot));
+        }
+        CHECK(vm.mapSpans(start,0x8000,spans,2,prot)==kIOReturnBusy);
+        CHECK(vm.mappedPages()==8);
+        CHECK(vm.unmap(start,0x8000)==kIOReturnSuccess && vm.mappedPages()==0);
+        vm.reset();
+        CHECK(pages.live==0);
+    }
+
     /* ---- page-table publish: the non-coherent walker's dma_sync ---- */
     {
         FakeCache cache;

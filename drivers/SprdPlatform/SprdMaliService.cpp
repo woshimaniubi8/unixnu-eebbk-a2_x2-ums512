@@ -12,9 +12,13 @@
 #include "SprdMaliRender.h"
 #include "SprdMaliFullFrame.h"
 #include "SprdMaliCompute.h"
+#include "SprdMaliPresent.h"
+#include <arm/caches_internal.h>
 #include <kern/task.h>
+#include <mach/vm_param.h>
 #include <machine/machine_routines.h>
 #include <pexpert/pexpert.h>
+#include <vm/pmap.h>
 
 namespace {
 
@@ -55,6 +59,20 @@ struct Window {
     Registers regs;
 };
 
+struct Presenter {
+    NativeMaliXnuCache cache;
+    NativeMaliXnuPages pages;
+    NativeMaliXnuBuffers buffers;
+    NativeMaliVm vm;
+    NativeMaliMemory packet;
+    NativeMaliVmSpan spans[NativeMaliMemoryMaxSpans]{};
+    IOMemoryDescriptor *source=nullptr;
+    uint64_t frames=0;
+    uint32_t as=0;
+    bool allocated=false,enabled=false,ready=false,verify=false,sourceMapped=false;
+    NativeMaliFence pending{};
+};
+
 } // namespace
 
 class NativeSprdMaliService final : public IOService {
@@ -78,6 +96,11 @@ class NativeSprdMaliService final : public IOService {
     IOLock *sessionLock_=nullptr;
     uint32_t sessions_=0;
     SprdMaliSession *quarantined_[NativeMaliMmuMaxAs]={};
+    Presenter *presenter_=nullptr;
+    bool presenterFailed_=false;
+
+    IOReturn setupPresenter(bool verify);
+    IOReturn closePresenter();
 
     void describeWindows()
     {
@@ -263,6 +286,14 @@ public:
                 return true;
             }
         }
+        uint32_t present=0;
+        if(PE_parse_boot_argn("bbk-mali-present",&present,sizeof(present)) && present==1) {
+            uint32_t verify=0;
+            PE_parse_boot_argn("bbk-mali-present-verify",&verify,sizeof(verify));
+            const IOReturn status=setupPresenter(verify==1);
+            presenterFailed_=status!=kIOReturnSuccess;
+            IOLog("M164 mali: display setup status=0x%x verify=%u\n",status,verify==1?1u:0u);
+        }
         registerService();
         return true;
     }
@@ -280,16 +311,24 @@ public:
     IOReturn exerciseSession();
     IOReturn exerciseFullFrame();
     IOReturn exerciseCompute();
+    IOReturn presentFrame(IOMemoryDescriptor *,IOMemoryMap *);
 
     void free() override {
-        if(sessionLock_ && !sessions_) { IOLockFree(sessionLock_); sessionLock_=nullptr; }
+        if(sessionLock_ && !sessions_ && !presenter_) { IOLockFree(sessionLock_); sessionLock_=nullptr; }
         IOService::free();
     }
 
     void stop(IOService *provider) override
     {
         IOLog("M150 mali: service stop ready=%u\n", ready_ ? 1u : 0u);
+        if(sessionLock_)IOLockLock(sessionLock_);
         ready_=false;
+        const IOReturn displayClosed=closePresenter();
+        if(sessionLock_)IOLockUnlock(sessionLock_);
+        if(displayClosed!=kIOReturnSuccess) {
+            IOLog("M164 mali: retained display DMA resources status=0x%x\n",displayClosed);
+            return;
+        }
         if(sessions_) {
             IOLog("M153 mali: stop retains %u session(s) and hardware ownership\n",sessions_);
             return;
@@ -553,6 +592,238 @@ uint64_t gpuElapsedUs(uint64_t start)
     absolutetime_to_nanoseconds(mach_absolute_time()-start,&ns);
     return ns/1000;
 }
+}
+
+IOReturn NativeSprdMaliService::setupPresenter(bool verify)
+{
+    namespace Frame=SprdMaliPresent;
+    if(presenter_ || !(observation_.jsPresent&(1u<<2)))return kIOReturnNotReady;
+    auto *p=new Presenter;
+    if(!p)return kIOReturnNoMemory;
+    presenter_=p;
+    p->verify=verify;
+    p->pages.setOutputLimit(observation_.oas);
+    p->buffers.setOutputLimit(observation_.oas);
+    IOReturn status=mmu_.allocate(&p->as);
+    if(status==kIOReturnSuccess) {
+        p->allocated=true;
+        status=p->vm.prepare(&p->pages,observation_.ias,observation_.oas,false,&p->cache);
+    }
+    if(status==kIOReturnSuccess)status=p->packet.prepare(&p->buffers,Frame::JobBytes,false,&p->cache);
+    if(status==kIOReturnSuccess) {
+        Frame::initialize(p->packet.cpu());
+        status=p->vm.map(Frame::DestinationIova,Frame::DestinationPhysical,Frame::DestinationBytes,
+            NativeMaliVmWrite|NativeMaliVmCached|NativeMaliVmNoExec);
+    }
+    if(status==kIOReturnSuccess) {
+        // Even a partially programmed address space must be disabled before releasing pages.
+        p->enabled=true;
+        status=mmu_.enable(p->as,p->vm);
+    }
+    if(status==kIOReturnSuccess)
+        status=p->packet.map(&p->vm,&mmu_,p->as,Frame::JobIova);
+    if(status==kIOReturnSuccess) {
+        p->ready=true;
+        return status;
+    }
+    const IOReturn cleanup=closePresenter();
+    if(cleanup!=kIOReturnSuccess)
+        IOLog("M164 mali: setup cleanup status=0x%x\n",cleanup);
+    return status;
+}
+
+IOReturn NativeSprdMaliService::closePresenter()
+{
+    auto *p=presenter_;
+    if(!p)return kIOReturnSuccess;
+    p->ready=false;
+    if(p->pending.valid()) {
+        const IOReturn status=jobs_.abort(p->pending);
+        if(status!=kIOReturnSuccess)return status;
+        p->pending={};
+    }
+    if(p->sourceMapped) {
+        const IOReturn status=p->vm.unmap(SprdMaliPresent::SourceIova,
+            SprdMaliPresent::SourceBytes);
+        if(status!=kIOReturnSuccess)return status;
+        const IOReturn flushed=mmu_.flushRange(p->as,SprdMaliPresent::SourceIova,
+            SprdMaliPresent::SourceBytes);
+        if(flushed!=kIOReturnSuccess)return flushed;
+        p->sourceMapped=false;
+    }
+    if(p->packet.mapped()) {
+        const IOReturn status=p->packet.unmap();
+        if(status!=kIOReturnSuccess)return status;
+    }
+    if(p->enabled) {
+        const IOReturn status=mmu_.disable(p->as);
+        if(status!=kIOReturnSuccess)return status;
+        p->enabled=false;
+    }
+    if(p->packet.prepared()) {
+        const IOReturn status=p->packet.release();
+        if(status!=kIOReturnSuccess)return status;
+    }
+    p->vm.reset();
+    if(p->allocated) {
+        const IOReturn status=mmu_.release(p->as);
+        if(status!=kIOReturnSuccess)return status;
+        p->allocated=false;
+    }
+    if(p->source) {
+        const IOReturn status=p->source->complete(kIODirectionOut);
+        if(status!=kIOReturnSuccess)return status;
+        p->source->release();
+        p->source=nullptr;
+    }
+    presenter_=nullptr;
+    delete p;
+    return kIOReturnSuccess;
+}
+
+IOReturn NativeSprdMaliService::presentFrame(IOMemoryDescriptor *source,IOMemoryMap *scanout)
+{
+    namespace Frame=SprdMaliPresent;
+    if(!sessionLock_)return kIOReturnNotReady;
+    IOLockLock(sessionLock_);
+    auto *p=presenter_;
+    const IOReturn ret=[&]() -> IOReturn {
+        if(presenterFailed_)return kIOReturnUnsupported;
+        if(p && !p->ready) {
+            const IOReturn cleanup=closePresenter();
+            if(cleanup==kIOReturnSuccess) {
+                presenterFailed_=true;
+                return kIOReturnUnsupported;
+            }
+            return cleanup;
+        }
+        if(!ready_ || !p || !p->ready || isInactive())return kIOReturnNotReady;
+        if(jobs_.outstanding(2) || jobs_.faulted(2))return kIOReturnBusy;
+        const uint64_t start=mach_absolute_time();
+        const char *stage="wire";
+        uint64_t setupUs=0,waitUs=0,verifyUs=0;
+        size_t segments=0;
+        uint32_t mismatch=0;
+        const bool check=p->verify && p->frames<2;
+        IOMemoryMap *input=nullptr;
+        NativeMaliFence fence{};
+        NativeMaliJobCompletion completion{};
+        IOReturn status=[&]() -> IOReturn {
+            IOReturn rc=source->prepare(kIODirectionOut);
+            if(rc!=kIOReturnSuccess)return rc;
+            source->retain();
+            p->source=source;
+            stage="segments";
+            for(uint64_t offset=0;offset<Frame::SourceBytes;) {
+                IOByteCount length=0;
+                const addr64_t pa=source->getPhysicalSegment(offset,&length,kIOMemoryMapperNone);
+                if(length>Frame::SourceBytes-offset)length=Frame::SourceBytes-offset;
+                if(!Frame::sourceSpan(pa,length) || segments==NativeMaliMemoryMaxSpans)
+                    return kIOReturnBadArgument;
+                for(uint64_t i=0;i<length;i+=NativeMaliVmGranule)
+                    if(!pmap_valid_address(pa+i))return kIOReturnBadArgument;
+                p->spans[segments++]={offset,pa,length};
+                offset+=length;
+            }
+            stage="input-cache";
+            input=source->map(kIOMapAnywhere|kIOMapReadOnly|kIOMapCopybackCache);
+            if(!input || !input->getVirtualAddress() || input->getLength()<Frame::SourceBytes)
+                return kIOReturnNoMemory;
+            clean_dcache64(input->getVirtualAddress(),static_cast<unsigned>(Frame::SourceBytes),false);
+            stage="map";
+            rc=p->vm.mapSpans(Frame::SourceIova,Frame::SourceBytes,p->spans,segments,
+                NativeMaliVmRead|NativeMaliVmCached|NativeMaliVmNoExec);
+            if(rc!=kIOReturnSuccess)return rc;
+            p->sourceMapped=true;
+            rc=mmu_.flushRange(p->as,Frame::SourceIova,Frame::SourceBytes);
+            if(rc!=kIOReturnSuccess)return rc;
+            setupUs=gpuElapsedUs(start);
+
+            stage="submit";
+            memset(p->packet.cpu(),0,16);
+            rc=p->packet.cleanForDevice(0,Frame::JobBytes);
+            uint32_t flushId=0;
+            if(rc==kIOReturnSuccess)rc=core_.latestFlushId(&flushId);
+            const uint64_t jobStart=mach_absolute_time();
+            if(rc==kIOReturnSuccess)rc=jobs_.submit(2,Frame::JobIova,p->as,flushId,&fence);
+            if(rc!=kIOReturnSuccess)return rc;
+            p->pending=fence;
+            stage="wait";
+            rc=jobs_.waitForCompletion(2,&completion,50000);
+            waitUs=gpuElapsedUs(jobStart);
+            if(!jobs_.outstanding(2))p->pending={};
+            if(rc!=kIOReturnSuccess)return rc;
+            rc=p->packet.invalidateForCpu(0,Frame::JobBytes);
+            uint32_t shaderStatus=0;
+            if(rc==kIOReturnSuccess)memcpy(&shaderStatus,p->packet.cpu(),sizeof(shaderStatus));
+            if(rc!=kIOReturnSuccess || shaderStatus!=1)return kIOReturnIOError;
+            __asm__ volatile("dsb sy" ::: "memory");
+
+            if(check) {
+                stage="verify";
+                const uint64_t verifyStart=mach_absolute_time();
+                mismatch=Frame::countMismatches(
+                    reinterpret_cast<const uint32_t *>(input->getVirtualAddress()),
+                    reinterpret_cast<const volatile uint32_t *>(scanout->getVirtualAddress()));
+                verifyUs=gpuElapsedUs(verifyStart);
+                if(mismatch)return kIOReturnIOError;
+            }
+            stage="unmap";
+            rc=p->vm.unmap(Frame::SourceIova,Frame::SourceBytes);
+            if(rc==kIOReturnSuccess)p->sourceMapped=false;
+            if(rc==kIOReturnSuccess)rc=mmu_.flushRange(p->as,Frame::SourceIova,Frame::SourceBytes);
+            if(rc==kIOReturnSuccess)stage="complete";
+            return rc;
+        }();
+        OSSafeReleaseNULL(input);
+        if(status==kIOReturnSuccess) {
+            status=source->complete(kIODirectionOut);
+            if(status==kIOReturnSuccess) {
+                p->source->release();
+                p->source=nullptr;
+                const uint64_t frame=++p->frames;
+                if(frame<=12 || frame%120==0)
+                    IOLog("M164 mali: display frame=%llu fence=0x%llx spans=%lu setup_us=%llu wait_us=%llu verify_us=%llu total_us=%llu checked=%u mismatches=%u\n",
+                        frame,(UINT64_C(2)<<32)|fence.seqno,static_cast<unsigned long>(segments),
+                        setupUs,waitUs,verifyUs,gpuElapsedUs(start),check?Frame::Width*Frame::Height:0,mismatch);
+                return status;
+            }
+        }
+        // Do not return a failed frame to the producer. Until the AS is
+        // disabled, keep both the wired IOSurface and its page tables alive.
+        const bool inFlight=p->pending.valid();
+        NativeMaliMmuFault fault{};
+        if(fence.valid())(void)mmu_.readFault(p->as,&fault);
+        const uint64_t failures=++p->frames;
+        const IOReturn closed=closePresenter();
+        if(failures<=8 || failures%120==0)
+            IOLog("M164 mali: display failed n=%llu stage=%s status=0x%x js=0x%x as_fault=0x%x pending=%u cleanup=0x%x mismatches=%u\n",
+                failures,stage,status,completion.jsStatus,fault.status,inFlight?1u:0u,closed,mismatch);
+        if(closed==kIOReturnSuccess) {
+            presenterFailed_=true;
+            return kIOReturnUnsupported; // The caller may safely use its existing CPU presenter.
+        }
+        return closed; // Keep the source pinned if DMA could still be in flight.
+    }();
+    IOLockUnlock(sessionLock_);
+    return ret;
+}
+
+extern "C" IOReturn sprd_mali_present(IOMemoryDescriptor *source,IOMemoryMap *scanout,
+    uint64_t sourceStride,uint64_t destinationStride,uint32_t width,uint32_t height)
+{
+    if(!source || !scanout || !scanout->getVirtualAddress() ||
+        !SprdMaliPresent::supported(width,height,sourceStride,source->getLength(),
+            scanout->getPhysicalAddress(),destinationStride,scanout->getLength()))
+        return kIOReturnUnsupported;
+    OSDictionary *query=IOService::serviceMatching("NativeSprdMaliService");
+    if(!query)return kIOReturnNoMemory;
+    IOService *match=IOService::copyMatchingService(query);
+    query->release();
+    auto *mali=OSDynamicCast(NativeSprdMaliService,match);
+    const IOReturn status=!mali?kIOReturnUnsupported:mali->presentFrame(source,scanout);
+    OSSafeReleaseNULL(match);
+    return status;
 }
 
 IOReturn NativeSprdMaliService::exerciseSession()

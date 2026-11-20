@@ -289,14 +289,30 @@ static IOReturn checkRange(const NativeMaliVmGeometry &geometry, uint64_t iova,
 
 IOReturn NativeMaliVm::map(uint64_t iova, uint64_t paddr, uint64_t bytes, uint32_t prot)
 {
+    const NativeMaliVmSpan span{0,paddr,bytes};
+    return mapSpans(iova,bytes,&span,1,prot);
+}
+
+IOReturn NativeMaliVm::mapSpans(uint64_t iova,uint64_t bytes,const NativeMaliVmSpan *spans,
+    size_t count,uint32_t prot)
+{
     if(!prepared_)return kIOReturnNotReady;
     if(!(prot & (NativeMaliVmRead | NativeMaliVmWrite)))return kIOReturnBadArgument;
     if(prot & NativeMaliVmMmio && prot & NativeMaliVmCached)return kIOReturnBadArgument;
-    if(paddr & (NativeMaliVmGranule - 1))return kIOReturnBadArgument;
-    if(paddr + bytes < paddr)return kIOReturnBadArgument;
-    if(paddr + bytes > (UINT64_C(1) << geometry_.oas))return kIOReturnBadArgument;
     IOReturn result = checkRange(geometry_, iova, bytes);
     if(result != kIOReturnSuccess)return result;
+    if(!spans || !count || count>bytes/NativeMaliVmGranule)return kIOReturnBadArgument;
+    uint64_t covered=0;
+    const uint64_t physicalLimit=UINT64_C(1)<<geometry_.oas;
+    for(size_t i=0;i<count;++i) {
+        const auto &span=spans[i];
+        if(span.offset!=covered || !span.bytes || span.bytes>bytes-covered ||
+           ((span.physical|span.bytes)&(NativeMaliVmGranule-1)) ||
+           span.physical>=physicalLimit || span.bytes>physicalLimit-span.physical)
+            return kIOReturnBadArgument;
+        covered+=span.bytes;
+    }
+    if(covered!=bytes)return kIOReturnBadArgument;
     /* Two passes: refuse to overwrite anything, then write. A refusal therefore
      * leaves no half-applied range behind. Tables created by the check stay
      * allocated; only reset() takes them back. */
@@ -306,12 +322,15 @@ IOReturn NativeMaliVm::map(uint64_t iova, uint64_t paddr, uint64_t bytes, uint32
         if(result != kIOReturnSuccess)return result;
         if(*leaf)return kIOReturnBusy;
     }
-    for(uint64_t offset = 0; offset < bytes; offset += NativeMaliVmGranule) {
-        uint64_t *leaf = nullptr;
-        result = descend(iova + offset, &leaf);
-        if(result != kIOReturnSuccess)return result;
-        *leaf = encodeLeaf(paddr + offset, prot);
-        ++mapped_pages_;
+    for(size_t i=0;i<count;++i) {
+        const auto &span=spans[i];
+        for(uint64_t offset=0;offset<span.bytes;offset+=NativeMaliVmGranule) {
+            uint64_t *leaf=nullptr;
+            result=descend(iova+span.offset+offset,&leaf);
+            if(result!=kIOReturnSuccess)return result; // The validation pass installed every table.
+            *leaf=encodeLeaf(span.physical+offset,prot);
+            ++mapped_pages_;
+        }
     }
     /* Publish the leaves (and any table installed on the way down) before the
      * caller can program or flush anything. A failed publish takes the range
