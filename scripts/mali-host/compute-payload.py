@@ -96,12 +96,12 @@ def main():
     args = parser.parse_args()
     if args.present:
         HEADER = ROOT / "drivers/SprdPlatform/SprdMaliPresentPayload.h"
-        PARTS = (*PARTS[:-1], ("Code", 0x1000, 576))
+        PARTS = (*PARTS[:-1], ("Code", 0x1000, 256))
         BASE = 0x04000000
-        PAYLOAD_SHA256 = "35d5c183a52c84a8651e1d0ff401c82d88d9170472ab0fafc51753a19aed4c9a"
-        CODE_SHA256 = "e48edab4cccbc76626bf4ad578deaad219e1bcf6594093073236e492c6330546"
-        GRID = [16, 1, 1, 5, 1920, 1]
-        TASK_SPLIT = 7
+        PAYLOAD_SHA256 = "be03b64a67b2cfbe19344fa79a2299615212ce81ddee9016d9fce2332ad1ced5"
+        CODE_SHA256 = "0ed5d14a53523ae5e5cbd6ca638884afe3edd6b94c9912ca3e87c635a4634b67"
+        GRID = [64, 1, 1, 5, 1920, 1]
+        TASK_SPLIT = 9
         NAMESPACE = "SprdMaliPresentPayload"
     data = args.emit_from.read_bytes() if args.emit_from else read_header()
     check(data)

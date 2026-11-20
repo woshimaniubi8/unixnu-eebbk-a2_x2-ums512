@@ -24,7 +24,7 @@ enum {
    Destination = 0xc000,
    LocalX = 32,
    GroupsX = 128,
-   PresentLocalX = 16,
+   PresentLocalX = 64,
    PresentWidth = 1200,
    PresentHeight = 1920,
    PresentSourceStride = 4864,
@@ -68,13 +68,13 @@ int main(int argc, char **argv)
    nir_def *local = nir_channel(&b, nir_load_local_invocation_id(&b), 0);
    nir_def *index = nir_iadd(&b, nir_imul_imm(&b, group, local_x), local);
    if (present) {
-      /* Copy sixteen packed pixels per invocation without reading row padding. */
-      nir_push_if(&b, nir_ult_imm(&b, index, PresentWidth / 16));
+      /* Adjacent invocations copy adjacent 16-byte groups for coalesced memory traffic. */
+      nir_push_if(&b, nir_ult_imm(&b, index, PresentWidth / 4));
       nir_def *row = nir_channel(&b, nir_load_workgroup_id(&b), 1);
-      nir_def *column = nir_imul_imm(&b, index, 16 * 4);
+      nir_def *column = nir_imul_imm(&b, index, 4 * 4);
       nir_def *src_offset = nir_iadd(&b, nir_imul_imm(&b, row, PresentSourceStride), column);
       nir_def *dst_offset = nir_iadd(&b, nir_imul_imm(&b, row, PresentDestinationStride), column);
-      for (unsigned byte = 0; byte < 16 * 4; byte += 16) {
+      for (unsigned byte = 0; byte < 4 * 4; byte += 16) {
          nir_def *src = nir_iadd(&b, nir_imm_int64(&b, 0x04200000 + byte), nir_u2u64(&b, src_offset));
          nir_def *dst = nir_iadd(&b, nir_imm_int64(&b, 0x04c00000 + byte), nir_u2u64(&b, dst_offset));
          nir_def *value = nir_load_global(&b, 4, 32, src, .align_mul = 16);

@@ -1,0 +1,24 @@
+{
+  "boot_sha256": "64c0e2644a6a2044e8dc7c25c601304df4c0947d54b315727a25e4d9c4eb06bc",
+  "uart_sha256": "f1b5066ee4d339fb9145de0a6489f0321986f0144b142a5c92786680f898e68d",
+  "observed_post_flash_seconds": 1112.3,
+  "independently_decoded_clock_mhz": [
+    [
+      384.0,
+      384.0,
+      192.0
+    ]
+  ],
+  "gpu_display_copy_qualified": true,
+  "gpu_warm_present_median_us": 9677.5,
+  "gpu_hardware_compositor_qualified": false,
+  "kernel_panics": [],
+  "kernel_sha256": "08b707fb708ae14a09ddce48f342b4d508ce97fcca76c1198383b706c613ede1",
+  "mesa_present_shader_sha256": "0ed5d14a53523ae5e5cbd6ca638884afe3edd6b94c9912ca3e87c635a4634b67",
+  "tested_real_frames": 12,
+  "source_stride": 4864,
+  "scanout_stride": 4800,
+  "verified_pixels_per_first_two_frames": 2304000,
+  "compile_mode": "Mesa G52 r1 NIR; four BGRA pixels per thread; 64 threads per workgroup",
+  "verification_scope": "GPU scanout copy only; original CPU compositor remains; Metal transport not connected"
+}
