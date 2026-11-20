@@ -1,0 +1,96 @@
+name: G52 Metal frontend build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: macos-26
+    timeout-minutes: 150
+    env:
+      JOBS: 4
+      CCACHE_DIR: ${{ github.workspace }}/.mali-metal-ccache
+      CCACHE_MAXSIZE: 2G
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_NOHASHDIR: "true"
+      VIVA_CCACHE: ccache
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: device
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.6'
+      - name: Fetch exact frontend and Mesa sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init -q viva-gpu
+          git -C viva-gpu remote add origin https://github.com/Nik300/viva-gpu.git
+          git -C viva-gpu fetch -q --depth 1 origin 9ebe5e46f74f6d75fce1d76b2ea4ea603cb63637
+          git -C viva-gpu checkout -q --detach FETCH_HEAD
+          mkdir -p viva-gpu/mesa/src
+          git -C viva-gpu/mesa/src init -q
+          git -C viva-gpu/mesa/src remote add origin https://gitlab.freedesktop.org/mesa/mesa.git
+          git -C viva-gpu/mesa/src fetch -q --depth 1 origin 8e87a503ebd91408c88596d1b9eeb5f4c0b2088d
+          git -C viva-gpu/mesa/src checkout -q --detach FETCH_HEAD
+          python3 device/scripts/prepare-mali-metal-source.py viva-gpu
+      - name: Install upstream build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install llvm spirv-llvm-translator spirv-tools zstd pkgconf ccache
+          echo "BREW_PREFIX=$(brew --prefix)" >> "$GITHUB_ENV"
+          echo "LLVM_PREFIX=$(brew --prefix llvm)" >> "$GITHUB_ENV"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+      - uses: actions/cache@v4
+        with:
+          path: .mali-metal-ccache
+          key: mali-metal-g52-mesa2626-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: mali-metal-g52-mesa2626-${{ runner.arch }}-
+      - name: Build upstream host compiler tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash viva-gpu/mesa/build.sh macos-nosmoke 2>&1 | tee mesa-host.log
+      - name: Build real iOS Panfrost frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash viva-gpu/ios/build.sh mesa 2>&1 | tee mesa-ios.log
+          bash viva-gpu/ios/build.sh driver 2>&1 | tee metal-driver.log
+          bash viva-gpu/ios/build.sh tests 2>&1 | tee metal-tests.log
+      - name: Verify bundle format and signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle=viva-gpu/ios/out/VivaMTLDriver.bundle
+          file "$bundle/VivaMTLDriver"
+          lipo -verify_arch arm64 "$bundle/VivaMTLDriver"
+          codesign --verify --strict --verbose=2 "$bundle"
+          codesign -d --verbose=4 "$bundle" 2>signature.txt
+          otool -L "$bundle/VivaMTLDriver" > dependencies.txt
+          git -C viva-gpu diff --binary > g52-frontend.patch
+          shasum -a 256 "$bundle"/* viva-gpu/g52-source-receipt.json > SHA256SUMS
+          echo 'Build-only frontend: no kernel Viva UAPI, original IOSurface fence contract, or Metal runtime qualification is claimed.' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: g52-metal-frontend
+          path: |
+            viva-gpu/ios/out/VivaMTLDriver.bundle/
+            viva-gpu/ios/out/tests/
+            viva-gpu/g52-source-receipt.json
+            viva-gpu/COPYING*
+            viva-gpu/LICENSE*
+            *.log
+            signature.txt
+            dependencies.txt
+            g52-frontend.patch
+            SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
