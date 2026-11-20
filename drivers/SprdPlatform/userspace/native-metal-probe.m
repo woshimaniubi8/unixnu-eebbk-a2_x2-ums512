@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <objc/runtime.h>
 @interface NSObject (NativeMaliDevice)
 - (instancetype)initWithDriver:(const char *)driver;
 @end
@@ -25,15 +26,23 @@ int main(int argc,char **argv) {
     setvbuf(stdout,NULL,_IONBF,0);setvbuf(stderr,NULL,_IONBF,0);
     printf("nm metal: Foundation ready\n");
     if(argc!=3){fprintf(stderr,"usage: native-metal-probe BUNDLE SHADERS.metallib\n");return 64;}
-    NSBundle *bundle=[NSBundle bundleWithPath:@(argv[1])];NSError *error=nil;
-    printf("nm metal: bundle load begin\n");
-    if(![bundle loadAndReturnError:&error]){fprintf(stderr,"nm metal: bundle %s\n",error.description.UTF8String);return 1;}
+    char executable[1024];
+    int pathBytes=snprintf(executable,sizeof(executable),"%s/VivaMTLDriver",argv[1]);
+    if(pathBytes<0 || (size_t)pathBytes>=sizeof(executable))return 64;
+    printf("nm metal: dlopen begin path=%s\n",executable);
+    void *image=dlopen(executable,RTLD_NOW|RTLD_LOCAL);
+    if(!image){fprintf(stderr,"nm metal: dlopen %s\n",dlerror());return 1;}
     printf("nm metal: bundle loaded\n");
-    void *image=dlopen(bundle.executablePath.fileSystemRepresentation,RTLD_NOW|RTLD_LOCAL);
+    NSError *error=nil;
     const char *(*backend)(void)=image?dlsym(image,"vgpu_backend_name"):NULL;
     void (*counters)(uint64_t *,uint64_t *)=image?dlsym(image,"vgpu_counters"):NULL;
     if(!backend || !counters || strcmp(backend(),"native-mali")){fprintf(stderr,"nm metal: physical backend missing\n");return 2;}
-    Class cls=[bundle classNamed:@"VMDevice"];
+    Class cls=objc_getClass("VMDevice");
+    const char *classImage=cls?class_getImageName(cls):NULL;
+    const char *imageName=classImage?strrchr(classImage,'/'):NULL;
+    if(!imageName || strcmp(imageName+1,"VivaMTLDriver")){
+        fprintf(stderr,"nm metal: VMDevice did not come from the loaded driver\n");return 3;
+    }
     printf("nm metal: Panfrost device init begin\n");
     id<MTLDevice> device=cls?[[cls alloc] initWithDriver:"panfrost"]:nil;
     if(!device){fprintf(stderr,"nm metal: real Panfrost device init failed\n");return 3;}
