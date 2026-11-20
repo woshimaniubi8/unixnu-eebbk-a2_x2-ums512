@@ -27,6 +27,14 @@ def array(text,name):
 def canonical(value):
     return hashlib.sha256(plistlib.dumps(value,fmt=plistlib.FMT_BINARY,sort_keys=True)).hexdigest()
 
+def compress_cache(data):
+    # Keep the standard zlib format; a smaller encoder hash workspace is
+    # measurably better for this binary plist than zlib's default workspace.
+    encoder=zlib.compressobj(9,zlib.DEFLATED,zlib.MAX_WBITS,7)
+    packed=encoder.compress(data)+encoder.flush()
+    if zlib.decompress(packed)!=data:raise ValueError('Cache compression roundtrip')
+    return packed
+
 def job():
     return plistlib.loads((ROOT/'drivers/SprdPlatform/userspace/mali-metal-job.plist').read_bytes())
 
@@ -61,7 +69,7 @@ def prepare(path):
     validate(config,True)
     modified=plistlib.dumps(config,fmt=plistlib.FMT_BINARY,sort_keys=True)
     after=before
-    for name,data,fixed in [('packed',zlib.compress(modified,9),False),('modified_sha',hashlib.sha256(modified).digest(),True)]:
+    for name,data,fixed in [('packed',compress_cache(modified),False),('modified_sha',hashlib.sha256(modified).digest(),True)]:
         pattern=r'(?s)\+    static const uint8_t '+name+r'\[(?:32)?\] = \{.*?\n\+    \};'
         after,count=re.subn(pattern,lambda _:c_array(name,data,fixed),after)
         if count!=1:raise ValueError('Ambiguous cache replacement')
