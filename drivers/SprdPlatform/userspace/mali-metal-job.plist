@@ -12,9 +12,9 @@
 	<string>System</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/private/var/ngpu/bin/mali-user-probe</string>
-		<string>/private/var/ngpu/addons/VivaMTLDriver.bundle</string>
-		<string>/private/var/ngpu/mali-metal/native-metal-probe.metallib</string>
+		<string>/System/Library/Extensions/mali-user-probe</string>
+		<string>/System/Library/Extensions/VivaMTLDriver.bundle</string>
+		<string>/System/Library/Extensions/native-metal-probe.metallib</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>

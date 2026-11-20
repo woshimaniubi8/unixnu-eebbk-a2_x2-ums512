@@ -12,6 +12,9 @@ on:
       signature_only:
         type: boolean
         default: false
+      prepare_deployment:
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -19,7 +22,7 @@ permissions:
 
 jobs:
   frontend:
-    if: ${{ !inputs.signature_only }}
+    if: ${{ !inputs.signature_only && !inputs.prepare_deployment }}
     runs-on: macos-26
     timeout-minutes: 150
     env:
@@ -142,7 +145,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   signature:
-    if: ${{ inputs.signature_only }}
+    if: ${{ inputs.signature_only || inputs.prepare_deployment }}
     runs-on: macos-26-intel
     timeout-minutes: 15
     steps:
@@ -152,11 +155,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: g52-metal-frontend
-          run-id: 44743450966
+          run-id: ${{ inputs.prepare_deployment && 44772957799 || 44743450966 }}
           github-token: ${{ github.token }}
           path: frontend
       - name: Verify original bytes and re-sign only the owned probe
-        run: python3 device/scripts/resign-mali-metal-probe.py frontend
+        run: python3 device/scripts/${{ inputs.prepare_deployment && 'prepare-mali-metal-deployment.py' || 'resign-mali-metal-probe.py' }} frontend
       - uses: actions/upload-artifact@v4
         with:
           name: g52-metal-frontend

@@ -13,7 +13,10 @@ previous=m.validate(config,True)
 assert len(previous['LaunchDaemons'])==561 and len(config['LaunchDaemons'])==562
 entry=config['LaunchDaemons'][m.JOB_PATH]
 assert entry['RunAtLoad'] is True and entry['LaunchOnlyOnce'] is True and entry['KeepAlive'] is False
-assert entry['ProgramArguments'][0]=='/private/var/ngpu/bin/mali-user-probe'
+assert entry['ProgramArguments']==[
+    '/System/Library/Extensions/mali-user-probe',
+    '/System/Library/Extensions/VivaMTLDriver.bundle',
+    '/System/Library/Extensions/native-metal-probe.metallib']
 # Match the original logd job's explicit system-session constraint. Merely
 # omitting UserName does not prevent the cached iOS per-user import.
 assert entry['LimitLoadToSessionType']=='System'

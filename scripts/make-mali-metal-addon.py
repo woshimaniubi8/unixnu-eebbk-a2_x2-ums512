@@ -177,8 +177,10 @@ def main():
         files.append(('addons/VivaMTLDriver.bundle/'+path.relative_to(bundle).as_posix(),0o755 if path.name=='VivaMTLDriver' else 0o644,read(path)))
     # Match the existing diagnostic write tracer by basename, without altering
     # the signed binary, its identifier, service class, or client permissions.
-    files.append(('bin/mali-user-probe',0o755,probe))
-    files.append(('mali-metal/native-metal-probe.metallib',0o644,read(out/'tests/native-metal-probe.metallib')))
+    # This readonly bind view pins the APFS source before phase-2 covers /var
+    # with tmpfs. Execute the trusted file, not the later tmpfs template copy.
+    files.append(('addons/mali-user-probe',0o755,probe))
+    files.append(('addons/native-metal-probe.metallib',0o644,read(out/'tests/native-metal-probe.metallib')))
     cache=module('owner_metal_cache',ROOT/'scripts/prepare-mali-metal-launchd.py')
     packed_cache,raw_cache,_=cache.verified_cache((ROOT/'patches/xnu/bbk-a2-splashboard-prewarm.patch').read_text())
     if packed_cache not in a.kernel.read_bytes():
