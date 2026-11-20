@@ -7,7 +7,7 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-#include <IOSurface/IOSurface.h>
+#include <IOSurface/IOSurfaceRef.h>
 extern CFMutableDictionaryRef IOServiceNameMatching(const char *);
 struct iokit_connection { io_connect_t port; };
 static int error(kern_return_t kr)

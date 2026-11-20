@@ -62,6 +62,8 @@ jobs:
           clang="$(xcrun --sdk iphoneos -f clang)"
           "$clang" -target arm64-apple-ios17.0 -isysroot "$sdk" -fobjc-arc -Wall -Wextra -Werror \
             -fsyntax-only viva-gpu/ios/native-metal-probe.m
+          "$clang" -target arm64-apple-ios17.0 -isysroot "$sdk" -std=c11 -Wall -Wextra -Werror \
+            -fsyntax-only viva-gpu/vgpu/vgpu_iokit.c
       - name: Install upstream build dependencies
         shell: bash
         run: |
