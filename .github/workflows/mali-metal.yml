@@ -2,6 +2,7 @@ name: G52 Metal frontend build
 
 on:
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read

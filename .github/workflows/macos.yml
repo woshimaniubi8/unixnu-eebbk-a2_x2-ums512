@@ -20,6 +20,7 @@ on:
           - kernel
           - kernel payload
           - mali probe
+          - mali metal
         default: kernel payload
       runner:
         description: Official GitHub macOS runner pool; all kernels/components explicitly target ARM64 regardless of host CPU
@@ -68,7 +69,7 @@ defaults:
 
 jobs:
   kernel:
-    if: inputs.steps != 'mali probe'
+    if: inputs.steps != 'mali probe' && inputs.steps != 'mali metal'
     name: XNU kernel + payload
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 360
@@ -575,6 +576,10 @@ jobs:
             device/build/mali-user-probe/
           if-no-files-found: error
           retention-days: 3
+
+  mali_metal:
+    if: inputs.steps == 'mali metal'
+    uses: ./.github/workflows/mali-metal.yml
 
   mali_probe:
     if: inputs.steps == 'mali probe'
