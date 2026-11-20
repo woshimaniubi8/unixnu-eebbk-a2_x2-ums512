@@ -34,7 +34,11 @@ def main():
         before = args.kern_exec.read_text(encoding="utf-8")
     else:
         filler = "/* Other code in kern_exec.c. */\n" * 64
-        before = filler + module.HELPER_CONTEXT + filler + module.CALL_CONTEXT + filler
+        data_context = (
+            "\tint data_error = native_owner_data_prepare(p, (user_addr_t)scratch_addr);\n"
+            "\tif (data_error) panic(\"offline scratch Data mount failed: %d\", data_error);\n"
+            "#endif\n")
+        before = filler + module.HELPER_CONTEXT + filler + data_context + module.CALL_CONTEXT + filler
     with tempfile.TemporaryDirectory(prefix="bbk-mali-stage-") as directory:
         tree = Path(directory)
         source = tree / "bsd/kern/kern_exec.c"

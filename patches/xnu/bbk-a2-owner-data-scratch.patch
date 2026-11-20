@@ -1,0 +1,28 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -26900,4 +26900,23 @@
+ #if defined(XNU_OWNER_DATA_MOUNT) && XNU_OWNER_DATA_MOUNT
+-	int data_error = native_owner_data_prepare(p, (user_addr_t)scratch_addr);
++	/* Cache envp borrows the init scratch until exec. Data/addon mount records
++	 * must not overwrite that live user pointer vector at scratch + 0x500. */
++	uint64_t cache_env_before = 0, cache_env_after = 0;
++	if (init_envp && copyin(init_envp, &cache_env_before, sizeof(cache_env_before)))
++		panic("M177 boot: cache env unreadable before Data prepare");
++	mach_vm_offset_t data_scratch_addr = 0;
++	kern_return_t data_scratch_kr = mach_vm_allocate_kernel(map, &data_scratch_addr,
++	    map_page_size, VM_FLAGS_ANYWHERE, VM_KERN_MEMORY_NONE);
++	if (data_scratch_kr != KERN_SUCCESS)
++		panic("M177 boot: Data scratch allocation failed: %d", data_scratch_kr);
++	int data_error = native_owner_data_prepare(p, (user_addr_t)data_scratch_addr);
++	int cache_env_error = init_envp ? copyin(init_envp, &cache_env_after, sizeof(cache_env_after)) : 0;
++	kern_return_t data_scratch_free = mach_vm_deallocate(map, data_scratch_addr, map_page_size);
++	printf("M177 boot: cache_scratch=0x%llx data_scratch=0x%llx bytes=0x%llx envp=0x%llx env0=0x%llx unchanged=%u free=%d data_error=%d\n",
++	    (unsigned long long)scratch_addr, (unsigned long long)data_scratch_addr,
++	    (unsigned long long)map_page_size, (unsigned long long)init_envp,
++	    (unsigned long long)cache_env_after, !cache_env_error && cache_env_before == cache_env_after,
++	    data_scratch_free, data_error);
+-	if (data_error) panic("offline scratch Data mount failed: %d", data_error);
++	if (data_error) panic("offline scratch Data mount failed: %d", data_error);
++	if (cache_env_error || cache_env_before != cache_env_after || data_scratch_free != KERN_SUCCESS)
++		panic("M177 boot: Data scratch lifecycle or cache environment changed");
+ #endif

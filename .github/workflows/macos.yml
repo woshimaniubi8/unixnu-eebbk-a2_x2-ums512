@@ -289,6 +289,7 @@ jobs:
             device/build/mali-user-probe/mali-user-probe
           python3 device/scripts/test-mali-probe-boot.py device/build/mali-user-probe/mali-user-probe
           python3 device/scripts/tests/test-mali-probe-trust.py
+          python3 device/scripts/test-owner-data-scratch.py
           python3 device/scripts/prepare-mali-probe-boot.py \
             --probe device/build/mali-user-probe/mali-user-probe \
             --output device/patches/xnu/bbk-a2-mali-user-stage.patch \

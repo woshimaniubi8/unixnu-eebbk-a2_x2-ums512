@@ -26,9 +26,6 @@ HELPER_CONTEXT = (
     "{\n"
 )
 CALL_CONTEXT = (
-    "\tint data_error = native_owner_data_prepare(p, (user_addr_t)scratch_addr);\n"
-    "\tif (data_error) panic(\"offline scratch Data mount failed: %d\", data_error);\n"
-    "#endif\n"
     "#if CONFIG_MEMORYSTATUS\n"
     "\t(void) memorystatus_init_at_boot_snapshot();\n"
     "#endif /* CONFIG_MEMORYSTATUS */\n"
