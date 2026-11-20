@@ -4,6 +4,7 @@ import argparse
 import difflib
 import hashlib
 import json
+import plistlib
 import re
 import struct
 import subprocess
@@ -13,6 +14,10 @@ from pathlib import Path
 PROBE_PATH = "/private/var/ngpu/mali-user/mali-user-probe"
 BOOT_ARG = "bbk-mali-userspace"
 HARD_PAGEZERO = 0x100000000
+PROBE_ENTITLEMENTS = {
+    "com.apple.private.security.no-container": True,
+    "com.apple.security.iokit-user-client-class": ["NativeSprdMaliUserClient"],
+}
 TEMPLATE = Path(__file__).with_name("tools") / "mali-user-stage.inc"
 HELPER_CONTEXT = (
     "}\n#endif\n\n"
@@ -131,9 +136,15 @@ def main():
     cdhash = re.search(r"^CDHash=([0-9a-f]{40})$", details, re.M)
     if not cdhash or "Page size=4096" not in details:
         raise ValueError("expected a signed probe with 4 KiB signature pages")
+    entitlement_blob = subprocess.check_output(
+        ["codesign", "-d", "--entitlements", ":-", str(args.probe)], stderr=subprocess.DEVNULL)
+    actual_entitlements = plistlib.loads(entitlement_blob)
+    if actual_entitlements != PROBE_ENTITLEMENTS:
+        raise ValueError("probe requires exactly its own IOKit client class and no-container grant")
     patch, report = generate(args.probe.read_bytes())
     report["cdhash"] = cdhash[1]
     report["codesign_verified"] = True
+    report["entitlements"] = actual_entitlements
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(patch, encoding="utf-8", newline="\n")
     args.report.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")

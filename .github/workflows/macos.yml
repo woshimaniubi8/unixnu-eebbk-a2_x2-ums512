@@ -285,6 +285,7 @@ jobs:
             device/scripts/tools/mali-user-probe.cpp -framework CoreFoundation -framework IOKit \
             -Wl,-pagezero_size,0x100000000 -o device/build/mali-user-probe/mali-user-probe
           codesign --force --sign - --pagesize 4096 --identifier org.unixnu.bbk.mali-probe \
+            --entitlements device/scripts/tools/mali-user-probe.entitlements.plist \
             device/build/mali-user-probe/mali-user-probe
           python3 device/scripts/test-mali-probe-boot.py device/build/mali-user-probe/mali-user-probe
           python3 device/scripts/prepare-mali-probe-boot.py \
@@ -598,7 +599,8 @@ jobs:
             -Wall -Wextra -Werror -F"$sdk/System/Library/PrivateFrameworks" \
             scripts/tools/mali-user-probe.cpp -framework CoreFoundation -framework IOKit \
             -Wl,-pagezero_size,0x100000000 -o out/mali-user-probe
-          codesign --force --sign - --pagesize 4096 --identifier org.unixnu.bbk.mali-probe out/mali-user-probe
+          codesign --force --sign - --pagesize 4096 --identifier org.unixnu.bbk.mali-probe \
+            --entitlements scripts/tools/mali-user-probe.entitlements.plist out/mali-user-probe
           codesign --verify --strict --verbose=2 out/mali-user-probe
           codesign -d --verbose=4 out/mali-user-probe 2>out/signature.txt
           shasum -a 256 out/mali-user-probe | tee out/SHA256SUMS
