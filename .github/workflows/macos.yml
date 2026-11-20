@@ -21,6 +21,7 @@ on:
           - kernel payload
           - mali probe
           - mali metal
+          - mali metal signature
         default: kernel payload
       runner:
         description: Official GitHub macOS runner pool; all kernels/components explicitly target ARM64 regardless of host CPU
@@ -70,7 +71,7 @@ defaults:
 
 jobs:
   kernel:
-    if: inputs.steps != 'mali probe' && inputs.steps != 'mali metal'
+    if: inputs.steps != 'mali probe' && inputs.steps != 'mali metal' && inputs.steps != 'mali metal signature'
     name: XNU kernel + payload
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 360
@@ -583,8 +584,10 @@ jobs:
           retention-days: 3
 
   mali_metal:
-    if: inputs.steps == 'mali metal'
+    if: inputs.steps == 'mali metal' || inputs.steps == 'mali metal signature'
     uses: ./.github/workflows/mali-metal.yml
+    with:
+      signature_only: ${{ inputs.steps == 'mali metal signature' }}
 
   mali_probe:
     if: inputs.steps == 'mali probe'
