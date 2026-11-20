@@ -24,11 +24,18 @@ int main()
     };
     assert(rate(0x101)==13 && rate(work.coreWord)==384 && rate(work.memoryWord)==384);
     assert(rate(work.memoryWord)/(((work.systemWord>>4)&7)+1)==192);
+    assert(!profileSupplyReady(work,699999) && profileSupplyReady(work,700000));
+    ClockProfile fast;
+    assert(clockProfile(768,fast) && fast.minimumMicrovolts==800000);
+    assert(rate(fast.coreWord)==768 && rate(fast.memoryWord)==768);
+    assert(rate(fast.memoryWord)/(((fast.systemWord>>4)&7)+1)==384);
+    assert(!profileSupplyReady(fast,799999) && profileSupplyReady(fast,800000));
+    assert(!profileSupplyReady(ClockProfile{},800000));
     assert(!factorySupplyReady(0,223) && factorySupplyReady(0,224));
     assert(!factorySupplyReady(8,256) && factorySupplyReady(0,256));
     for(uint32_t bits=0;bits<65536;++bits) {
         assert(((((bits&~0x771u)|work.coreWord)^bits)&~0x771u)==0);
         assert(((((bits&~0x71u)|work.systemWord)^bits)&~0x71u)==0);
     }
-    puts("PASS: factory 384 MHz OPP, 700 mV minimum, SYS divider and unrelated clock bits");
+    puts("PASS: factory 384/768 MHz OPPs, measured 700/800 mV requirements, SYS divider and unrelated clock bits");
 }

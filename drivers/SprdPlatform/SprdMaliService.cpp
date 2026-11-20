@@ -88,6 +88,7 @@ class NativeSprdMaliService final : public IOService {
     NativeMaliJobSlot jobs_;
     NativeMaliGpuObservation observation_{};
     bool factorySupplyQualified_ = false;
+    uint32_t factorySupplyMicrovolts_ = 0;
     bool powerAcquired_ = false;
     uint32_t savedGpuInterruptMask_ = 0;
     bool gpuInterruptMaskSaved_ = false;
@@ -165,7 +166,10 @@ class NativeSprdMaliService final : public IOService {
     }
 
 public:
-    void setFactorySupplyQualified(bool qualified) { factorySupplyQualified_ = qualified; }
+    void setFactorySupplyMicrovolts(uint32_t microvolts) {
+        factorySupplyMicrovolts_=microvolts;
+        factorySupplyQualified_=microvolts>=700000;
+    }
     bool start(IOService *provider) override
     {
         if(!IOService::start(provider))return false;
@@ -203,13 +207,16 @@ public:
         }
         uint32_t coreMHz=26;
         PE_parse_boot_argn("bbk-mali-clock",&coreMHz,sizeof(coreMHz));
-        IOReturn result = power_->acquire(factorySupplyQualified_,coreMHz);
+        SprdMali::ClockProfile profile;
+        const bool knownProfile=SprdMali::clockProfile(coreMHz,profile);
+        const bool voltageQualified=knownProfile && factorySupplyQualified_ &&
+            SprdMali::profileSupplyReady(profile,factorySupplyMicrovolts_);
+        IOReturn result = knownProfile?power_->acquire(voltageQualified,coreMHz):kIOReturnBadArgument;
         powerAcquired_ = result == kIOReturnSuccess;
         if(result==kIOReturnSuccess) {
-            SprdMali::ClockProfile profile;
-            if(SprdMali::clockProfile(coreMHz,profile))
-                IOLog("M165 mali: factory clock core=%u mem=%u sys=%u MHz voltage_qualified=%u\n",
-                    profile.coreMHz,profile.memoryMHz,profile.systemMHz,factorySupplyQualified_?1u:0u);
+            IOLog("M165 mali: factory clock core=%u mem=%u sys=%u MHz voltage_qualified=%u supply_uv=%u minimum_uv=%u\n",
+                profile.coreMHz,profile.memoryMHz,profile.systemMHz,voltageQualified?1u:0u,
+                factorySupplyMicrovolts_,profile.minimumMicrovolts);
         }
         IOLog("M150 mali: power acquire=0x%x factory_supply=%u pmu=0x%x aon=0x%x clocks=0x%x/0x%x/0x%x\n",
             result, factorySupplyQualified_ ? 1u : 0u,
@@ -1050,12 +1057,12 @@ IOReturn NativeSprdMaliService::exerciseFullFrame()
     return result;
 }
 
-extern "C" IOService *sprd_mali_service_create(bool factorySupplyQualified)
+extern "C" IOService *sprd_mali_service_create(uint32_t factorySupplyMicrovolts)
 {
     auto *service = new NativeSprdMaliService;
     if(!service)return nullptr;
     if(!service->init()){service->release();return nullptr;}
-    service->setFactorySupplyQualified(factorySupplyQualified);
+    service->setFactorySupplyMicrovolts(factorySupplyMicrovolts);
     return service;
 }
 

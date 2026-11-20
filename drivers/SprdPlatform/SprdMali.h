@@ -14,14 +14,20 @@ inline bool factorySupplyReady(uint16_t pd,uint16_t selector){
 struct ClockProfile {
     uint32_t coreMHz=0,memoryMHz=0,systemMHz=0;
     uint32_t coreWord=0,memoryWord=0,systemWord=0;
+    uint32_t minimumMicrovolts=0;
 };
 inline bool clockProfile(uint32_t coreMHz,ClockProfile &out){
     // Linux ums512-clk.c + composite.h: MUX [6:4], divider [10:8], gate [0].
-    // Parent 0 is ext-26m; parent 1 is twpll-384m. SYS divides MEM.
-    // The shipped DT's minimum GPU OPP is 384 MHz / 700000 uV.
-    if(coreMHz==26){out={26,26,26,1,1,1};return true;}
-    if(coreMHz==384){out={384,384,192,0x11,0x11,0x11};return true;}
+    // Parents 0/1/4 are ext-26m, twpll-384m and twpll-768m. SYS divides MEM.
+    // Original board DT OPPs: 384 MHz / 700000 uV; 768 MHz / 800000 uV.
+    // This driver never changes PMIC voltage to make a clock profile qualify.
+    if(coreMHz==26){out={26,26,26,1,1,1,700000};return true;}
+    if(coreMHz==384){out={384,384,192,0x11,0x11,0x11,700000};return true;}
+    if(coreMHz==768){out={768,768,384,0x41,0x41,0x11,800000};return true;}
     return false;
+}
+inline bool profileSupplyReady(const ClockProfile &profile,uint32_t measuredMicrovolts){
+    return profile.minimumMicrovolts>=700000 && measuredMicrovolts>=profile.minimumMicrovolts;
 }
 template<class IO> class Probe {
     IO &pmu,&aon,&clock,&gpu;
