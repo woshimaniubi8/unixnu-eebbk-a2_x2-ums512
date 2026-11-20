@@ -20,6 +20,7 @@ assert entry['ProgramArguments']==[
 # Match the original logd job's explicit system-session constraint. Merely
 # omitting UserName does not prevent the cached iOS per-user import.
 assert entry['LimitLoadToSessionType']=='System'
+assert entry['MachServices']=={'org.unixnu.bbk.mali-metal.surface':True}
 assert 'UserName' not in entry and 'GroupName' not in entry
 tampered=copy.deepcopy(config)
 tampered['LaunchDaemons'][next(iter(previous['LaunchDaemons']))]['RunAtLoad']='modified'

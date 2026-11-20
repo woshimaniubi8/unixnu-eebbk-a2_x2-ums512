@@ -96,13 +96,13 @@ jobs:
           sdk="$(xcrun --sdk iphoneos --show-sdk-path)"
           clang="$(xcrun --sdk iphoneos -f clang)"
           "$clang" -target arm64-apple-ios17.0 -isysroot "$sdk" -fobjc-arc -O2 -Wall -Wextra -Werror \
-            viva-gpu/ios/native-metal-probe.m -framework Foundation -framework Metal \
+            viva-gpu/ios/native-metal-probe.m -framework Foundation -framework Metal -framework IOSurface \
             -o viva-gpu/ios/out/tests/native-metal-probe
           xcrun --sdk iphoneos metal -target air64-apple-ios17.0 -c viva-gpu/ios/native-metal-probe.metal \
             -o viva-gpu/ios/out/tests/native-metal-probe.air
           xcrun --sdk iphoneos metallib viva-gpu/ios/out/tests/native-metal-probe.air \
             -o viva-gpu/ios/out/tests/native-metal-probe.metallib
-          codesign -s - -f --entitlements viva-gpu/ios/native-metal-probe.entitlements \
+          codesign -s - -f --pagesize 4096 --identifier native-metal-probe-5555494489c159357fe23e76b7d9b3b59930e92b --entitlements viva-gpu/ios/native-metal-probe.entitlements \
             viva-gpu/ios/out/tests/native-metal-probe
           codesign -d --entitlements :- viva-gpu/ios/out/tests/native-metal-probe \
             > native-metal-entitlements.plist 2> native-metal-signature.txt
@@ -110,6 +110,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 device/scripts/prepare-mali-metal-deployment.py . --fresh-build
           bundle=viva-gpu/ios/out/VivaMTLDriver.bundle
           file "$bundle/VivaMTLDriver"
           lipo "$bundle/VivaMTLDriver" -verify_arch arm64

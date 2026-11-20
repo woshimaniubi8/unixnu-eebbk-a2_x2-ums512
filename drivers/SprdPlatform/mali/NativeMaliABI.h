@@ -105,7 +105,9 @@ enum {
     NativeMaliMethodReset = 11,
     NativeMaliMethodGetParam = 12,
     NativeMaliMethodBoCacheSync = 13,
-    NativeMaliMethodLast = NativeMaliMethodBoCacheSync,
+    NativeMaliMethodBoImportUser = 14,
+    NativeMaliMethodBoWaitShared = 15,
+    NativeMaliMethodLast = NativeMaliMethodBoWaitShared,
 
     /* The single page size the MMU layer maps. */
     NativeMaliAbiPageBytes = 4096,
@@ -275,6 +277,17 @@ struct NativeMaliAbiBoCacheSync {
     uint32_t reserved;
 };
 
+/* Pin this connection's task pages, without copying or granting execution.
+ * The XNU adapter requires whole host pages; GPU mappings must be NOEXEC.
+ * The returned BO owns the pinned memory until its jobs and mappings retire. */
+struct NativeMaliAbiBoImportUser {
+    uint64_t address;
+    uint64_t bytes;
+    uint32_t flags;
+    uint32_t reserved;
+};
+struct NativeMaliAbiBoWaitShared { uint64_t handle; };
+
 #if defined(__cplusplus)
 static_assert(sizeof(NativeMaliAbiQuery) == 24, "Mali ABI query layout");
 static_assert(sizeof(NativeMaliAbiDeviceInfo) == NativeMaliAbiDeviceInfoBytes,
@@ -295,5 +308,7 @@ static_assert(sizeof(NativeMaliAbiWaitFence) == 16, "Mali ABI wait layout");
 static_assert(sizeof(NativeMaliAbiStatus) == 16, "Mali ABI status layout");
 static_assert(sizeof(NativeMaliAbiParam) == 16, "Mali ABI parameter layout");
 static_assert(sizeof(NativeMaliAbiBoCacheSync) == 32, "Mali ABI cache range layout");
+static_assert(sizeof(NativeMaliAbiBoImportUser) == 24, "Mali ABI user import layout");
+static_assert(sizeof(NativeMaliAbiBoWaitShared) == 8, "Mali ABI shared wait layout");
 #endif
 #endif

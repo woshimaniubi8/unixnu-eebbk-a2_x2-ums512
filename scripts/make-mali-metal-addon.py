@@ -166,7 +166,9 @@ def main():
         return data
     upstream=artifact/'viva-gpu';out=upstream/'ios/out';bundle=out/'VivaMTLDriver.bundle'
     receipt=json.loads(read(upstream/'g52-source-receipt.json'))
-    if receipt['mock_selectable'] is not False or receipt['transport']!='NativeMali type-0 connection, selectors 1-10/12/13':
+    if receipt['mock_selectable'] is not False or receipt['transport'] not in {
+        'NativeMali type-0 connection, selectors 1-10/12/13',
+        'NativeMali type-0 connection, selectors 1-10/12-15'}:
         raise ValueError('Not the NativeMali frontend')
     probe=read(out/'tests/native-metal-probe');plugin=read(bundle/'VivaMTLDriver')
     program_signature=code_directory(probe,True);plugin_signature=code_directory(plugin,False)

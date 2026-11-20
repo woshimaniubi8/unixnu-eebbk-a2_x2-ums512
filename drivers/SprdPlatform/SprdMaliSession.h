@@ -22,6 +22,7 @@ class NativeSprdMaliUserClient final : public IOUserClient {
     OSDeclareDefaultStructors(NativeSprdMaliUserClient)
     NativeSprdMaliService *owner_=nullptr;
     SprdMaliSession *session_=nullptr;
+    task_t owningTask_=TASK_NULL;
     IOMemoryDescriptor *views_[NativeMaliBoTableCapacity]={};
     IOReturn shutdown();
     void releaseViews();

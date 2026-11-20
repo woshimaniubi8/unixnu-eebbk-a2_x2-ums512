@@ -14,7 +14,10 @@ struct transport {
     uint64_t next,now,fence;
     int fail,map_fail,wait_error,closed,submit_calls,unmaps;
     unsigned allocs,frees;
-    struct {uint64_t id,size;void *cpu;} bos[64];
+    unsigned imports,surface_releases,shared_waits;
+    int shared_busy,malformed_surface;
+    void *surface_memory;
+    struct {uint64_t id,size;void *cpu;int imported;} bos[64];
 };
 static int invoke(void *context,uint32_t method,const void *in,size_t ni,void *out,size_t no)
 {
@@ -28,10 +31,18 @@ static int invoke(void *context,uint32_t method,const void *in,size_t ni,void *o
         t->bos[i].id=++t->next;t->bos[i].size=a->bytes;t->bos[i].cpu=calloc(1,(size_t)a->bytes);assert(t->bos[i].cpu);
         *(struct nm_handle *)out=(struct nm_handle){t->bos[i].id};t->allocs++;break;
     }
+    case NM_IMPORT_USER:{
+        const struct nm_import_user *a=in;assert(!a->flags && !a->reserved);
+        unsigned i=0;while(i<64 && t->bos[i].id)i++;assert(i<64);
+        t->bos[i].id=++t->next;t->bos[i].size=a->bytes;
+        t->bos[i].cpu=(void *)(uintptr_t)a->address;t->bos[i].imported=1;
+        *(struct nm_handle *)out=(struct nm_handle){t->bos[i].id};t->imports++;break;
+    }
     case NM_MAP:{const struct nm_map *a=in;assert(a->permissions==3 || a->permissions==7);*(struct nm_va *)out=(struct nm_va){a->va};break;}
     case NM_FREE:{
         uint64_t h=((const struct nm_handle *)in)->handle;unsigned i=0;while(i<64 && t->bos[i].id!=h)i++;assert(i<64);
-        free(t->bos[i].cpu);memset(&t->bos[i],0,sizeof(t->bos[i]));t->frees++;break;
+        if(!t->bos[i].imported)free(t->bos[i].cpu);
+        memset(&t->bos[i],0,sizeof(t->bos[i]));t->frees++;break;
     }
     case NM_CPU_MAP:{
         uint64_t h=((const struct nm_handle *)in)->handle;unsigned i=0;while(i<64 && t->bos[i].id!=h)i++;assert(i<64);
@@ -41,6 +52,9 @@ static int invoke(void *context,uint32_t method,const void *in,size_t ni,void *o
     case NM_SUBMIT:t->submit_calls++;*(struct nm_fence_wire *)out=(struct nm_fence_wire){++t->fence};break;
     case NM_WAIT:t->now+=1000000000;return t->wait_error;
     case NM_CACHE_SYNC:break;
+    case NM_WAIT_SHARED:
+        t->shared_waits++;t->now+=1000;
+        if(t->shared_busy){t->shared_busy--;return -EBUSY;}break;
     default:assert(0);
     }return 0;
 }
@@ -54,14 +68,23 @@ static int unmap(void *context,uint32_t token,void *cpu)
 static void close_connection(void *context)
 {
     struct transport *t=context;t->closed++;
-    for(unsigned i=0;i<64;i++)if(t->bos[i].id){free(t->bos[i].cpu);t->bos[i].id=0;t->frees++;}
+    for(unsigned i=0;i<64;i++)if(t->bos[i].id){if(!t->bos[i].imported)free(t->bos[i].cpu);t->bos[i].id=0;t->frees++;}
 }
 static uint64_t now(void *context){return ((struct transport *)context)->now;}
+static int surface(void *context,uint32_t id,uint32_t plane,struct nm_surface_view *out)
+{
+    struct transport *t=context;if(id!=7 || plane)return -ENOENT;
+    *out=(struct nm_surface_view){.address=(uintptr_t)t->surface_memory+t->malformed_surface,
+        .bytes=32768,.in_page=4096,.plane_bytes=28672,.bytes_per_row=256,
+        .pixel_format=0x52474241,.width=64,.height=64,.retained=t};
+    return 0;
+}
+static void release_surface(void *value){((struct transport *)value)->surface_releases++;}
 int nm_iokit_open(void **out){(void)out;return -ENOTSUP;}
 #define IO(sel,a) vgpu_backend_iokit.ioctl(c,VGPU_SEL_##sel,&(a),sizeof(a))
 int main(void)
 {
-    const struct nm_transport ops={invoke,map,unmap,close_connection,now,16384};
+    const struct nm_transport ops={invoke,map,unmap,close_connection,now,16384,NULL,NULL};
     struct transport t={.next=UINT64_C(1)<<32};void *c=NULL;assert(nm_backend_connect(&ops,&t,&c)==0 && c);
     struct vgpu_version v={0};assert(IO(GET_VERSION,v)==0 && v.gpu_id==0x74021000 && v.minor==0);
     struct vgpu_create_bo a={.size=4096,.flags=VGPU_BO_NOEXEC};assert(IO(CREATE_BO,a)==0);
@@ -97,5 +120,30 @@ int main(void)
     vgpu_backend_iokit.close(c);
     memset(&t,0,sizeof(t));t.fail=NM_PARAM;c=(void *)1;
     assert(nm_backend_connect(&ops,&t,&c)==-EIO && !c && t.closed==1);
+    struct nm_transport shared_ops=ops;shared_ops.surface=surface;shared_ops.release_surface=release_surface;
+    memset(&t,0,sizeof(t));t.surface_memory=aligned_alloc(16384,32768);assert(t.surface_memory);
+    memset(t.surface_memory,0x6b,32768);assert(nm_backend_connect(&shared_ops,&t,&c)==0);
+    struct vgpu_import_iosurface im={.surface_id=7};
+    t.malformed_surface=1;
+    assert(IO(IMPORT_IOSURFACE,im)==-EPROTO && t.imports==0 && t.surface_releases==1);
+    t.malformed_surface=0;t.fail=NM_MAP;
+    assert(IO(IMPORT_IOSURFACE,im)==-EIO && t.imports==1 && t.frees==1 && t.surface_releases==2);
+    t.fail=0;assert(IO(IMPORT_IOSURFACE,im)==0 && im.offset%16384==4096 && im.size==28672);
+    assert(((uint8_t *)t.surface_memory)[0]==0x6b); // pinning did not zero the surface
+    struct vgpu_query_bo_info qi={.handle=im.handle};
+    assert(IO(QUERY_BO_INFO,qi)==0 && qi.extra_flags==VGPU_BO_IS_IMPORTED && qi.create_flags==VGPU_BO_NOEXEC);
+    wb=(struct vgpu_wait_bo){im.handle,0,INT64_MAX};t.shared_busy=2;
+    assert(IO(WAIT_BO,wb)==0 && t.shared_waits==3);
+    t.fail=NM_WAIT_SHARED;assert(IO(WAIT_BO,wb)==-EIO);t.fail=0;
+    t.shared_busy=1;wb.timeout_ns=0;assert(IO(WAIT_BO,wb)==-ETIMEDOUT);
+    p=vgpu_backend_iokit.mmap(c,im.handle,32768);assert(p==t.surface_memory);
+    ((uint8_t *)p)[4096]=0xa7;assert(((uint8_t *)t.surface_memory)[4096]==0xa7);
+    drop=(struct vgpu_gem_close){im.handle,0};assert(IO(GEM_CLOSE,drop)==-EBUSY);
+    assert(vgpu_backend_iokit.munmap(c,p,32768)==0 && IO(GEM_CLOSE,drop)==0);
+    assert(t.surface_releases==3 && t.imports==t.frees);
+    im=(struct vgpu_import_iosurface){.surface_id=7};assert(IO(IMPORT_IOSURFACE,im)==0);
+    vgpu_backend_iokit.close(c);assert(t.surface_releases==4 && t.imports==t.frees);
+    free(t.surface_memory);
     puts("PASS: real adapter lifecycle, opaque handles, 16K BOs, fence errors/timeouts, map/alloc rollback; no GPU execution asserted.");
+    puts("PASS: surface plane offsets, zero-copy aliasing, shared-busy/error propagation, import rollback and retained-reference cleanup.");
 }

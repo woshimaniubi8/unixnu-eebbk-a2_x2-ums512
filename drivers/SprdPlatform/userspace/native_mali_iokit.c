@@ -4,8 +4,10 @@
 #include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <IOSurface/IOSurface.h>
 extern CFMutableDictionaryRef IOServiceNameMatching(const char *);
 struct iokit_connection { io_connect_t port; };
 static int error(kern_return_t kr)
@@ -46,6 +48,33 @@ static uint64_t now_ns(void *unused)
     (void)unused;struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);
     return (uint64_t)t.tv_sec*UINT64_C(1000000000)+(uint64_t)t.tv_nsec;
 }
+static void release_surface(void *surface){if(surface)CFRelease(surface);}
+static int surface_view(void *context,uint32_t id,uint32_t plane,struct nm_surface_view *view)
+{
+    (void)context;memset(view,0,sizeof(*view));
+    IOSurfaceRef surface=IOSurfaceLookup(id);
+    if(!surface)return -ENOENT;
+    size_t planes=IOSurfaceGetPlaneCount(surface),total=IOSurfaceGetAllocSize(surface);
+    if((planes?plane>=planes:plane!=0) || !total){CFRelease(surface);return -EINVAL;}
+    uintptr_t base=(uintptr_t)IOSurfaceGetBaseAddress(surface);
+    uintptr_t first=planes?(uintptr_t)IOSurfaceGetBaseAddressOfPlane(surface,plane):base;
+    size_t width=planes?IOSurfaceGetWidthOfPlane(surface,plane):IOSurfaceGetWidth(surface);
+    size_t height=planes?IOSurfaceGetHeightOfPlane(surface,plane):IOSurfaceGetHeight(surface);
+    size_t row=planes?IOSurfaceGetBytesPerRowOfPlane(surface,plane):IOSurfaceGetBytesPerRow(surface);
+    const uint64_t page=16384;
+    if(!base || (base&(page-1)) || total>UINTPTR_MAX-base || first<base || first-base>=total ||
+        total>UINT64_MAX-(page-1) || !width || !height || !row ||
+        width>UINT32_MAX || height>UINT32_MAX || row>UINT32_MAX ||
+        row>UINT64_MAX/height || row*height>total-(first-base)){
+        CFRelease(surface);return -EINVAL;
+    }
+    uint64_t start=(first-base)&~(page-1),end=(total+page-1)&~(page-1);
+    *view=(struct nm_surface_view){.address=base+start,.bytes=end-start,
+        .in_page=first-base-start,.plane_bytes=total-(first-base),
+        .bytes_per_row=(uint32_t)row,.pixel_format=IOSurfaceGetPixelFormat(surface),
+        .width=(uint32_t)width,.height=(uint32_t)height,.retained=(void *)surface};
+    return 0;
+}
 int nm_iokit_open(void **output)
 {
     if(!output)return -EINVAL;*output=NULL;
@@ -54,7 +83,7 @@ int nm_iokit_open(void **output)
     struct iokit_connection *c=calloc(1,sizeof(*c));if(!c){IOObjectRelease(service);return -ENOMEM;}
     int r=error(IOServiceOpen(service,mach_task_self(),0,&c->port));IOObjectRelease(service);
     if(r){free(c);return r;}
-    static const struct nm_transport ops={invoke,map,unmap,close_connection,now_ns,16384};
+    static const struct nm_transport ops={invoke,map,unmap,close_connection,now_ns,16384,surface_view,release_surface};
     /* iOS arm64's CPU page size is queried rather than inferred from GPU PTEs. */
     long page=sysconf(_SC_PAGESIZE);if(page!=16384){close_connection(c);return -ENOTSUP;}
     return nm_backend_connect(&ops,c,output);

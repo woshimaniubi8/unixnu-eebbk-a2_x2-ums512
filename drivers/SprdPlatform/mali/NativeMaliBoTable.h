@@ -62,6 +62,7 @@ class NativeMaliBoTable final {
         bool live = false;
         bool mapped = false;
         bool cpuMapped = false;
+        bool imported = false;
     };
     Slot slot_[NativeMaliBoTableCapacity];
     NativeMaliHandleIndex<NativeMaliBoTableCapacity> index_; /* handle -> slot */
@@ -82,6 +83,8 @@ class NativeMaliBoTable final {
     Slot *freeSlot();
     bool rangeTaken(uint64_t iova, uint64_t bytes) const;
     void clear(Slot &slot);
+    IOReturn create(uint64_t bytes, uint64_t address,
+        NativeMaliAbiBoAllocReply *reply);
 public:
     NativeMaliBoTable() = default;
     /* A destroyed table only drops CPU-side state; the address space must
@@ -106,6 +109,10 @@ public:
      * token match. Every reply is zeroed before a refusal can return. */
     IOReturn alloc(const NativeMaliAbiBoAlloc &request,
         NativeMaliAbiBoAllocReply *reply);
+    IOReturn importUser(const NativeMaliAbiBoImportUser &request,
+        NativeMaliAbiBoAllocReply *reply);
+    bool hasImported() const;
+    bool imported(uint64_t handle) const;
     IOReturn map(const NativeMaliAbiBoMap &request,
         NativeMaliAbiBoMapReply *reply);
     IOReturn freeBo(const NativeMaliAbiBoFree &request);

@@ -10,6 +10,11 @@
 	<true/>
 	<key>LimitLoadToSessionType</key>
 	<string>System</string>
+	<key>MachServices</key>
+	<dict>
+		<key>org.unixnu.bbk.mali-metal.surface</key>
+		<true/>
+	</dict>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/System/Library/Extensions/mali-user-probe</string>

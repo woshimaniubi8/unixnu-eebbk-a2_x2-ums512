@@ -126,6 +126,10 @@ public:
      * exactly as the table documents. */
     IOReturn allocBo(const NativeMaliAbiBoAlloc &request,
         NativeMaliAbiBoAllocReply *reply);
+    IOReturn importUser(const NativeMaliAbiBoImportUser &request,
+        NativeMaliAbiBoAllocReply *reply);
+    IOReturn waitShared(const NativeMaliAbiBoWaitShared &request);
+    bool hasImported() const { return bo_.hasImported(); }
     IOReturn mapBo(const NativeMaliAbiBoMap &request,
         NativeMaliAbiBoMapReply *reply);
     IOReturn freeBo(const NativeMaliAbiBoFree &request);

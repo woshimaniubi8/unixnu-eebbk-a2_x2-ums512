@@ -27,6 +27,22 @@ NativeMaliMemory::~NativeMaliMemory()
 IOReturn NativeMaliMemory::prepare(NativeMaliMemorySource *source, size_t bytes,
     bool cpuCoherent, NativeMaliCacheMaintainer *maintainer)
 {
+    return prepareFrom(source,bytes,0,cpuCoherent,maintainer);
+}
+
+IOReturn NativeMaliMemory::prepareUser(NativeMaliMemorySource *source,
+    uint64_t address, size_t bytes, bool cpuCoherent,
+    NativeMaliCacheMaintainer *maintainer)
+{
+    if(!address || (address&(NativeMaliVmGranule-1)) ||
+        bytes>UINT64_MAX-address)return kIOReturnBadArgument;
+    return prepareFrom(source,bytes,address,cpuCoherent,maintainer);
+}
+
+IOReturn NativeMaliMemory::prepareFrom(NativeMaliMemorySource *source,
+    size_t bytes, uint64_t address, bool cpuCoherent,
+    NativeMaliCacheMaintainer *maintainer)
+{
     if(prepared_)return kIOReturnBusy;
     if(!source || !bytes)return kIOReturnBadArgument;
     /* Only whole 4 KiB pages can be described by a leaf, and only whole pages
@@ -47,7 +63,8 @@ IOReturn NativeMaliMemory::prepare(NativeMaliMemorySource *source, size_t bytes,
     memset(spans,0,sizeof(*spans)*NativeMaliMemoryMaxSpans);
     void *cpu = nullptr;
     size_t count = 0;
-    IOReturn result = source->alloc(bytes, &cpu, spans, &count);
+    IOReturn result = address ? source->importUser(address,bytes,&cpu,spans,&count)
+        : source->alloc(bytes, &cpu, spans, &count);
     if(result != kIOReturnSuccess)return result;
 
     /* The span list must describe the buffer exactly: page-aligned runs, in

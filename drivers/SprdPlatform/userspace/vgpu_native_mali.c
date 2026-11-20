@@ -2,7 +2,7 @@
 /* Viva/Mesa transport for the existing, owned NativeMali connection.
  * No kernel impersonation, mock execution, CPU rendering, or automatic reopen.
  * One queue is submitted synchronously; syncobjs retain the actual GPU fence.
- * IOSurface imports are deliberately not advertised by this private backend. */
+ * Original IOSurface pages are pinned through their task mapping, never copied. */
 #include "vgpu.h"
 #include "mali_native_wire.h"
 #include <errno.h>
@@ -23,6 +23,8 @@ struct bo {
     void *cpu;
     size_t cpu_size;
     struct fence *fence;
+    uint64_t in_page;
+    void *surface;
 };
 struct syncobj { uint32_t id; int signaled; struct fence *fence; };
 struct connection {
@@ -91,6 +93,16 @@ static int drain(struct connection *c)
     uint64_t now=c->t->now_ns(c->context);
     return wait_fence(c,c->last,now>UINT64_MAX-NM_SECOND?UINT64_MAX:now+NM_SECOND);
 }
+static int wait_shared(struct connection *c,struct bo *b,uint64_t until)
+{
+    struct nm_handle shared={b->native};
+    for(;;){
+        int r=call(c,NM_WAIT_SHARED,&shared,sizeof(shared),NULL,0);
+        if(r!=-EBUSY)return r;
+        if(c->t->now_ns(c->context)>=until)return -ETIMEDOUT;
+        struct timespec pause={0,100000};nanosleep(&pause,NULL);
+    }
+}
 static uint64_t allocate_va(struct connection *c,uint64_t bytes)
 {
     const uint64_t end=c->caps.ias<32?UINT64_C(1)<<c->caps.ias:UINT64_C(1)<<32;
@@ -140,7 +152,47 @@ static int close_bo(struct connection *c,struct bo *b)
     if(b->cpu)return -EBUSY;
     int r=drain(c);if(r)return r;
     struct nm_handle h={b->native};r=call(c,NM_FREE,&h,sizeof(h),NULL,0);
-    if(!r){fence_set(&b->fence,NULL);memset(b,0,sizeof(*b));}
+    if(!r){
+        if(b->surface)c->t->release_surface(b->surface);
+        fence_set(&b->fence,NULL);memset(b,0,sizeof(*b));
+    }
+    return r;
+}
+static int import_surface(struct connection *c,struct vgpu_import_iosurface *a)
+{
+    if(!a->surface_id || a->handle || a->pad || a->offset || a->size ||
+        a->bytes_per_row || a->pixel_format || a->width || a->height)return -EINVAL;
+    if(!c->t->surface || !c->t->release_surface)return -ENOTSUP;
+    if(!c->next_bo)return -ENOSPC;
+    struct bo *b=NULL;
+    for(unsigned i=0;i<NM_BOS;i++)if(!c->bos[i].id){b=&c->bos[i];break;}
+    if(!b)return -ENOSPC;
+    int r=drain(c);if(r)return r;
+    struct nm_surface_view surface={0};
+    r=c->t->surface(c->context,a->surface_id,a->plane,&surface);if(r)return r;
+    uint64_t page=c->t->page_size;
+    if(!surface.retained || !surface.address || (surface.address&(page-1)) ||
+        !surface.bytes || (surface.bytes&(page-1)) || surface.bytes>c->caps.max_bytes ||
+        surface.bytes>UINT64_MAX-surface.address || surface.in_page>=page ||
+        !surface.plane_bytes || surface.plane_bytes>surface.bytes-surface.in_page ||
+        !surface.width || !surface.height || !surface.bytes_per_row){r=-EPROTO;goto failed;}
+    uint64_t va=allocate_va(c,surface.bytes);if(!va){r=-ENOSPC;goto failed;}
+    struct nm_import_user request={surface.address,surface.bytes,0,0};struct nm_handle h={0};
+    r=call(c,NM_IMPORT_USER,&request,sizeof(request),&h,sizeof(h));if(r)goto failed;
+    if(!h.handle){r=-EPROTO;goto failed;}
+    struct nm_map mapping={h.handle,va,7,0};struct nm_va mapped={0};
+    r=call(c,NM_MAP,&mapping,sizeof(mapping),&mapped,sizeof(mapped));
+    if(r || mapped.va!=va){
+        int release=call(c,NM_FREE,&h,sizeof(h),NULL,0);
+        r=r?r:(release?release:-EPROTO);goto failed;
+    }
+    *b=(struct bo){.id=c->next_bo++,.flags=VGPU_BO_NOEXEC,.native=h.handle,
+        .va=va,.size=surface.bytes,.in_page=surface.in_page,.surface=surface.retained};
+    a->handle=b->id;a->offset=va+surface.in_page;a->size=surface.plane_bytes;
+    a->bytes_per_row=surface.bytes_per_row;a->pixel_format=surface.pixel_format;
+    a->width=surface.width;a->height=surface.height;return 0;
+failed:
+    if(surface.retained)c->t->release_surface(surface.retained);
     return r;
 }
 static int submit(struct connection *c,struct vgpu_submit *a)
@@ -201,13 +253,17 @@ static int dispatch(struct connection *c,enum vgpu_selector sel,void *arg,size_t
     case VGPU_SEL_MMAP_BO:{ARG(vgpu_mmap_bo);if(a->flags)return -EINVAL;
         if(!find_bo(c,a->handle))return -ENOENT;a->offset=a->handle;return 0;}
     case VGPU_SEL_GET_BO_OFFSET:{ARG(vgpu_get_bo_offset);struct bo *b=find_bo(c,a->handle);
-        if(a->pad)return -EINVAL;if(!b)return -ENOENT;a->offset=b->va;return 0;}
+        if(a->pad)return -EINVAL;if(!b)return -ENOENT;a->offset=b->va+b->in_page;return 0;}
     case VGPU_SEL_GEM_CLOSE:{ARG(vgpu_gem_close);if(a->pad)return -EINVAL;return close_bo(c,find_bo(c,a->handle));}
     case VGPU_SEL_SUBMIT:{ARG(vgpu_submit);return submit(c,a);}
     case VGPU_SEL_WAIT_BO:{ARG(vgpu_wait_bo);struct bo *b=find_bo(c,a->handle);
-        if(a->pad)return -EINVAL;if(!b)return -ENOENT;return wait_fence(c,b->fence,deadline(c,a->timeout_ns));}
+        if(a->pad)return -EINVAL;if(!b)return -ENOENT;
+        int r=wait_fence(c,b->fence,deadline(c,a->timeout_ns));
+        if(r || !b->surface)return r;
+        return wait_shared(c,b,deadline(c,a->timeout_ns));}
     case VGPU_SEL_QUERY_BO_INFO:{ARG(vgpu_query_bo_info);struct bo *b=find_bo(c,a->handle);
-        if(a->pad)return -EINVAL;if(!b)return -ENOENT;a->extra_flags=0;a->create_flags=b->flags;return 0;}
+        if(a->pad)return -EINVAL;if(!b)return -ENOENT;a->extra_flags=b->surface?VGPU_BO_IS_IMPORTED:0;a->create_flags=b->flags;return 0;}
+    case VGPU_SEL_IMPORT_IOSURFACE:{ARG(vgpu_import_iosurface);return import_surface(c,a);}
     case VGPU_SEL_MADVISE:{ARG(vgpu_madvise);if(!find_bo(c,a->handle))return -ENOENT;
         if(a->madv>1)return -EINVAL;a->retained=1;return 0;}
     case VGPU_SEL_SYNC_BO:{
@@ -216,12 +272,13 @@ static int dispatch(struct connection *c,enum vgpu_selector sel,void *arg,size_t
         for(unsigned i=0;i<a->op_count;i++){
             struct bo *b=find_bo(c,ops[i].handle);
             if(!b)return -ENOENT;
-            if(ops[i].type>1 || !ops[i].size || ops[i].offset>=b->size ||
-               ops[i].size>b->size-ops[i].offset)return -EINVAL;
+            if(ops[i].type>1 || !ops[i].size || ops[i].offset>=b->size-b->in_page ||
+               ops[i].size>b->size-b->in_page-ops[i].offset)return -EINVAL;
         }
         int r=drain(c);if(r)return r;
         for(unsigned i=0;i<a->op_count;i++){
-            struct nm_cache req={find_bo(c,ops[i].handle)->native,ops[i].offset,ops[i].size,ops[i].type,0};
+            struct bo *b=find_bo(c,ops[i].handle);
+            struct nm_cache req={b->native,b->in_page+ops[i].offset,ops[i].size,ops[i].type,0};
             r=call(c,NM_CACHE_SYNC,&req,sizeof(req),NULL,0);if(r)return r;
         }
         return 0;
@@ -329,7 +386,10 @@ static void native_close(void *context)
     /* The kernel waits/quiesces before reclaiming this connection's allocations;
      * unrecoverable DMA is quarantined there, never freed through a fake fence. */
     c->t->close(c->context);
-    for(unsigned i=0;i<NM_BOS;i++)fence_set(&c->bos[i].fence,NULL);
+    for(unsigned i=0;i<NM_BOS;i++){
+        if(c->bos[i].surface)c->t->release_surface(c->bos[i].surface);
+        fence_set(&c->bos[i].fence,NULL);
+    }
     for(unsigned i=0;i<NM_SYNCS;i++)fence_set(&c->syncs[i].fence,NULL);
     fence_set(&c->last,NULL);pthread_mutex_destroy(&c->mutex);free(c);
 }

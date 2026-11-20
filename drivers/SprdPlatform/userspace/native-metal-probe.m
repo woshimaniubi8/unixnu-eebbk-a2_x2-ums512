@@ -43,27 +43,6 @@ static void *sampleProbe(void *unused)
 - (instancetype)initWithDriver:(const char *)driver;
 - (NSData *)bitcodeData;
 @end
-static int traceGpuQueue(Class cls)
-{
-    SEL selector=sel_registerName("gpuSync:");
-    Method method=class_getInstanceMethod(cls,selector);
-    if(!method || method_getNumberOfArguments(method)!=3)return 0;
-    char result[8]={0};method_getReturnType(method,result,sizeof(result));
-    if(strcmp(result,"v"))return 0;
-    void (*original)(id,SEL,dispatch_block_t)=(void (*)(id,SEL,dispatch_block_t))method_getImplementation(method);
-    IMP traced=imp_implementationWithBlock(^(id object,dispatch_block_t operation){
-        printf("nm metal: gpuSync enter\n");
-        original(object,selector,^{
-            printf("nm metal: gpuSync block enter\n");
-            operation();
-            printf("nm metal: gpuSync block returned\n");
-        });
-        printf("nm metal: gpuSync returned\n");
-    });
-    if(!traced)return 0;
-    method_setImplementation(method,traced);
-    return 1;
-}
 static int completed(id<MTLCommandBuffer> cb)
 {
     [cb commit];[cb waitUntilCompleted];
@@ -72,6 +51,7 @@ static int completed(id<MTLCommandBuffer> cb)
         return 0;
     }return 1;
 }
+#include "native-metal-surface.inc"
 int main(int argc,char **argv) {
     static const char started[]="nm metal: main enter\n";
     (void)write(2,started,sizeof(started)-1);
@@ -83,10 +63,18 @@ int main(int argc,char **argv) {
     int samplingError=pthread_create(&sampler,NULL,sampleProbe,NULL);
     if(samplingError){fprintf(stderr,"nm metal: diagnostic thread error=%d\n",samplingError);return 70;}
     pthread_detach(sampler);
-    if(argc!=3){fprintf(stderr,"usage: native-metal-probe BUNDLE SHADERS.metallib\n");return 64;}
+    int childMode=argc==5 && strcmp(argv[1],"--surface-child")==0;
+    if(argc!=3 && !childMode){fprintf(stderr,"usage: native-metal-probe BUNDLE SHADERS.metallib\n");return 64;}
+    const char *bundleArgument=argv[childMode?3:1],*shaderArgument=argv[childMode?4:2];
+    uint32_t expectedSurface=0;
+    if(childMode){
+        char *end=NULL;errno=0;unsigned long id=strtoul(argv[2],&end,10);
+        if(errno || !end || *end || !id || id>UINT32_MAX)return 64;
+        expectedSurface=(uint32_t)id;
+    }
     char executable[1024];
     if(setenv("TSMTL_LOG","1",1)!=0)return 64;
-    int pathBytes=snprintf(executable,sizeof(executable),"%s/VivaMTLDriver",argv[1]);
+    int pathBytes=snprintf(executable,sizeof(executable),"%s/VivaMTLDriver",bundleArgument);
     if(pathBytes<0 || (size_t)pathBytes>=sizeof(executable))return 64;
     printf("nm metal: dlopen begin path=%s\n",executable);
     void *image=dlopen(executable,RTLD_NOW|RTLD_LOCAL);
@@ -102,15 +90,16 @@ int main(int argc,char **argv) {
     if(!imageName || strcmp(imageName+1,"VivaMTLDriver")){
         fprintf(stderr,"nm metal: VMDevice did not come from the loaded driver\n");return 3;
     }
-    if(!traceGpuQueue(cls)){fprintf(stderr,"nm metal: gpuSync diagnostic ABI mismatch\n");return 3;}
     printf("nm metal: Panfrost device init begin\n");
     id<MTLDevice> device=cls?[[cls alloc] initWithDriver:"panfrost"]:nil;
     if(!device){fprintf(stderr,"nm metal: real Panfrost device init failed\n");return 3;}
     printf("nm metal: device=%s backend=%s\n",device.name.UTF8String,backend());
     printf("nm metal: metallib load begin\n");
-    id<MTLLibrary> lib=[device newLibraryWithURL:[NSURL fileURLWithPath:@(argv[2])] error:&error];
+    id<MTLLibrary> lib=[device newLibraryWithURL:[NSURL fileURLWithPath:@(shaderArgument)] error:&error];
     if(!lib){fprintf(stderr,"nm metal: metallib %s\n",error.description.UTF8String);return 4;}
     id<MTLCommandQueue> queue=[device newCommandQueue];
+    if(!queue)return 5;
+    if(childMode)return surfaceChild(device,lib,queue,expectedSurface,counters);
     id<MTLFunction> kernel=[lib newFunctionWithName:@"nm_double"];
     if(!kernel || ![(id)kernel respondsToSelector:@selector(bitcodeData)]){
         fprintf(stderr,"nm metal: real function AIR accessor unavailable\n");return 5;
@@ -169,6 +158,9 @@ int main(int argc,char **argv) {
     if(red<500 || blue<500 || red+blue!=4096 || jobs1-jobs0<3){
         fprintf(stderr,"nm metal: incomplete readback red=%u blue=%u hardware_jobs=%llu\n",red,blue,(unsigned long long)(jobs1-jobs0));return 15;
     }
-    printf("nm metal: PASS compute=64 render=4096 red=%u blue=%u hardware_jobs=%llu\n",red,blue,(unsigned long long)(jobs1-jobs0));
+    int surfaceResult=surfaceParent(device,queue,pipeline,argv[0],bundleArgument,shaderArgument);
+    if(surfaceResult)return surfaceResult;
+    counters(after,&jobs1);
+    printf("nm metal: PASS compute=64 render=4096 red=%u blue=%u hardware_jobs=%llu surface=4096 cross_process=1 guards=0\n",red,blue,(unsigned long long)(jobs1-jobs0));
     return 0;
 } }

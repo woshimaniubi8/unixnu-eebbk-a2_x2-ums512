@@ -1,18 +1,26 @@
 #!/usr/bin/env python3
 """Strip only non-exported symbols from the signed owned Metal bundle."""
-import argparse,hashlib,importlib.util,json,plistlib,subprocess,tempfile
+import argparse,hashlib,importlib.util,json,os,plistlib,subprocess,tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 def module(name,path):
     spec=importlib.util.spec_from_file_location(name,path);value=importlib.util.module_from_spec(spec);spec.loader.exec_module(value);return value
 def run(args):return subprocess.run(list(map(str,args)),check=True,capture_output=True).stdout
-def main(path):
+def main(path,fresh=False):
     parser=module('probe_signing',ROOT/'scripts/resign-mali-metal-probe.py')
     packer=module('metal_packer',ROOT/'scripts/make-mali-metal-addon.py')
     probe=path/'viva-gpu/ios/out/tests/native-metal-probe'
     bundle=path/'viva-gpu/ios/out/VivaMTLDriver.bundle';binary=bundle/'VivaMTLDriver'
-    assert hashlib.sha256(probe.read_bytes()).hexdigest()=='20e6d7a77d1919b3ddac7a4de8830310ac0848f5c4ee60f0fb1205d85e754dd8'
-    before=binary.read_bytes();assert hashlib.sha256(before).hexdigest()=='138aedc22573487105b3071330cee199124c31d62096c6b689c6b837bf309085'
+    probe_sha=hashlib.sha256(probe.read_bytes()).hexdigest()
+    before=binary.read_bytes()
+    if fresh:
+        source=json.loads((path/'viva-gpu/g52-source-receipt.json').read_text())
+        assert source['upstream_commit']=='9ebe5e46f74f6d75fce1d76b2ea4ea603cb63637'
+        assert source['mesa_commit']=='8e87a503ebd91408c88596d1b9eeb5f4c0b2088d'
+        assert source['mock_selectable'] is False and source['iosurface_cpu_copy_fallback'] is False
+    else:
+        assert probe_sha=='20e6d7a77d1919b3ddac7a4de8830310ac0848f5c4ee60f0fb1205d85e754dd8'
+        assert hashlib.sha256(before).hexdigest()=='138aedc22573487105b3071330cee199124c31d62096c6b837bf309085'
     original=packer.code_directory(before,False);layout=parser.layout(before)
     exports=sorted(run(['xcrun','nm','-gjU',binary]).splitlines());dependencies=run(['xcrun','otool','-L',binary])
     run(['xcrun','strip','-S','-x',binary])
@@ -30,10 +38,12 @@ def main(path):
     assert run(['xcrun','otool','-L',binary])==dependencies
     for key in ['entitlements','flags','page_bytes']:assert original[key]==modified[key]
     assert len(before)-len(after)>=400000,('insufficient actual symbol savings',len(before),len(after))
-    assert hashlib.sha256(probe.read_bytes()).hexdigest()=='20e6d7a77d1919b3ddac7a4de8830310ac0848f5c4ee60f0fb1205d85e754dd8'
+    assert hashlib.sha256(probe.read_bytes()).hexdigest()==probe_sha
     signature=subprocess.run(['codesign','-d','--verbose=4',bundle],capture_output=True,text=True,check=True)
     (path/'signature.txt').write_text(signature.stdout+signature.stderr)
-    receipt=dict(compiled_source_run=44743450966,compiled_source_commit='80a136ce57b5a6ad9774ce918ae8c5f113ea8a74',parent_preparation_run=44772957799,
+    receipt=dict(compiled_source_run=int(os.environ['GITHUB_RUN_ID']) if fresh else 44743450966,
+        compiled_source_commit=run(['git','-C',ROOT,'rev-parse','HEAD']).decode().strip() if fresh else '80a136ce57b5a6ad9774ce918ae8c5f113ea8a74',
+        parent_preparation_run=None if fresh else 44772957799,
         original_bundle_sha256=hashlib.sha256(before).hexdigest(),modified_bundle_sha256=hashlib.sha256(after).hexdigest(),
         original_bytes=len(before),modified_bytes=len(after),saved_bytes=len(before)-len(after),
         original_signature=original,modified_signature=modified,program_bytes_unchanged=True,
@@ -44,4 +54,4 @@ def main(path):
     (path/'SHA256SUMS').write_text('\n'.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.relative_to(path).as_posix() for p in sorted(files) if p.is_file())+'\n')
     print(json.dumps(receipt,indent=2))
 if __name__=='__main__':
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('artifact',type=Path);a=p.parse_args();main(a.artifact.resolve())
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('artifact',type=Path);p.add_argument('--fresh-build',action='store_true');a=p.parse_args();main(a.artifact.resolve(),a.fresh_build)

@@ -103,6 +103,7 @@ class NativeSprdMaliService final : public IOService {
     SprdMaliSession *quarantined_[NativeMaliMmuMaxAs]={};
     Presenter *presenter_=nullptr;
     bool presenterFailed_=false;
+    IOReturn sharedMemoryError_=kIOReturnSuccess;
 
     IOReturn setupPresenter(bool verify);
     IOReturn closePresenter();
@@ -166,6 +167,10 @@ class NativeSprdMaliService final : public IOService {
     }
 
 public:
+    IOReturn sharedMemoryError() const { return sharedMemoryError_; }
+    void failSharedMemory(IOReturn error) {
+        if(sharedMemoryError_==kIOReturnSuccess)sharedMemoryError_=error;
+    }
     void setFactorySupplyMicrovolts(uint32_t microvolts) {
         factorySupplyMicrovolts_=microvolts;
         factorySupplyQualified_=microvolts>=700000;
@@ -416,7 +421,9 @@ OSDefineMetaClassAndStructors(NativeSprdMaliUserClient,IOUserClient)
 bool NativeSprdMaliUserClient::initWithTask(task_t task,void *security,UInt32 type,
     OSDictionary *properties)
 {
-    return type==0 && IOUserClient::initWithTask(task,security,type,properties);
+    if(type!=0 || task==TASK_NULL ||
+        !IOUserClient::initWithTask(task,security,type,properties))return false;
+    owningTask_=task;return true;
 }
 
 bool NativeSprdMaliUserClient::start(IOService *provider)
@@ -427,7 +434,8 @@ bool NativeSprdMaliUserClient::start(IOService *provider)
     session_=new SprdMaliSession;
     if(!session_)return false;
     IOLockLock(owner_->sessionLock());
-    const IOReturn result=owner_->openSession(session_);
+    IOReturn result=session_->buffers.setTask(owningTask_);
+    if(result==kIOReturnSuccess)result=owner_->openSession(session_);
     if(result!=kIOReturnSuccess) {
         const IOReturn closed=owner_->closeSession(session_);
         if(closed==kIOReturnSuccess)delete session_;
@@ -552,12 +560,39 @@ IOReturn NativeSprdMaliUserClient::action(OSObject *target,void *,
     auto *client=OSDynamicCast(NativeSprdMaliUserClient,target);
     if(!client || !args || !client->owner_)return kIOReturnBadArgument;
     auto *owner=client->owner_;
-    IOLockLock(owner->sessionLock());
+    if(args->selector==NativeMaliMethodBoWaitShared) {
+        if(!IOLockTryLock(owner->sessionLock()))return kIOReturnBusy;
+    } else IOLockLock(owner->sessionLock());
     IOReturn result=kIOReturnNotReady;
     auto *s=client->session_;
     if(s && owner->ready()) {
-        result=s->core.dispatch(args->selector,args->structureInput,
+        const bool sharedSubmit=args->selector==NativeMaliMethodSubmit && s->core.hasImported();
+        const bool sharedOperation=sharedSubmit || args->selector==NativeMaliMethodBoWaitShared ||
+            args->selector==NativeMaliMethodBoImportUser;
+        if(sharedOperation && owner->sharedMemoryError()!=kIOReturnSuccess)
+            result=owner->sharedMemoryError();
+        else if(!sharedSubmit)result=s->core.dispatch(args->selector,args->structureInput,
             args->structureInputSize,args->structureOutput,args->structureOutputSize);
+        // Imported data may alias another task's IOSurface. Keep the device
+        // lock until real completion and cache invalidation. Thus method15 is
+        // a device-wide shared-memory barrier, not a synthetic fence success.
+        if(sharedSubmit && owner->sharedMemoryError()==kIOReturnSuccess) {
+            NativeMaliAbiSubmit request{};
+            memcpy(&request,args->structureInput,sizeof(request));
+            NativeMaliAbiSubmitReply reply{};
+            result=s->core.submit(request,&reply);
+            if(result==kIOReturnSuccess)
+                result=s->core.waitFence({reply.fence,UINT64_C(1000000000)});
+            if(result==kIOReturnSuccess)memcpy(args->structureOutput,&reply,sizeof(reply));
+            static uint32_t reports;
+            if(reports++<16 || result!=kIOReturnSuccess)
+                IOLog("M188 mali: shared completion as=%u fence=0x%llx result=0x%x\n",
+                    s->as,reply.fence,result);
+        }
+        if(sharedSubmit && (result==kIOReturnIOError || result==kIOReturnTimeout ||
+            result==kIOReturnNotReady))owner->failSharedMemory(result);
+        if(result==kIOReturnSuccess && args->selector==NativeMaliMethodBoImportUser)
+            IOLog("M188 mali: task pages imported as=%u, forced NOEXEC\n",s->as);
         if(result==kIOReturnSuccess && args->selector==NativeMaliMethodBoCpuUnmap) {
             NativeMaliAbiBoCpuUnmap request{};
             memcpy(&request,args->structureInput,sizeof(request));

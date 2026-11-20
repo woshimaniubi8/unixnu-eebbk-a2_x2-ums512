@@ -9,7 +9,9 @@
 #include <kern/cpu_data.h>
 #include <kern/task.h>
 #include <mach/vm_param.h>
+#include <arm/pmap_public.h>
 #include <string.h>
+extern "C" boolean_t pmap_valid_address(pmap_paddr_t address);
 
 namespace {
 
@@ -137,6 +139,18 @@ size_t NativeMaliXnuPages::live() const
     return count;
 }
 
+NativeMaliXnuBuffers::~NativeMaliXnuBuffers()
+{
+    if(task_!=TASK_NULL)task_deallocate(task_);
+}
+
+IOReturn NativeMaliXnuBuffers::setTask(task_t task)
+{
+    if(task_!=TASK_NULL)return kIOReturnBusy;
+    if(task==TASK_NULL)return kIOReturnBadArgument;
+    task_reference(task);task_=task;return kIOReturnSuccess;
+}
+
 void NativeMaliXnuBuffers::setOutputLimit(uint32_t oas_bits)
 {
     limit_ = outputLimit(oas_bits);
@@ -214,13 +228,62 @@ failed:
     return status;
 }
 
+// Original IOSurfaces are looked up through their userspace API. Pinning their
+// task mapping reuses the original pages and does not assume a SweetSurface ABI.
+IOReturn NativeMaliXnuBuffers::importUser(uint64_t address,size_t bytes,
+    void **cpu,NativeMaliMemorySpan *spans,size_t *count)
+{
+    if(!cpu || !spans || !count)return kIOReturnBadArgument;
+    *cpu=nullptr;*count=0;
+    if(task_==TASK_NULL || task_==kernel_task)return kIOReturnNotReady;
+    if(!address || !bytes || (address&PAGE_MASK) || (bytes&PAGE_MASK) ||
+        bytes>UINT64_MAX-address || bytes>limit_)return kIOReturnBadArgument;
+    Entry *slot=nullptr;
+    for(auto &entry:entry_)if(!entry.descriptor){slot=&entry;break;}
+    if(!slot)return kIOReturnNoResources;
+    IOMemoryDescriptor *md=IOMemoryDescriptor::withAddressRange(
+        address,bytes,kIODirectionInOut,task_);
+    if(!md)return kIOReturnNoMemory;
+    IOReturn result=md->prepare();
+    if(result!=kIOReturnSuccess){md->release();return result;}
+    IOMemoryMap *mapping=md->createMappingInTask(kernel_task,0,kIOMapAnywhere);
+    size_t used=0;
+    result=kIOReturnBadArgument;
+    if(mapping && mapping->getVirtualAddress() && mapping->getLength()==bytes &&
+        !(mapping->getVirtualAddress()&(NativeMaliVmGranule-1))) {
+        result=kIOReturnSuccess;
+        for(size_t offset=0;offset<bytes;offset+=NativeMaliVmGranule){
+            IOByteCount length=0;
+            addr64_t physical=md->getPhysicalSegment(offset,&length,kIOMemoryMapperNone);
+            if(!physical || (physical&(NativeMaliVmGranule-1)) ||
+                length<NativeMaliVmGranule || physical>=limit_ ||
+                NativeMaliVmGranule>limit_-physical ||
+                !pmap_valid_address(physical)) {result=kIOReturnBadArgument;break;}
+            if(used && physical==spans[used-1].physical+spans[used-1].bytes)
+                spans[used-1].bytes+=NativeMaliVmGranule;
+            else {
+                if(used==NativeMaliMemoryMaxSpans){result=kIOReturnNoResources;break;}
+                spans[used++]={offset,physical,NativeMaliVmGranule};
+            }
+        }
+    }
+    if(result!=kIOReturnSuccess){
+        if(mapping)mapping->release();
+        (void)md->complete();md->release();return result;
+    }
+    slot->cpu=reinterpret_cast<void *>(mapping->getVirtualAddress());
+    slot->descriptor=md;slot->mapping=mapping;slot->bytes=bytes;
+    *cpu=slot->cpu;*count=used;return kIOReturnSuccess;
+}
+
 void NativeMaliXnuBuffers::release(void *cpu, const NativeMaliMemorySpan *,
     size_t)
 {
     if(!cpu)return;
     for(auto &entry : entry_) {
         if(entry.cpu != cpu || !entry.descriptor)continue;
-        IOBufferMemoryDescriptor *descriptor = entry.descriptor;
+        IOMemoryDescriptor *descriptor = entry.descriptor;
+        IOMemoryMap *mapping=entry.mapping;
         entry = Entry{};
         const IOReturn status = descriptor->complete();
         if(status != kIOReturnSuccess) {
@@ -228,6 +291,7 @@ void NativeMaliXnuBuffers::release(void *cpu, const NativeMaliMemorySpan *,
                 status, static_cast<unsigned long>(descriptor->getLength()));
             return;
         }
+        if(mapping)mapping->release();
         descriptor->release();
         return;
     }

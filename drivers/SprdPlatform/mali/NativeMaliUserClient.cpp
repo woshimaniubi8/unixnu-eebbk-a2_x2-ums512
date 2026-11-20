@@ -73,6 +73,26 @@ IOReturn NativeMaliUserClient::mapBo(const NativeMaliAbiBoMap &request,
     return bo_.map(request, reply);
 }
 
+IOReturn NativeMaliUserClient::importUser(const NativeMaliAbiBoImportUser &request,
+    NativeMaliAbiBoAllocReply *reply)
+{
+    if(reply)reply->handle=0;
+    if(hasOutstanding())return kIOReturnBusy;
+    return bo_.importUser(request,reply);
+}
+
+IOReturn NativeMaliUserClient::waitShared(const NativeMaliAbiBoWaitShared &request)
+{
+    if(!open_)return kIOReturnNotReady;
+    if(!bo_.imported(request.handle))return kIOReturnBadArgument;
+    if(hasOutstanding())return kIOReturnBusy;
+    auto *memory=bo_.memory(request.handle);
+    // Before the first shared GPU job the CPU may still own dirty pixels.
+    // Later producers clean before execution and invalidate on completion.
+    IOReturn result=memory->cleanForDevice(0,memory->bytes());
+    return result==kIOReturnSuccess?memory->invalidateForCpu(0,memory->bytes()):result;
+}
+
 IOReturn NativeMaliUserClient::freeBo(const NativeMaliAbiBoFree &request)
 {
     if(hasOutstanding())return kIOReturnBusy;
@@ -192,9 +212,14 @@ IOReturn NativeMaliUserClient::cacheSync(const NativeMaliAbiBoCacheSync &request
     auto *memory=bo_.memory(request.handle);
     if(!memory || request.offset>=memory->bytes() ||
         request.bytes>memory->bytes()-request.offset)return kIOReturnBadArgument;
-    IOReturn result=memory->cleanForDevice(request.offset,request.bytes);
+    const uint64_t begin=request.type==1
+        ? request.offset&~uint64_t(NativeMaliVmGranule-1):request.offset;
+    const uint64_t end=request.type==1
+        ? (request.offset+request.bytes+NativeMaliVmGranule-1)&~uint64_t(NativeMaliVmGranule-1)
+        :request.offset+request.bytes;
+    IOReturn result=memory->cleanForDevice(begin,end-begin);
     if(result==kIOReturnSuccess && request.type==1)
-        result=memory->invalidateForCpu(request.offset,request.bytes);
+        result=memory->invalidateForCpu(begin,end-begin);
     return result;
 }
 
@@ -370,6 +395,8 @@ size_t NativeMaliUserClient::inputSize(uint32_t method)
     case NativeMaliMethodReset: return 0;
     case NativeMaliMethodGetParam: return sizeof(NativeMaliAbiParam);
     case NativeMaliMethodBoCacheSync: return sizeof(NativeMaliAbiBoCacheSync);
+    case NativeMaliMethodBoImportUser: return sizeof(NativeMaliAbiBoImportUser);
+    case NativeMaliMethodBoWaitShared: return sizeof(NativeMaliAbiBoWaitShared);
     default: return kUnsupportedSize;
     }
 }
@@ -390,6 +417,8 @@ size_t NativeMaliUserClient::outputSize(uint32_t method)
     case NativeMaliMethodReset: return 0;
     case NativeMaliMethodGetParam: return sizeof(NativeMaliAbiParam);
     case NativeMaliMethodBoCacheSync: return 0;
+    case NativeMaliMethodBoImportUser: return sizeof(NativeMaliAbiBoAllocReply);
+    case NativeMaliMethodBoWaitShared: return 0;
     default: return kUnsupportedSize;
     }
 }
@@ -505,6 +534,18 @@ IOReturn NativeMaliUserClient::dispatch(uint32_t method, const void *input,
         NativeMaliAbiBoCacheSync request{};
         memcpy(&request,input,sizeof(request));
         return cacheSync(request);
+    }
+    case NativeMaliMethodBoImportUser: {
+        NativeMaliAbiBoImportUser request{};
+        memcpy(&request,input,sizeof(request));
+        NativeMaliAbiBoAllocReply reply{};
+        const IOReturn result=importUser(request,&reply);
+        if(result!=kIOReturnSuccess)return result;
+        memcpy(output,&reply,sizeof(reply));return kIOReturnSuccess;
+    }
+    case NativeMaliMethodBoWaitShared: {
+        NativeMaliAbiBoWaitShared request{};
+        memcpy(&request,input,sizeof(request));return waitShared(request);
     }
     case NativeMaliMethodReset:
         /* The target is the device-wide owner; this client cannot reset the

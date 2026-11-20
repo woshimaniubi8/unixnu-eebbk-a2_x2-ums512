@@ -14,11 +14,15 @@ SAME(nm_submit,NativeMaliAbiSubmit);
 SAME(nm_wait,NativeMaliAbiWaitFence);
 SAME(nm_param,NativeMaliAbiParam);
 SAME(nm_cache,NativeMaliAbiBoCacheSync);
+SAME(nm_import_user,NativeMaliAbiBoImportUser);
+SAME(nm_handle,NativeMaliAbiBoWaitShared);
 FIELD(nm_query,max_bytes,NativeMaliAbiQuery,max_bo_bytes);
 FIELD(nm_map,permissions,NativeMaliAbiBoMap,permissions);
 FIELD(nm_cpu_map,bytes,NativeMaliAbiBoCpuMapReply,bytes);
 FIELD(nm_submit,flags,NativeMaliAbiSubmit,flags);
 FIELD(nm_param,value,NativeMaliAbiParam,value);
 FIELD(nm_cache,type,NativeMaliAbiBoCacheSync,type);
+FIELD(nm_import_user,flags,NativeMaliAbiBoImportUser,flags);
 static_assert(NM_PARAM==NativeMaliMethodGetParam && NM_CACHE_SYNC==NativeMaliMethodBoCacheSync);
+static_assert(NM_IMPORT_USER==NativeMaliMethodBoImportUser && NM_WAIT_SHARED==NativeMaliMethodBoWaitShared);
 int main() {return 0;}

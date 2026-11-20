@@ -75,6 +75,8 @@ public:
     /* `spans` holds NativeMaliMemoryMaxSpans entries. */
     virtual IOReturn alloc(size_t bytes, void **cpu, NativeMaliMemorySpan *spans,
         size_t *count) = 0;
+    virtual IOReturn importUser(uint64_t, size_t, void **,
+        NativeMaliMemorySpan *, size_t *) { return kIOReturnUnsupported; }
     virtual void release(void *cpu, const NativeMaliMemorySpan *spans,
         size_t count) = 0;
 };
@@ -94,6 +96,8 @@ class NativeMaliMemory final {
     uint32_t as_ = 0;
     uint64_t iova_ = 0;
     bool mapped_ = false;
+    IOReturn prepareFrom(NativeMaliMemorySource *, size_t, uint64_t,
+        bool, NativeMaliCacheMaintainer *);
 public:
     NativeMaliMemory() = default;
     ~NativeMaliMemory();
@@ -109,6 +113,8 @@ public:
      * reset() returns kIOReturnBusy. */
     IOReturn prepare(NativeMaliMemorySource *source, size_t bytes,
         bool cpuCoherent, NativeMaliCacheMaintainer *maintainer);
+    IOReturn prepareUser(NativeMaliMemorySource *source, uint64_t address,
+        size_t bytes, bool cpuCoherent, NativeMaliCacheMaintainer *maintainer);
     /* Give the allocation back, whether or not it is mapped, and forget every
      * mapping without touching a register. The owner calls this after the
      * address space is gone; release() is the checked form. */

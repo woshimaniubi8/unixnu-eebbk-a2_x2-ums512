@@ -47,7 +47,7 @@ def prepare(root):
     emit('vgpu/vgpu_iokit.c',(native/'vgpu_native_mali.c').read_bytes()+b'\n#include "native_mali_iokit.inc"\n')
     emit('vgpu/native_mali_iokit.inc',(native/'native_mali_iokit.c').read_bytes())
     emit('vgpu/mali_native_wire.h',(native/'mali_native_wire.h').read_bytes())
-    for name in ['native-metal-probe.m','native-metal-probe.metal','native-metal-probe.entitlements']:
+    for name in ['native-metal-probe.m','native-metal-probe.metal','native-metal-probe.entitlements','native-metal-surface.inc']:
         emit('ios/'+name,(native/name).read_bytes())
     edit('vgpu/vgpu.c',[(
         '        const char *env = getenv("VGPU_BACKEND");\n'
@@ -84,6 +84,22 @@ def prepare(root):
          '        }', 1),
         ('vmg_isa_options_from_env(&iopt);',
          'memset(&iopt, 0, sizeof(iopt)); /* G52 v7: AIR -> NIR -> Mesa Bifrost, never the G57 v9 encoder. */', 2),
+        ('        if (!res) {\n'
+         '            templ.bind &= ~(unsigned)PIPE_BIND_SHARED;\n'
+         '            res = dev->screen->resource_create(dev->screen, &templ);\n'
+         '            if (!res) return NULL;\n'
+         '            vmg_texture *t = texture_wrap(res, d);\n'
+         '            t->surface_id = surface_id; t->plane = plane; t->surface_copy = true;\n'
+         '            t->surface = (void *)IOSurfaceLookup(surface_id);\n'
+         '            return t;\n'
+         '        }\n'
+         '    } else {\n'
+         '        // llvmpipe:',
+         '        if (!res) return NULL; /* NativeMali requires the original surface pages, no CPU copy. */\n'
+         '    } else {\n'
+         '        // llvmpipe:',1),
+        ('pitch not 64-aligned, copied (texture','pitch not 64-aligned, rejected (texture',1),
+        ('import refused, copied (texture','import refused, rejected (texture',1),
     ])
     edit("driver/metal/VMDevice.m", [
         ('    const char *strict = getenv("VMG_ISA_STRICT"), *isa = getenv("VMG_ISA");\n'
@@ -96,9 +112,10 @@ def prepare(root):
     record = dict(upstream_repository="https://github.com/Nik300/viva-gpu", upstream_commit=VIVA,
                   mesa_commit=MESA, target="arm64-apple-ios17.0", gpu_product_id="0x7402",
                   compiler_path="AIR -> NIR -> Mesa Bifrost v7", direct_valhall_v9_enabled=False,
-                  transport='NativeMali type-0 connection, selectors 1-10/12/13',
+                  transport='NativeMali type-0 connection, selectors 1-10/12-15',
                   vgpu_version='1.0',drm_panfrost_version='1.2',tiler_heap_committed_bytes=16*1024*1024,
-                  mock_selectable=False,iosurface_import_qualified=False,metal_probe='native-metal-probe',
+                  mock_selectable=False,iosurface_import_compiled=True,iosurface_cpu_copy_fallback=False,
+                  iosurface_import_qualified=False,metal_probe='native-metal-probe',
                   unsuccessful_pipelines_return_error=True, runtime_qualified=False, deployed=False, changes=changes)
     (root / "g52-source-receipt.json").write_text(json.dumps(record, indent=2) + "\n")
     return record

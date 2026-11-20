@@ -61,6 +61,7 @@ void NativeMaliBoTable::clear(Slot &slot)
     slot.live = false;
     slot.mapped = false;
     slot.cpuMapped = false;
+    slot.imported = false;
 }
 
 IOReturn NativeMaliBoTable::open(NativeMaliMemorySource *source,
@@ -94,18 +95,46 @@ IOReturn NativeMaliBoTable::open(NativeMaliMemorySource *source,
 IOReturn NativeMaliBoTable::alloc(const NativeMaliAbiBoAlloc &request,
     NativeMaliAbiBoAllocReply *reply)
 {
+    return create(request.bytes,0,reply);
+}
+
+IOReturn NativeMaliBoTable::importUser(const NativeMaliAbiBoImportUser &request,
+    NativeMaliAbiBoAllocReply *reply)
+{
+    if(reply)reply->handle=0;
+    if(request.flags || request.reserved || !request.address ||
+        (request.address&(NativeMaliVmGranule-1)) ||
+        request.bytes>UINT64_MAX-request.address)return kIOReturnBadArgument;
+    return create(request.bytes,request.address,reply);
+}
+
+bool NativeMaliBoTable::hasImported() const
+{
+    for(const auto &slot:slot_)if(slot.live && slot.imported)return true;
+    return false;
+}
+
+bool NativeMaliBoTable::imported(uint64_t handle) const
+{
+    const auto *slot=find(handle);return slot && slot->imported;
+}
+
+IOReturn NativeMaliBoTable::create(uint64_t bytes, uint64_t address,
+    NativeMaliAbiBoAllocReply *reply)
+{
     if(!reply)return kIOReturnBadArgument;
     reply->handle = 0;
     if(!open_)return kIOReturnNotReady;
 
-    IOReturn result = NativeMaliAbiValidate::boAlloc(request, maxBytes_);
+    IOReturn result = NativeMaliAbiValidate::boAlloc({bytes}, maxBytes_);
     if(result != kIOReturnSuccess)return result;
 
     Slot *slot = freeSlot();
     if(!slot)return kIOReturnNoResources;
 
-    result = slot->memory.prepare(source_, static_cast<size_t>(request.bytes),
-        coherent_, maintainer_);
+    result = address ? slot->memory.prepareUser(source_,address,
+        static_cast<size_t>(bytes),coherent_,maintainer_)
+        : slot->memory.prepare(source_,static_cast<size_t>(bytes),coherent_,maintainer_);
     if(result != kIOReturnSuccess)return result;
 
     /* Monotonic, never 0: a stale handle cannot name a later object. */
@@ -120,6 +149,7 @@ IOReturn NativeMaliBoTable::alloc(const NativeMaliAbiBoAlloc &request,
     slot->live = true;
     slot->mapped = false;
     slot->cpuMapped = false;
+    slot->imported = address!=0;
     index_.insert(handle, static_cast<uint32_t>(slot - slot_));
     ++live_;
     reply->handle = handle;
@@ -138,6 +168,8 @@ IOReturn NativeMaliBoTable::map(const NativeMaliAbiBoMap &request,
     IOReturn result = NativeMaliAbiValidate::boMap(request, slot->memory.bytes());
     if(result != kIOReturnSuccess)return result;
     if(slot->mapped)return kIOReturnBusy;
+    if(slot->imported && !(request.permissions&NativeMaliBoNoExec))
+        return kIOReturnBadArgument;
     /* Refuse before the first leaf is written: a partial overlap would leave
      * the new object half-mapped and the old one partly shadowed. */
     if(rangeTaken(request.iova, slot->memory.bytes()))return kIOReturnBadArgument;

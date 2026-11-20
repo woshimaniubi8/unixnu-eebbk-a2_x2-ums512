@@ -6,7 +6,8 @@
 #include <stdint.h>
 enum { NM_QUERY=1, NM_INFO=2, NM_ALLOC=3, NM_MAP=4, NM_FREE=5,
        NM_CPU_MAP=6, NM_CPU_UNMAP=7, NM_SUBMIT=8, NM_WAIT=9,
-       NM_STATUS=10, NM_PARAM=12, NM_CACHE_SYNC=13 };
+       NM_STATUS=10, NM_PARAM=12, NM_CACHE_SYNC=13,
+       NM_IMPORT_USER=14, NM_WAIT_SHARED=15 };
 struct nm_query { uint32_t version,ias,oas,flags; uint64_t max_bytes; };
 struct nm_alloc { uint64_t bytes; };
 struct nm_handle { uint64_t handle; };
@@ -19,6 +20,12 @@ struct nm_fence_wire { uint64_t fence; };
 struct nm_wait { uint64_t fence,timeout; };
 struct nm_param { uint32_t parameter,reserved; uint64_t value; };
 struct nm_cache { uint64_t handle,offset,bytes; uint32_t type,reserved; };
+struct nm_import_user { uint64_t address,bytes; uint32_t flags,reserved; };
+struct nm_surface_view {
+    uint64_t address,bytes,in_page,plane_bytes;
+    uint32_t bytes_per_row,pixel_format,width,height;
+    void *retained;
+};
 
 /* Transport returns 0 or negative errno, and must reject short/long replies. */
 struct nm_transport {
@@ -28,5 +35,8 @@ struct nm_transport {
     void (*close)(void *);
     uint64_t (*now_ns)(void *);
     uint32_t page_size;
+    /* Success returns one retained original IOSurface; failure owns none. */
+    int (*surface)(void *,uint32_t,uint32_t,struct nm_surface_view *);
+    void (*release_surface)(void *);
 };
 int nm_backend_connect(const struct nm_transport *,void *,void **);

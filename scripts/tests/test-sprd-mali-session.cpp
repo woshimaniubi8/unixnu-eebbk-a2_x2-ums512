@@ -52,6 +52,17 @@ class Buffers final : public NativeMaliMemorySource {
     uint64_t next_=0x30000000;
 public:
     unsigned live=0;
+    void *external=nullptr;
+    unsigned imported=0,released=0;
+    bool failImport=false,malformedImport=false;
+    IOReturn importUser(uint64_t address,size_t bytes,void **cpu,
+        NativeMaliMemorySpan *spans,size_t *count) override {
+        if(failImport)return kIOReturnIOError;
+        if(reinterpret_cast<void *>(address)!=external)return kIOReturnBadArgument;
+        *cpu=external;spans[0]={0,0x38000000,bytes};
+        if(malformedImport)spans[0].bytes-=4096;
+        *count=1;++live;++imported;return kIOReturnSuccess;
+    }
     IOReturn alloc(size_t bytes,void **cpu,NativeMaliMemorySpan *spans,size_t *count) override {
         *cpu=std::aligned_alloc(4096,bytes);
         if(!*cpu)return kIOReturnNoMemory;
@@ -59,7 +70,8 @@ public:
         *count=1;++live;return kIOReturnSuccess;
     }
     void release(void *cpu,const NativeMaliMemorySpan *,size_t) override {
-        std::free(cpu);--live;
+        if(cpu==external)++released;else std::free(cpu);
+        --live;
     }
 };
 class Cache final : public NativeMaliCacheMaintainer {
@@ -209,6 +221,46 @@ int main() {
     assert(a->status(&status)==0 && status.faults==1);
     assert(a->freeBo(free)==0);
     assert(a->releaseAll()==0 && b->releaseAll()==0);
+
+    // Imported storage aliases the caller's pages; no allocation or zeroing.
+    assert(a->open(&buffers,&cache,false,&va,&mmu,aa,&jobs,&gpu,obs,1<<20)==0);
+    assert(b->open(&buffers,&cache,false,&vb,&mmu,ab,&jobs,&gpu,obs,1<<20)==0);
+    buffers.external=std::aligned_alloc(16384,16384);
+    assert(buffers.external);memset(buffers.external,0x6b,16384);
+    NativeMaliAbiBoImportUser imported{reinterpret_cast<uint64_t>(buffers.external),16384,0,0};
+    NativeMaliAbiBoAllocReply left{},right{};
+    const auto liveBefore=buffers.live;
+    auto badImport=imported;badImport.address++;
+    assert(a->importUser(badImport,&left)==kIOReturnBadArgument && !left.handle);
+    badImport=imported;badImport.flags=1;
+    assert(a->importUser(badImport,&left)==kIOReturnBadArgument);
+    badImport=imported;badImport.address=UINT64_MAX-4095;
+    assert(a->importUser(badImport,&left)==kIOReturnBadArgument);
+    buffers.failImport=true;
+    assert(a->importUser(imported,&left)==kIOReturnIOError && buffers.live==liveBefore);
+    buffers.failImport=false;buffers.malformedImport=true;
+    assert(a->importUser(imported,&left)==kIOReturnBadArgument && buffers.live==liveBefore);
+    assert(buffers.released==1);buffers.malformedImport=false;
+    assert(a->dispatch(NativeMaliMethodBoImportUser,&imported,sizeof(imported),&left,sizeof(left))==0);
+    assert(b->importUser(imported,&right)==0 && a->hasImported() && b->hasImported());
+    assert(a->memoryForHandle(left.handle)->cpu()==buffers.external);
+    assert(b->memoryForHandle(right.handle)->cpu()==buffers.external);
+    assert(static_cast<uint8_t *>(buffers.external)[0]==0x6b);
+    NativeMaliAbiBoMap sharedMap{left.handle,0x1400000,3,0};
+    assert(a->mapBo(sharedMap,&mapped)==kIOReturnBadArgument); // never executable
+    sharedMap.permissions=7;assert(a->mapBo(sharedMap,&mapped)==0);
+    assert(b->mapBo({right.handle,0x1800000,7,0},&mapped)==0);
+    const auto invalidateBefore=cache.invalidate;
+    assert(b->waitShared({right.handle})==0 && cache.invalidate==invalidateBefore+1);
+    assert(b->waitShared({right.handle+1000})==kIOReturnBadArgument);
+    assert(a->freeBo({left.handle})==0 && !a->hasImported());
+    assert(buffers.released==2 && buffers.live==liveBefore+1);
+    assert(b->freeBo({right.handle})==0 && !b->hasImported());
+    assert(buffers.released==3 && buffers.live==liveBefore);
+    assert(static_cast<uint8_t *>(buffers.external)[0]==0x6b);
+    std::free(buffers.external);buffers.external=nullptr;
+    assert(a->releaseAll()==0 && b->releaseAll()==0);
+    puts("PASS: imported page aliasing, forced NOEXEC, bad-span/pin rollback, shared invalidation, balanced release.");
 
     NativeMaliFence present{};
     assert(jobs.submit(2,0x04000000,aa,0,&present)==0);
