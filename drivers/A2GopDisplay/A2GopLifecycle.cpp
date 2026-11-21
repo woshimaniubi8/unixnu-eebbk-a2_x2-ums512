@@ -138,6 +138,22 @@ static void recordRejectedSwap(unsigned reason,const void *request,const void *s
         const OSMetaClass *meta=object->getMetaClass();const char *cls=meta?meta->getClassName():nullptr;
         if(cls)strlcpy(name,cls,sizeof(name));}
     memcpy(native_legacy_rej_class,name,sizeof(name));
+    // Preserve the exact validation verdict. Capture the contract on the first
+    // rejections and at powers of two without adding a per-frame UART stall.
+    const uint32_t n=native_legacy_swap_rejected_count;
+    if(n<=4 || (n && !(n&(n-1)))) {
+        printf("M198 display: reject=%u reason=%u class=%s masks=%x/%x/%x options=%x/%x/%x dims=%ux%u\n",
+          n,reason,name,native_legacy_rej_state[0],native_legacy_rej_state[1],native_legacy_rej_state[2],
+          native_legacy_rej_options[0],native_legacy_rej_options[1],native_legacy_rej_options[2],
+          native_legacy_rej_size[0],native_legacy_rej_size[1]);
+        printf("M198 display: rects=%u,%u,%u,%u/%u,%u,%u,%u surfaces=%llx/%llx/%llx/%llx\n",
+          native_legacy_rej_rects[0][0],native_legacy_rej_rects[0][1],native_legacy_rej_rects[0][2],native_legacy_rej_rects[0][3],
+          native_legacy_rej_rects[1][0],native_legacy_rej_rects[1][1],native_legacy_rej_rects[1][2],native_legacy_rej_rects[1][3],
+          native_legacy_rej_surfaces[0],native_legacy_rej_surfaces[1],native_legacy_rej_surfaces[2],native_legacy_rej_surfaces[3]);
+        if(reason==4)printf("M198 display: surface=%llux%llu format=%08llx planes=%llu stride=%llu allocation=%llu descriptor=%llu\n",
+          native_legacy_rej_surface[0],native_legacy_rej_surface[1],native_legacy_rej_surface[2],native_legacy_rej_surface[3],
+          native_legacy_rej_surface[4],native_legacy_rej_surface[5],native_legacy_rej_surface[6]);
+    }
 }
 // Content statistics of presented frames (copy = kind 0, blank fill = kind 1): the first 32 are kept, with the time
 // in seconds since the first frame. A per-frame record shows the animation cadence and when the OS blanks the panel.
