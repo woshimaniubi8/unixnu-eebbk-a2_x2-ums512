@@ -47,7 +47,7 @@ def prepare(root):
     emit('vgpu/vgpu_iokit.c',(native/'vgpu_native_mali.c').read_bytes()+b'\n#include "native_mali_iokit.inc"\n')
     emit('vgpu/native_mali_iokit.inc',(native/'native_mali_iokit.c').read_bytes())
     emit('vgpu/mali_native_wire.h',(native/'mali_native_wire.h').read_bytes())
-    for name in ['native-metal-probe.m','native-metal-probe.metal','native-metal-probe.entitlements','native-metal-surface.inc']:
+    for name in ['native-metal-probe.m','native-metal-probe.metal','native-metal-probe.entitlements','native-metal-surface.inc','native-metal-surface-preflight.inc','mali_native_wire.h']:
         emit('ios/'+name,(native/name).read_bytes())
     edit('vgpu/vgpu.c',[(
         '        const char *env = getenv("VGPU_BACKEND");\n'
