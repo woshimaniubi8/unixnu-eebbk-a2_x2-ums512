@@ -635,7 +635,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: g52-metal-frontend
-          run-id: 44777745341
+          run-id: 44841638858
           github-token: ${{ github.token }}
           path: frontend
       - name: Build only the owned Metal stage probe

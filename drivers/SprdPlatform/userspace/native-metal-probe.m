@@ -52,6 +52,7 @@ static int completed(id<MTLCommandBuffer> cb)
     }return 1;
 }
 #include "native-metal-surface.inc"
+#include "native-metal-surface-preflight.inc"
 int main(int argc,char **argv) {
     static const char started[]="nm metal: main enter\n";
     (void)write(2,started,sizeof(started)-1);
@@ -67,6 +68,7 @@ int main(int argc,char **argv) {
     if(argc!=3 && !childMode){fprintf(stderr,"usage: native-metal-probe BUNDLE SHADERS.metallib\n");return 64;}
     const char *bundleArgument=argv[childMode?3:1],*shaderArgument=argv[childMode?4:2];
     uint32_t expectedSurface=0;
+    if(!childMode){int preflight=originalSurfacePreflight();if(preflight)return preflight;}
     if(childMode){
         char *end=NULL;errno=0;unsigned long id=strtoul(argv[2],&end,10);
         if(errno || !end || *end || !id || id>UINT32_MAX)return 64;
