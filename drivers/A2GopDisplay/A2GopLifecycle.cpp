@@ -114,6 +114,9 @@ volatile uint64_t native_legacy_rej_surfaces[4];
 volatile uint32_t native_legacy_rej_state[3],native_legacy_rej_options[3],native_legacy_rej_size[2],native_legacy_rej_rects[2][4];
 char native_legacy_rej_class[32];
 volatile uint64_t native_legacy_rej_surface[7];   // width, height, format, planes, stride, allocation, descriptor bytes of the last rejected surface
+extern "C" uint64_t native_legacy_plane_offset_a(const void *,uint32_t),native_legacy_plane_offset_b(const void *,uint32_t);
+extern "C" uint64_t native_legacy_plane_width(const void *,uint32_t),native_legacy_plane_height(const void *,uint32_t);
+extern "C" uint64_t native_legacy_plane_stride(const void *,uint32_t),native_legacy_plane_allocation(const void *,uint32_t);
 void native_legacy_surface_rejected(uint64_t width,uint64_t height,uint32_t format,uint32_t planes,uint64_t stride,uint64_t allocation,uint64_t bytes) {
     native_legacy_rej_surface[0]=width;native_legacy_rej_surface[1]=height;native_legacy_rej_surface[2]=format;native_legacy_rej_surface[3]=planes;
     native_legacy_rej_surface[4]=stride;native_legacy_rej_surface[5]=allocation;native_legacy_rej_surface[6]=bytes;
@@ -153,6 +156,11 @@ static void recordRejectedSwap(unsigned reason,const void *request,const void *s
         if(reason==4)printf("M198 display: surface=%llux%llu format=%08llx planes=%llu stride=%llu allocation=%llu descriptor=%llu\n",
           native_legacy_rej_surface[0],native_legacy_rej_surface[1],native_legacy_rej_surface[2],native_legacy_rej_surface[3],
           native_legacy_rej_surface[4],native_legacy_rej_surface[5],native_legacy_rej_surface[6]);
+        if(reason==4 && surface && native_legacy_rej_surface[3]==1)
+            printf("M199 display: plane0=%llux%llu stride=%llu allocation=%llu offset_a=%llx offset_b=%llx\n",
+              native_legacy_plane_width(surface,0),native_legacy_plane_height(surface,0),
+              native_legacy_plane_stride(surface,0),native_legacy_plane_allocation(surface,0),
+              native_legacy_plane_offset_a(surface,0),native_legacy_plane_offset_b(surface,0));
     }
 }
 // Content statistics of presented frames (copy = kind 0, blank fill = kind 1): the first 32 are kept, with the time

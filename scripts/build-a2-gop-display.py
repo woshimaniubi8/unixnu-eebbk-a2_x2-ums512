@@ -160,6 +160,13 @@ for name,address,field,wide in [
     expected=(0xf9400000 if wide else 0xb9400000)|((field//(8 if wide else 4))<<10)
     require(read(address,8)==struct.pack('<2I',expected,0xd65f03c0),'Exact original surface getter '+name)
     bindings['_native_legacy_surface_'+name]=address
+# Plane metadata has a different row pitch and two offset words. Bind the
+# original checked getters; do not replace them with private-structure reads.
+plane_abi=json.loads((SOURCE/'OriginalSurfacePlaneABI.json').read_text())
+for name,entry in plane_abi['getters'].items():
+    body=bytes.fromhex(entry['bytes'])
+    require(hashlib.sha256(body).hexdigest()==entry['sha256'],'Original plane getter reference '+name)
+    bindings['_native_legacy_plane_'+name]=int(entry['address'],16)
 # The original display-refresh notification sender (self, timestamp, continuous host time, frame interval): it sends the six-word
 # vsync message (type 5) to every client entry queued at +5592, the tail queue that selector 72's registration (slot 208) fills at
 # +5512 + type*16. The platform subclass that normally calls it on each panel vblank is not part of this port.

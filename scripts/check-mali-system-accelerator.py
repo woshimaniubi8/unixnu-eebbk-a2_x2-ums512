@@ -114,7 +114,15 @@ if not reference_only:
     for value in (b"M195 mali: postModLoad status=", b"userClientSize="):
         assert value in data, f"Metaclass transaction diagnostic absent: {value!r}"
 
+plane_abi = json.loads((root / "drivers/A2GopDisplay/OriginalSurfacePlaneABI.json").read_text())
+for name, entry in plane_abi["getters"].items():
+    expected = bytes.fromhex(entry["bytes"])
+    assert hashlib.sha256(expected).hexdigest() == entry["sha256"]
+    assert read(int(entry["address"], 16), len(expected)) == expected, \
+        f"Original IOSurface plane getter changed: {name}"
+
 print("PASS: exact original IOAcceleratorES 136-byte/168-slot ABI and four entry checks")
+print("PASS: six original IOSurface plane getter bodies match the bound reference")
 print("PASS: original IOGPUFamily text unchanged")
 if not reference_only:
     print("PASS: system Metal and scoped grant markers linked")
