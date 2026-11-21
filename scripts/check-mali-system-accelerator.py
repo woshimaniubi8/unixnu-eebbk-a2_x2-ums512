@@ -89,8 +89,33 @@ if not reference_only:
                   b"MetalPluginClassName", b"VivaMTLDriver", b"VMDevice",
                   b"NativeSandboxGrantProcess", b"backboardd,SpringBoard"):
         assert value in data, f"System accelerator publication marker absent: {value!r}"
+    # A linked constructor and correct base ABI do not prove registration.
+    # Audit the final executable call sequence: this caught M194, whose
+    # deferred constructors ran without the OSRuntime registration context.
+    factory = symbol_names["_sprd_mali_service_create"]
+    next_symbol = min((address for address in symbol_names.values()
+                       if address > factory), default=factory + 8192)
+    body = read(factory, min(next_symbol - factory, 8192))
+    calls = []
+    for offset in range(0, len(body) - 3, 4):
+        instruction, = struct.unpack_from("<I", body, offset)
+        if instruction & 0xFC000000 == 0x94000000:
+            immediate = instruction & 0x03FFFFFF
+            if immediate & 0x02000000:
+                immediate -= 0x04000000
+            calls.append(factory + offset + immediate * 4)
+    sequence = [symbol_names[name] for name in (
+        "__ZN11OSMetaClass10preModLoadEPKc",
+        "__GLOBAL__sub_I_SprdMaliService.cpp",
+        "__ZN11OSMetaClass11postModLoadEPv")]
+    positions = [calls.index(target) if target in calls else -1 for target in sequence]
+    assert min(positions) >= 0 and positions == sorted(set(positions)), \
+        f"Missing/reordered deferred metaclass registration transaction: {positions}"
+    for value in (b"M195 mali: postModLoad status=", b"userClientSize="):
+        assert value in data, f"Metaclass transaction diagnostic absent: {value!r}"
 
 print("PASS: exact original IOAcceleratorES 136-byte/168-slot ABI and four entry checks")
 print("PASS: original IOGPUFamily text unchanged")
 if not reference_only:
     print("PASS: system Metal and scoped grant markers linked")
+    print("PASS: final Mali factory brackets constructors with preModLoad/postModLoad")

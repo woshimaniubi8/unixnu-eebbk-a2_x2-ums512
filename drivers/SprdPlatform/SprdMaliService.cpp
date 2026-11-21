@@ -19,6 +19,7 @@
 #include "mali/OriginalAcceleratorABI.h"
 #include "mali/NativeMaliSystemPolicy.h"
 #include <kern/task.h>
+#include <mach/kmod.h>
 #include <mach/vm_param.h>
 #include <machine/machine_routines.h>
 #include <pexpert/pexpert.h>
@@ -29,6 +30,7 @@
 extern "C" boolean_t pmap_valid_address(pmap_paddr_t address);
 extern "C" void flush_dcache64(addr64_t address,unsigned bytes,int physical);
 extern "C" void proc_selfname(char *buffer,int size);
+extern "C" kmod_info_t g_kernel_kmod_info;
 extern "C" void sprd_mali_service_meta_init() __asm__("__GLOBAL__sub_I_SprdMaliService.cpp");
 
 namespace {
@@ -1111,7 +1113,11 @@ IOReturn NativeSprdMaliService::exerciseFullFrame()
 extern "C" IOService *sprd_mali_service_create(uint32_t factorySupplyMicrovolts)
 {
     static bool classRegistered=false;
+    static bool constructorsRun=false;
     if(!classRegistered) {
+        // A failed postModLoad must not rerun placement constructors over
+        // metaclasses whose expansion data or dictionary entries already exist.
+        if(constructorsRun)return nullptr;
         const OSSymbol *baseName=OSSymbol::withCString("IOAcceleratorES");
         const OSMetaClass *baseMeta=baseName?OSMetaClass::getMetaClassWithName(baseName):nullptr;
         if(baseName)baseName->release();
@@ -1125,18 +1131,34 @@ extern "C" IOService *sprd_mali_service_create(uint32_t factorySupplyMicrovolts)
         IOLog("M194 mali: IOGPUFamily load=0x%x IOAcceleratorES=%p\n",
             static_cast<unsigned>(loadStatus),static_cast<const void *>(baseMeta));
         if(!baseMeta)return nullptr;
+        // Deferred constructors need the same registration transaction as
+        // OSRuntimeInitializeCPP. Loading the base alone does not open one.
+        void *handle=OSMetaClass::preModLoad(g_kernel_kmod_info.name);
+        if(!handle) {
+            IOLog("M195 mali: preModLoad allocation failed\n");
+            return nullptr;
+        }
         sprd_mali_service_meta_init();
+        constructorsRun=true;
+        const OSReturn registrationStatus=OSMetaClass::postModLoad(handle);
+        IOLog("M195 mali: postModLoad status=0x%x owner=%s\n",
+            static_cast<unsigned>(registrationStatus),g_kernel_kmod_info.name);
+        if(registrationStatus!=kOSReturnSuccess)return nullptr;
         const OSSymbol *className=OSSymbol::withCString("NativeSprdMaliService");
         const OSMetaClass *serviceMeta=className?OSMetaClass::getMetaClassWithName(className):nullptr;
         if(className)className->release();
-        if(!serviceMeta || serviceMeta->getClassSize()<=sizeof(IOAcceleratorES)) {
-            IOLog("M194 mali: accelerator metaclass registration failed meta=%p\n",
-                static_cast<const void *>(serviceMeta));
+        const OSSymbol *clientName=OSSymbol::withCString("NativeSprdMaliUserClient");
+        const OSMetaClass *clientMeta=clientName?OSMetaClass::getMetaClassWithName(clientName):nullptr;
+        if(clientName)clientName->release();
+        if(!serviceMeta || serviceMeta->getClassSize()!=sizeof(NativeSprdMaliService) ||
+            !clientMeta || clientMeta->getClassSize()!=sizeof(NativeSprdMaliUserClient)) {
+            IOLog("M195 mali: accelerator/client metaclass validation failed service=%p client=%p\n",
+                static_cast<const void *>(serviceMeta),static_cast<const void *>(clientMeta));
             return nullptr;
         }
         classRegistered=true;
-        IOLog("M194 mali: IOAcceleratorES subclass registered classSize=%u\n",
-            serviceMeta->getClassSize());
+        IOLog("M195 mali: IOAcceleratorES subclass registered classSize=%u userClientSize=%u\n",
+            serviceMeta->getClassSize(),clientMeta->getClassSize());
     }
     auto *service = new NativeSprdMaliService;
     if(!service)return nullptr;
