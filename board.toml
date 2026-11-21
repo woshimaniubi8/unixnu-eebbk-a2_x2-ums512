@@ -147,6 +147,16 @@ cpu_regs = "0,0x100,0x200,0x300,0x400,0x500,0x600,0x700"
 mac-address-wifi0 = "74d87381e13d"
 mac-address-bluetooth0 = "74d87381e13e"
 
+[adt.chosen.u32]
+# MobileGestalt reads this from /chosen; it must be a typed LE U32, not a
+# string/byte property.
+display-scale = 2
+
+[adt.product.string]
+# Keep CoreAnimation on the panel's plain BGRA8 path instead of the Apple
+# wide-colour w40a/w40m framebuffer formats.
+artwork-display-gamut = "sRGB"
+
 [userdata]
 # GPT entry measured on hardware (see the UEFI GPT walk in the bring-up log).
 # The eMMC exposes 512-byte sectors and the GPT LBA unit is 512 bytes:
