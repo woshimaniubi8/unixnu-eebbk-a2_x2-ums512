@@ -1,8 +1,8 @@
 diff --git a/NativeLegacyDisplay.cpp b/NativeLegacyDisplay.cpp
-index 9771c0f..b9b6fe1 100644
+index 0cb8278..9d784de 100644
 --- a/NativeLegacyDisplay.cpp
 +++ b/NativeLegacyDisplay.cpp
-@@ -25,6 +25,8 @@ extern "C" IOMemoryDescriptor *native_legacy_surface_descriptor(OSObject *);
+@@ -40,6 +40,8 @@ extern "C" IOMemoryDescriptor *native_legacy_surface_descriptor(OSObject *);
  extern "C" uint64_t native_legacy_surface_width(OSObject *),native_legacy_surface_height(OSObject *);
  extern "C" uint64_t native_legacy_surface_stride(OSObject *),native_legacy_surface_allocation(OSObject *);
  extern "C" uint32_t native_legacy_surface_format(OSObject *),native_legacy_surface_planes(OSObject *);
@@ -11,11 +11,11 @@ index 9771c0f..b9b6fe1 100644
  extern "C" void native_legacy_frame_observed(unsigned kind,uint64_t count,uint64_t minx,uint64_t miny,uint64_t maxx,uint64_t maxy);
  extern "C" void native_legacy_frame_colors_observed(const uint32_t *colors,const uint64_t *counts,uint64_t other);
  extern "C" void native_legacy_swap_validation_observed(bool,unsigned,const void *,const void *);
-@@ -82,6 +84,23 @@ extern "C" uint64_t mach_continuous_time(void);
+@@ -137,6 +139,23 @@ extern "C" void flush_dcache64(addr64_t addr,unsigned count,int phys);
  static inline bool nativeBgra(uint32_t format,uint32_t planes) {
      return (format==0x42475241 && !planes) || (format==0x26424741 && planes<=1);
  }
-+// Apple?s &BGA surface exposes a root stride that is not the backing-plane
++// Apple &BGA surface exposes a root stride that is not the backing-plane
 +// byte stride. Use the qualified original plane getter for this format only.
 +static inline bool nativeBgraLayout(OSObject *surface,uint32_t format,uint32_t planes,
 +    uint64_t *stride,uint64_t *allocation) {
@@ -32,10 +32,10 @@ index 9771c0f..b9b6fe1 100644
 +    }
 +    return true;
 +}
- class NativeLegacyDisplay : public IOMobileFramebufferLegacy {
-     OSDeclareDefaultStructors(NativeLegacyDisplay)
-     IOMemoryMap *bootMapping=nullptr;
-@@ -399,11 +418,14 @@ public:
+ // 64-bit RGBA half float ('RGhA', one plane): iPadOS 27's render server picks it for this panel's framebuffer once a Metal device renders
+ // (every Metal frame was refused while only BGRA was taken). The copy converts it to the scanout's BGRA (convertHalfRows below).
+ static inline bool nativeHalf(uint32_t format,uint32_t planes) {return format==0x52476841 && !planes;}
+@@ -676,11 +695,14 @@ public:
          PE_Video video={};
          uint32_t width=0,height=0;getDisplayDimensions(&width,&height);
          uint64_t length=(uint64_t)width*height*4;
@@ -46,29 +46,26 @@ index 9771c0f..b9b6fe1 100644
 +        const uint32_t surfacePlanes=native_legacy_surface_planes(surface);
 +        uint64_t sourceStride=0,allocation=0;
 +        if(!memory || !memory->metaCast("IOMemoryDescriptor") ||
-+           !nativeBgra(surfaceFormat,surfacePlanes) ||
 +           !nativeBgraLayout(surface,surfaceFormat,surfacePlanes,&sourceStride,&allocation) ||
 +           !native_legacy_surface_bounds(width,height,sourceStride,allocation,memory->getLength()) ||
             native_legacy_surface_width(surface)<width || native_legacy_surface_height(surface)<height ||
--           !nativeBgra(native_legacy_surface_format(surface),native_legacy_surface_planes(surface)) ||
+-           !nativeScanoutFormat(native_legacy_surface_format(surface),native_legacy_surface_planes(surface)) ||
++           !nativeScanoutFormat(surfaceFormat,surfacePlanes) ||
             PE_current_console(&video) || video.v_baseAddr!=bootMapping->getPhysicalAddress() ||
             video.v_width!=width || video.v_height!=height || video.v_depth!=32 || video.v_rotate ||
             !native_legacy_surface_bounds(width,height,video.v_rowBytes,bootMapping->getLength(),bootMapping->getLength())) {
-@@ -570,11 +592,14 @@ public:
-                     IOMemoryDescriptor *memory=native_legacy_surface_descriptor(surface);
+@@ -1022,11 +1044,12 @@ public:
                      // A surface larger than the display (rows or lines padded to the GPU's alignment) is accepted: only the visible rectangle,
                      // which the request's rectangles already name as the whole display, is copied.
-+                    const uint32_t surfaceFormat=native_legacy_surface_format(surface);
-+                    const uint32_t surfacePlanes=native_legacy_surface_planes(surface);
+                     const uint32_t format=native_legacy_surface_format(surface),planes=native_legacy_surface_planes(surface);
 +                    uint64_t surfaceStride=0,surfaceAllocation=0;
                      if(native_legacy_surface_width(surface)>=width && native_legacy_surface_height(surface)>=height &&
--                       nativeBgra(native_legacy_surface_format(surface),native_legacy_surface_planes(surface)) &&
-+                       nativeBgra(surfaceFormat,surfacePlanes) &&
-+                       nativeBgraLayout(surface,surfaceFormat,surfacePlanes,&surfaceStride,&surfaceAllocation) &&
+                        nativeScanoutFormat(format,planes) &&
++                       nativeBgraLayout(surface,format,planes,&surfaceStride,&surfaceAllocation) &&
                         memory && memory->metaCast("IOMemoryDescriptor") &&
 -                       native_legacy_surface_bounds(width,height,native_legacy_surface_stride(surface),
 -                           native_legacy_surface_allocation(surface),memory->getLength())) {
 +                       native_legacy_surface_bounds(width,height,surfaceStride,surfaceAllocation,memory->getLength())) {
                          reason=0;accepted=true;
+                         countFormat(nativeHalf(format,planes)?2:format==0x26424741?1:0);
                      } else {
-                         native_legacy_surface_rejected(native_legacy_surface_width(surface),native_legacy_surface_height(surface),
