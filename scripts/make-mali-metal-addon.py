@@ -18,14 +18,14 @@ import zlib
 ROOT=Path(__file__).resolve().parents[1]
 ENTITLEMENTS={
     'com.apple.private.security.no-container':True,
-    'com.apple.security.iokit-user-client-class':['NativeSprdMaliUserClient'],
+    'com.apple.security.iokit-user-client-class':['NativeSprdMaliUserClient','IOSurfaceRootUserClient'],
 }
 
 def module(name,path):
     spec=importlib.util.spec_from_file_location(name,path)
     value=importlib.util.module_from_spec(spec);spec.loader.exec_module(value);return value
 
-def code_directory(data,executable):
+def code_directory(data,executable,*,expected_entitlements=None):
     if len(data)<32 or struct.unpack_from('<II',data)!=(0xfeedfacf,0x100000c):
         raise ValueError('Require a thin ARM64 Mach-O')
     kind,count,commands=struct.unpack_from('<III',data,12)
@@ -74,7 +74,8 @@ def code_directory(data,executable):
                 raise ValueError('Code page digest mismatch')
         directories.append(dict(cdhash=hashlib.sha256(blob).hexdigest()[:40],page_bytes=page,code_pages=slots,flags=flags))
     if len(directories)!=1:raise ValueError('Require one unambiguous SHA-256 CodeDirectory')
-    if executable and entitlements!=ENTITLEMENTS:raise ValueError('Wrong owner-client entitlement set')
+    if executable and entitlements!=(ENTITLEMENTS if expected_entitlements is None else expected_entitlements):
+        raise ValueError('Wrong owner-client entitlement set')
     return dict(**directories[0],entitlements=entitlements)
 
 def encode(files,pad):

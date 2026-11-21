@@ -25,6 +25,7 @@ on:
           - mali metal signature
           - mali metal deploy
           - mali metal trace
+          - mali metal surface access
         default: kernel payload
       runner:
         description: Official GitHub macOS runner pool; all kernels/components explicitly target ARM64 regardless of host CPU
@@ -74,7 +75,7 @@ defaults:
 
 jobs:
   kernel:
-    if: inputs.steps != 'mali probe' && inputs.steps != 'mali metal' && inputs.steps != 'mali metal signature' && inputs.steps != 'mali metal deploy' && inputs.steps != 'mali metal trace'
+    if: inputs.steps != 'mali probe' && inputs.steps != 'mali metal' && inputs.steps != 'mali metal signature' && inputs.steps != 'mali metal deploy' && inputs.steps != 'mali metal trace' && inputs.steps != 'mali metal surface access'
     name: XNU kernel + payload
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 360
@@ -639,6 +640,29 @@ jobs:
           path: frontend
       - name: Build only the owned Metal stage probe
         run: python3 device/scripts/build-mali-metal-probe-trace.py frontend
+      - uses: actions/upload-artifact@v4
+        with:
+          name: g52-metal-frontend
+          path: frontend/
+          if-no-files-found: error
+          retention-days: 7
+
+  mali_metal_surface_access:
+    if: inputs.steps == 'mali metal surface access'
+    runs-on: macos-26-intel
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: device
+      - uses: actions/download-artifact@v4
+        with:
+          name: g52-metal-frontend
+          run-id: 44838691910
+          github-token: ${{ github.token }}
+          path: frontend
+      - name: Grant only the owned probe original IOSurface access
+        run: python3 device/scripts/prepare-mali-metal-surface-access.py frontend
       - uses: actions/upload-artifact@v4
         with:
           name: g52-metal-frontend
