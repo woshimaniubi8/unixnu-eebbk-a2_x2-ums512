@@ -171,3 +171,6 @@ bbk-a2-owner-data-scratch.patch
 
 # Trace only the owned Metal executable; keep every exec/auth result unchanged.
 bbk-a2-owner-metal-exec-trace.patch
+
+# Bound native Sandbox reason-221 producer stacks; retain every policy result.
+bbk-a2-sandbox-origin-trace.patch

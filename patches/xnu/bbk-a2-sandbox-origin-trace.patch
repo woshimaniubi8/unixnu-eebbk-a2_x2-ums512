@@ -1,0 +1,40 @@
+diff --git a/bsd/kern/sys_reason.c b/bsd/kern/sys_reason.c
+--- a/bsd/kern/sys_reason.c
++++ b/bsd/kern/sys_reason.c
+@@ -38,6 +38,10 @@
+ #include <kern/assert.h>
+ #include <kern/debug.h>
+ 
++#include <kern/backtrace.h>
++#include <sys/proc.h>
++#include <sys/systm.h>
++
+ extern int maxproc;
+ 
+ /*
+@@ -63,6 +67,25 @@ os_reason_create(uint32_t osr_namespace, uint64_t osr_code)
+ {
+ 	os_reason_t new_reason;
+ 
++	/* Capture the producer, before delivery to another thread hides the
++	 * denying syscall/MIG policy. This observes the original decision. */
++	if (osr_namespace == OS_REASON_SANDBOX && osr_code == 221) {
++		static _Atomic unsigned int observed;
++		unsigned int sequence = __c11_atomic_fetch_add(&observed, 1, __ATOMIC_RELAXED);
++		if (sequence < 16) {
++			char name[64] = {0};
++			uintptr_t frames[14] = {0};
++			proc_selfname(name, sizeof(name));
++			unsigned int count = backtrace(frames, 14, NULL, NULL);
++			printf("M196 sandbox: reason=221 current_pid=%d name=%s sequence=%u frames=%u\n",
++			    proc_selfpid(), name, sequence, count);
++			for (unsigned int index = 0; index < count; index++) {
++				printf("M196 sandbox: frame[%u]=0x%llx\n", index,
++				    (unsigned long long)frames[index]);
++			}
++		}
++	}
++
+ 	new_reason = zalloc_flags(os_reason_zone, Z_WAITOK | Z_ZERO);
+ 	new_reason->osr_namespace = osr_namespace;
+ 	new_reason->osr_code = osr_code;
