@@ -383,6 +383,10 @@ jobs:
           xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
             -fno-omit-frame-pointer device/scripts/tests/test-sprd-mali-render.cpp -o mali-render-host-test
           ./mali-render-host-test mali-render-packets.bin
+          xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            -fno-omit-frame-pointer device/scripts/tests/test-sprd-mali-system.cpp \
+            -o mali-system-host-test
+          ./mali-system-host-test
           python3 device/scripts/check-mali-render-packets.py mali-render-packets.bin
           python3 device/scripts/mali-host/compute-payload.py
           xcrun clang++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
@@ -422,6 +426,27 @@ jobs:
         run: |
           set -euxo pipefail
           ./unixnu build kernel 2>&1 | tee "$GITHUB_WORKSPACE/kernel.log"
+
+      - name: Verify original accelerator ABI and system Metal publication
+        working-directory: UniXNU
+        run: |
+          set -euxo pipefail
+          KERNEL=$(ls out/*/*/*/kernel/kernel.macho | head -n 1)
+          TREE="$(dirname "$(dirname "$KERNEL")")/tree"
+          python3 "$GITHUB_WORKSPACE/device/scripts/check-mali-system-accelerator.py" \
+            "$KERNEL" "$TREE/kits/XnuPrelink"
+          python3 - "$TREE/build/sprdplatform/accelerator-abi.json" <<'PY'
+          import json,sys
+          report=json.load(open(sys.argv[1]))
+          assert report['initializer_deferred_until_iogpufamily_load']
+          assert report['original_instructions_modified'] is False
+          assert report['system_process_grants']==['backboardd','SpringBoard']
+          assert set(report['bindings'])=={
+              '__ZN15IOAcceleratorESC2EPK11OSMetaClass',
+              '__ZN15IOAcceleratorESD2Ev',
+              '__ZN15IOAcceleratorES10gMetaClassE'}
+          print('PASS: late IOAcceleratorES registration bindings and exact process grant list')
+          PY
 
       - name: Rebuild with bindings derived from the current link
         if: ${{ inputs.refresh_bindings }}
@@ -483,6 +508,27 @@ jobs:
           python3 "$GITHUB_WORKSPACE/device/scripts/check-thermal-abi.py" "$KERNEL"
           python3 "$GITHUB_WORKSPACE/device/scripts/check-sprd-input-abi.py" "$KERNEL" --prelink-tools kits/XnuPrelink
           python3 "$GITHUB_WORKSPACE/device/scripts/patch-hid-family-load.py" "$KERNEL" --prelink-tools kits/XnuPrelink
+
+      - name: Verify final Mali system accelerator image
+        working-directory: UniXNU
+        run: |
+          set -euxo pipefail
+          KERNEL=$(ls out/*/*/*/kernel/kernel.macho | head -n 1)
+          TREE="$(dirname "$(dirname "$KERNEL")")/tree"
+          python3 "$GITHUB_WORKSPACE/device/scripts/check-mali-system-accelerator.py" \
+            "$KERNEL" "$TREE/kits/XnuPrelink"
+          python3 - "$TREE/build/sprdplatform/accelerator-abi.json" <<'PY'
+          import json,sys
+          report=json.load(open(sys.argv[1]))
+          assert report['initializer_deferred_until_iogpufamily_load']
+          assert report['original_instructions_modified'] is False
+          assert report['system_process_grants']==['backboardd','SpringBoard']
+          assert set(report['bindings'])=={
+              '__ZN15IOAcceleratorESC2EPK11OSMetaClass',
+              '__ZN15IOAcceleratorESD2Ev',
+              '__ZN15IOAcceleratorES10gMetaClassE'}
+          print('PASS: final image retains late IOAcceleratorES registration and scoped grants')
+          PY
 
       - name: Prepare the Data seed
         # The offline OS image has no writable Data volume: the OS window carries
@@ -563,6 +609,7 @@ jobs:
             status.txt
             UniXNU/out/*/*/*/logs/*.log
             UniXNU/out/*/*/*/tree/build/sprdplatform/*-command.json
+            UniXNU/out/*/*/*/tree/build/sprdplatform/accelerator-abi.json
             UniXNU/out/*/*/*/tree/build/sprdplatform/*.log
             UniXNU/build/owner-data-fixture/seed.json
           if-no-files-found: warn

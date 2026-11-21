@@ -13,3 +13,4 @@
 *.fd binary
 *.dtb binary
 *.img binary
+patches/xnu/native-gpu-sandbox-grant.patch whitespace=-blank-at-eol,-space-before-tab

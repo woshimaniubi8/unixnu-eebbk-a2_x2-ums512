@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-2.0-only
 // Persistent board-owned Mali service and upstream NativeMali user-client ABI.
-// Metal/PanVK frontend publication remains a separate integration step.
+// Its IOAcceleratorES metaclass is registered after the original IOGPUFamily.
 #include <IOKit/IODeviceMemory.h>
 #include <IOKit/IOLib.h>
 #include <IOKit/IOService.h>
+#include <libkern/OSKextLib.h>
+#include <libkern/c++/OSMetaClass.h>
+#include <libkern/c++/OSSymbol.h>
 #include "mali/NativeMaliGpuCore.h"
 #include "mali/NativeMaliJobSlot.h"
 #include "mali/NativeMaliMmu.h"
@@ -13,6 +16,8 @@
 #include "SprdMaliFullFrame.h"
 #include "SprdMaliCompute.h"
 #include "SprdMaliPresent.h"
+#include "mali/OriginalAcceleratorABI.h"
+#include "mali/NativeMaliSystemPolicy.h"
 #include <kern/task.h>
 #include <mach/vm_param.h>
 #include <machine/machine_routines.h>
@@ -23,6 +28,8 @@
 // Match XNU 10063.141.1's C definition without importing its private structs.
 extern "C" boolean_t pmap_valid_address(pmap_paddr_t address);
 extern "C" void flush_dcache64(addr64_t address,unsigned bytes,int physical);
+extern "C" void proc_selfname(char *buffer,int size);
+extern "C" void sprd_mali_service_meta_init() __asm__("__GLOBAL__sub_I_SprdMaliService.cpp");
 
 namespace {
 
@@ -79,7 +86,7 @@ struct Presenter {
 
 } // namespace
 
-class NativeSprdMaliService final : public IOService {
+class NativeSprdMaliService final : public IOAcceleratorES {
     OSDeclareDefaultStructors(NativeSprdMaliService)
     Window windows_[4]{};
     NativeMaliPower *power_ = nullptr;
@@ -272,6 +279,9 @@ public:
         setProperty("service-ready", 1, 32);
         setName("NativeMaliGpuService");
         setProperty("model","Mali-G52");
+        setProperty("MetalPluginName","VivaMTLDriver");
+        setProperty("MetalPluginClassName","VMDevice");
+        setProperty("NativeSandboxGrantProcess",NativeMaliSystemPolicy::GrantProcessList);
         ready_ = true;
         setProperty("NativeMaliABI",NativeMaliAbiVersion,32);
         IOLog("M150 mali: service published ready=1 id=0x%x js=0x%x\n",
@@ -363,7 +373,7 @@ public:
     }
 };
 
-OSDefineMetaClassAndStructors(NativeSprdMaliService, IOService)
+OSDefineMetaClassAndStructors(NativeSprdMaliService, IOAcceleratorES)
 
 
 
@@ -508,9 +518,14 @@ IOReturn NativeSprdMaliService::newUserClient(task_t task,void *security,UInt32 
     if(!handler)return kIOReturnBadArgument;
     *handler=nullptr;
     if(type!=0)return kIOReturnUnsupported;
-    if(task!=kernel_task && IOUserClient::clientHasPrivilege(
-        task,kIOClientPrivilegeAdministrator)!=kIOReturnSuccess)
+    char processName[17]={};
+    proc_selfname(processName,sizeof(processName));
+    const bool systemMetalClient=NativeMaliSystemPolicy::allowsProcess(processName);
+    if(task!=kernel_task && !systemMetalClient && IOUserClient::clientHasPrivilege(
+        task,kIOClientPrivilegeAdministrator)!=kIOReturnSuccess) {
+        IOLog("M194 mali: userclient denied name=%s type=%u\n",processName,type);
         return kIOReturnNotPrivileged;
+    }
     if(!ready_)return kIOReturnNotReady;
     auto *client=new NativeSprdMaliUserClient;
     if(!client)return kIOReturnNoMemory;
@@ -525,7 +540,8 @@ IOReturn NativeSprdMaliService::newUserClient(task_t task,void *security,UInt32 
         return kIOReturnNotReady;
     }
     *handler=client;
-    IOLog("M153 mali: client attached type=%u kernel=%u\n",type,task==kernel_task);
+    IOLog("M194 mali: client attached name=%s type=%u kernel=%u system=%u\n",
+        processName,type,task==kernel_task,systemMetalClient?1u:0u);
     return kIOReturnSuccess;
 }
 
@@ -1094,6 +1110,34 @@ IOReturn NativeSprdMaliService::exerciseFullFrame()
 
 extern "C" IOService *sprd_mali_service_create(uint32_t factorySupplyMicrovolts)
 {
+    static bool classRegistered=false;
+    if(!classRegistered) {
+        const OSSymbol *baseName=OSSymbol::withCString("IOAcceleratorES");
+        const OSMetaClass *baseMeta=baseName?OSMetaClass::getMetaClassWithName(baseName):nullptr;
+        if(baseName)baseName->release();
+        OSReturn loadStatus=kOSReturnSuccess;
+        if(!baseMeta) {
+            loadStatus=OSKextLoadKextWithIdentifier("com.apple.iokit.IOGPUFamily");
+            baseName=OSSymbol::withCString("IOAcceleratorES");
+            baseMeta=baseName?OSMetaClass::getMetaClassWithName(baseName):nullptr;
+            if(baseName)baseName->release();
+        }
+        IOLog("M194 mali: IOGPUFamily load=0x%x IOAcceleratorES=%p\n",
+            static_cast<unsigned>(loadStatus),static_cast<const void *>(baseMeta));
+        if(!baseMeta)return nullptr;
+        sprd_mali_service_meta_init();
+        const OSSymbol *className=OSSymbol::withCString("NativeSprdMaliService");
+        const OSMetaClass *serviceMeta=className?OSMetaClass::getMetaClassWithName(className):nullptr;
+        if(className)className->release();
+        if(!serviceMeta || serviceMeta->getClassSize()<=sizeof(IOAcceleratorES)) {
+            IOLog("M194 mali: accelerator metaclass registration failed meta=%p\n",
+                static_cast<const void *>(serviceMeta));
+            return nullptr;
+        }
+        classRegistered=true;
+        IOLog("M194 mali: IOAcceleratorES subclass registered classSize=%u\n",
+            serviceMeta->getClassSize());
+    }
     auto *service = new NativeSprdMaliService;
     if(!service)return nullptr;
     if(!service->init()){service->release();return nullptr;}

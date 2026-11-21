@@ -2,7 +2,9 @@
 
 This directory adapts pinned Viva `9ebe5e46f74f6d75fce1d76b2ea4ea603cb63637`
 and Mesa `8e87a503ebd91408c88596d1b9eeb5f4c0b2088d` to the board's existing
-`NativeMaliGpuService` type-0 connection. It creates no second GPU owner.
+`NativeMaliGpuService` type-0 connection. The service is also the board's real
+`IOAcceleratorES` subclass and advertises this bundle to original Metal
+discovery; it remains the only GPU owner.
 
 `prepare-mali-metal-source.py` installs the transport into a checked upstream
 tree. The existing Viva Metal/AIR/NIR and Mesa Bifrost compiler paths are reused;
@@ -27,9 +29,12 @@ and a 4096-pixel rendered triangle with hardware submission counters. It uses
 only the existing owner's exact `NativeSprdMaliUserClient` entitlement. Its
 hardware PASS line is required; successful compilation alone is not a pass.
 
-This private integration does not import IOSurfaces or user pointers, publish
-an IOAcceleratorES, grant access to system clients, or qualify UI composition.
-Those paths require the original IOSurface ownership and presentation fences.
+The system discovery path grants NativeMali type-0 opens only to `backboardd`
+and `SpringBoard`; all other callers retain the administrator check. The
+private probe still has its separate IOSurface parent/child validation gate.
+Publishing the accelerator does not qualify system UI composition: original
+IOSurface ownership, child import, display fences, and a successful SpringBoard
+check-in must still be observed on-device.
 
 Host checks (from the device repository):
 

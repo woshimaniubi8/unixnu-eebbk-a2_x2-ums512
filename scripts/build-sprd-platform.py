@@ -31,6 +31,41 @@ for source in sources:
         symbols=subprocess.check_output(['xcrun','nm',late],text=True)
         assert ' T __GLOBAL__sub_I_SprdWifiNet.cpp' in symbols
         objects.append(str(late))
+    elif source.name=='SprdMaliService.cpp':
+        abi=json.loads((SOURCE/'mali/OriginalAcceleratorABI.json').read_text())
+        assert abi['instance_bytes']==136 and abi['virtual_entries']==168 and not abi['operational_overrides']
+        bindings={
+            '__ZN15IOAcceleratorESC2EPK11OSMetaClass':int(abi['protected_compatible_constructor_aliases'][0],16),
+            '__ZN15IOAcceleratorESD2Ev':int(abi['nondeleting_destructor'],16),
+            '__ZN15IOAcceleratorES10gMetaClassE':int(abi['metaclass'],16),
+        }
+        undefined={line.split()[-1] for line in subprocess.check_output(
+            ['xcrun','nm','-u',obj],text=True).splitlines() if line.split()}
+        used=undefined & set(bindings)
+        extra={name for name in undefined if 'IOAcceleratorES' in name and name not in bindings}
+        if not used or extra:
+            raise SystemExit('Unexpected or missing original IOAcceleratorES imports: '+repr(sorted(undefined)))
+        asm=OUT/'accelerator-original-bindings.S'
+        asm.write_text(''.join(f'.globl {name}\n.set {name}, {address:#x}\n'
+            for name,address in sorted(bindings.items()) if name in used))
+        clang=record['arguments'][0]
+        binding_obj=OUT/'accelerator-original-bindings.o'
+        subprocess.run([clang,'-arch','arm64','-target','arm64-apple-ios17.0','-c',
+            str(asm),'-o',str(binding_obj)],cwd=record['directory'],check=True)
+        llvm=Path(subprocess.check_output(['brew','--prefix','llvm'],text=True).strip())/'bin'
+        late=OUT/'SprdMaliService.late.o'
+        subprocess.run([llvm/'llvm-objcopy','--remove-section=__DATA,__mod_init_func',
+            '--globalize-symbol=__GLOBAL__sub_I_SprdMaliService.cpp',obj,late],check=True)
+        symbols=subprocess.check_output(['xcrun','nm',late],text=True)
+        assert ' T __GLOBAL__sub_I_SprdMaliService.cpp' in symbols
+        objects.extend([str(late),str(binding_obj)])
+        (OUT/'accelerator-abi.json').write_text(json.dumps({
+            'source_object_sha256':hashlib.sha256(obj.read_bytes()).hexdigest(),
+            'late_object_sha256':hashlib.sha256(late.read_bytes()).hexdigest(),
+            'bindings':{name:hex(address) for name,address in bindings.items() if name in used},
+            'original_instructions_modified':False,
+            'initializer_deferred_until_iogpufamily_load':True,
+            'system_process_grants':['backboardd','SpringBoard']},indent=2)+'\n')
     else:objects.append(str(obj))
 # The reused kernel-control/Skywalk transport is C, not a C++ IOKit object.
 # Use the kernel's real C record. The C++ record contains compact -xc++ and

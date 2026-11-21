@@ -166,6 +166,10 @@ bbk-a2-ui-diagnostics-opt-in.patch
 # Forward bounded native GPU probe stdout to UART without changing file writes.
 bbk-a2-mali-user-probe-trace.patch
 
+# Restrict the NativeMali accelerator sandbox grant to the explicitly listed
+# system compositor processes on its own service object.
+native-gpu-sandbox-grant.patch
+
 # Keep persistent cache env separate from temporary Data/addon mount arguments.
 bbk-a2-owner-data-scratch.patch
 
