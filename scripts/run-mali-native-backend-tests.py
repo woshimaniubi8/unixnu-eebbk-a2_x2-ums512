@@ -23,4 +23,7 @@ with tempfile.TemporaryDirectory(prefix='native-mali-backend-') as tmp:
         '-I'+str(src),'-I'+str(root/'drivers/SprdPlatform/mali'),str(root/'scripts/tests/test-mali-wire.cpp'),
         '-o',str(out/'wire')],check=True)
     subprocess.run([str(out/'wire')],check=True)
+    subprocess.run([shutil.which('clang') or 'clang','-std=c11','-D_POSIX_C_SOURCE=200809L','-pthread',*common,
+        str(root/'scripts/tests/test-mali-surface-fd.c'),'-o',str(out/'surface-fd')],check=True)
+    subprocess.run([str(out/'surface-fd')],check=True)
 print('PASS: NativeMali record sizes and offsets agree with kernel wire ABI.')

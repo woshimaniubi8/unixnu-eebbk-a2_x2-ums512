@@ -59,12 +59,41 @@ def prepare(root):
         '        if (env && !strcmp(env, "iokit")) g_backend = &vgpu_backend_iokit;\n'
         '        if (env && !strcmp(env, "mock")) g_backend = &vgpu_backend_mock;',
         '        g_backend = &vgpu_backend_iokit; /* NativeMali only: no simulated execution. */',1)])
-    edit('libdrm-xnu/src/xf86drm_xnu.c',[(
-        '    d->version_minor = 5;',
-        '    d->version_minor = 2; /* No timestamp/priority ABI is exposed by NativeMali. */',1)])
+    # The Linux dma-buf's seekable size is metadata. A sparse temporary file
+    # allocates tmpfs pages on this port and fails with ENOSPC before import.
+    # Keep a real per-process fd identity, but query the retained surface's size
+    # in the shim instead of allocating a second storage object.
+    prime_path='libdrm-xnu/src/xf86drm_xnu.c'
+    prime_text=(root/prime_path).read_text().replace('\r\n','\n')
+    first=prime_text.index('// A surface fd is a real file descriptor')
+    last=prime_text.index('int drmPrimeFDToHandle(',first)
+    edit(prime_path,[(prime_text[first:last],
+        '#include "native_mali_surface_fd.inc"\n\n',1),
+        ('    d->version_minor = 5;',
+         '    d->version_minor = 2; /* No timestamp/priority ABI is exposed by NativeMali. */',1),
+        ('if (g_surf[i].fd == prime_fd) sf = g_surf[i];',
+         'if (g_surf[i].used && g_surf[i].fd == prime_fd) sf = g_surf[i];',1),
+        ('if (!sf.fd) { errno = EBADF; return -EBADF; }',
+         'if (!sf.used) { errno = EBADF; return -EBADF; }',1)])
+    emit('libdrm-xnu/src/native_mali_surface_fd.inc',(native/'native_mali_surface_fd.inc').read_bytes())
+    edit('libdrm-xnu/include/xf86drm.h',[(
+        'extern int drmPrimeFDToHandle(int fd, int prime_fd, uint32_t *handle);',
+        'extern int drmPrimeFDToHandle(int fd, int prime_fd, uint32_t *handle);\n'
+        '#ifdef __APPLE__\n'
+        'extern int vmg_drm_surface_size(int fd, uint64_t *bytes);\n'
+        '#endif',1)])
     mesa_actual=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root/'mesa/src',text=True).strip()
     if mesa_actual!=MESA:
         raise SystemExit(f'Unexpected Mesa source: {mesa_actual}')
+    edit('mesa/src/src/panfrost/lib/kmod/pan_kmod.c',[(
+        '      size_t size = lseek(fd, 0, SEEK_END);',
+        '#ifdef __APPLE__\n'
+        '      uint64_t size = 0;\n'
+        '      if (vmg_drm_surface_size(fd, &size))\n'
+        '         goto err_close_handle;\n'
+        '#else\n'
+        '      size_t size = lseek(fd, 0, SEEK_END);\n'
+        '#endif',1)])
     edit('mesa/src/src/gallium/drivers/panfrost/pan_device.c',[(
         'dev, 128 * 1024 * 1024, PAN_BO_INVISIBLE | PAN_BO_GROWABLE, "Tiler heap"',
         'dev, 16 * 1024 * 1024, PAN_BO_INVISIBLE, "NativeMali committed tiler heap"',1)])
@@ -116,6 +145,7 @@ def prepare(root):
                   vgpu_version='1.0',drm_panfrost_version='1.2',tiler_heap_committed_bytes=16*1024*1024,
                   mock_selectable=False,iosurface_import_compiled=True,iosurface_cpu_copy_fallback=False,
                   iosurface_import_qualified=False,metal_probe='native-metal-probe',
+                  prime_metadata_storage='retained original IOSurface size, real /dev/null descriptor; no tmpfs file',
                   unsuccessful_pipelines_return_error=True, runtime_qualified=False, deployed=False, changes=changes)
     (root / "g52-source-receipt.json").write_text(json.dumps(record, indent=2) + "\n")
     return record

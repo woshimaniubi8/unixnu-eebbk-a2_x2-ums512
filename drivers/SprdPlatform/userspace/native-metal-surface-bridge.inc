@@ -29,8 +29,9 @@ static void surfaceBridgePreflight(void *image,IOSurfaceRef surface)
     int (*surfaceFd)(int,uint32_t,unsigned)=dlsym(image,"vmg_drm_surface_fd");
     void (*closeSurfaceFd)(int)=dlsym(image,"vmg_drm_surface_fd_close");
     int (*primeToHandle)(int,int,uint32_t *)=dlsym(image,"drmPrimeFDToHandle");
+    int (*primeSize)(int,uint64_t *)=dlsym(image,"vmg_drm_surface_size");
     int (*closeBo)(int,uint32_t)=dlsym(image,"drmCloseBufferHandle");
-    if(!openDevice || !closeDevice || !call || !surfaceFd || !closeSurfaceFd || !primeToHandle || !closeBo){
+    if(!openDevice || !closeDevice || !call || !surfaceFd || !closeSurfaceFd || !primeToHandle || !closeBo || !primeSize){
         fprintf(stderr,"nm surface-bridge: actual frontend API export missing\n");return;
     }
     int fd=openDevice();
@@ -47,8 +48,8 @@ static void surfaceBridgePreflight(void *image,IOSurfaceRef surface)
     errno=0;int prime=surfaceFd(fd,IOSurfaceGetID(surface),0);error=errno;
     printf("nm surface-bridge: PRIME fd=%d errno=%d\n",prime,error);
     if(prime>=0){
-        errno=0;off_t size=lseek(prime,0,SEEK_END);error=errno;
-        printf("nm surface-bridge: PRIME seek size=0x%llx errno=%d\n",(unsigned long long)size,error);
+        uint64_t size=0;int sized=primeSize(prime,&size);
+        printf("nm surface-bridge: PRIME metadata size=0x%llx result=%d storage_bytes=0\n",(unsigned long long)size,sized);
         uint32_t handle=0;
         errno=0;result=primeToHandle(fd,prime,&handle);error=errno;
         printf("nm surface-bridge: PRIME import result=%d errno=%d handle=%u\n",result,error,handle);
