@@ -1,5 +1,5 @@
 diff --git a/NativeLegacyDisplay.cpp b/NativeLegacyDisplay.cpp
-index 9771c0f..1ee7e43 100644
+index 9771c0f..b9b6fe1 100644
 --- a/NativeLegacyDisplay.cpp
 +++ b/NativeLegacyDisplay.cpp
 @@ -25,6 +25,8 @@ extern "C" IOMemoryDescriptor *native_legacy_surface_descriptor(OSObject *);
@@ -15,6 +15,7 @@ index 9771c0f..1ee7e43 100644
  static inline bool nativeBgra(uint32_t format,uint32_t planes) {
      return (format==0x42475241 && !planes) || (format==0x26424741 && planes<=1);
  }
++// Apple?s &BGA surface exposes a root stride that is not the backing-plane
 +// byte stride. Use the qualified original plane getter for this format only.
 +static inline bool nativeBgraLayout(OSObject *surface,uint32_t format,uint32_t planes,
 +    uint64_t *stride,uint64_t *allocation) {
