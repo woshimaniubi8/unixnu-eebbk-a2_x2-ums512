@@ -124,5 +124,7 @@ class NativeMaliXnuCache final : public NativeMaliCacheMaintainer {
 public:
     IOReturn maintain(void *cpu, size_t bytes,
         NativeMaliCacheOperation operation) override;
+    IOReturn maintainPhysical(uint64_t physical, size_t bytes,
+        NativeMaliCacheOperation operation) override;
 };
 #endif

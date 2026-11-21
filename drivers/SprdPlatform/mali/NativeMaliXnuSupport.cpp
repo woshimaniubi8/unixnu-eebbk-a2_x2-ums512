@@ -12,6 +12,8 @@
 #include <arm/pmap_public.h>
 #include <string.h>
 extern "C" boolean_t pmap_valid_address(pmap_paddr_t address);
+extern "C" vm_map_address_t phystokv_range(pmap_paddr_t address,vm_size_t *bytes);
+extern "C" uint64_t gPhysBase,gPhysSize;
 
 namespace {
 
@@ -306,6 +308,58 @@ IOMemoryDescriptor *NativeMaliXnuBuffers::descriptor(void *cpu)
             return entry.descriptor;
         }
     return nullptr;
+}
+
+// Adapted from UniXNU/Adreno740/NativeAdrenoCpu.cpp (MIT), physical-page
+// maintenance. XNU arm/caches.c uses phystokv_range for the same reason:
+// prepared pages need not have resident PTEs in a temporary kernel alias.
+// Keep the real noncoherent instructions; coherent-I/O builds may implement
+// IOMemoryDescriptor::performOperation as only a barrier on this platform.
+IOReturn NativeMaliXnuCache::maintainPhysical(uint64_t physical,size_t bytes,
+    NativeMaliCacheOperation operation)
+{
+    const uint64_t mask=NativeMaliVmGranule-1;
+    if(!physical || !bytes || ((physical|bytes)&mask) ||
+        bytes>UINT64_MAX-physical || physical<gPhysBase ||
+        physical-gPhysBase>=gPhysSize || bytes>gPhysSize-(physical-gPhysBase) ||
+        (operation!=NativeMaliCacheClean && operation!=NativeMaliCacheInvalidate &&
+         operation!=NativeMaliCacheCleanInvalidate))return kIOReturnBadArgument;
+    for(size_t offset=0;offset<bytes;offset+=NativeMaliVmGranule)
+        if(!pmap_valid_address(physical+offset))return kIOReturnBadArgument;
+    static bool reported;
+    if(!reported) {
+        reported=true;
+        IOLog("M193 mali: BO cache uses prepared physical spans and permanent XNU aliases\n");
+    }
+    for(size_t offset=0;offset<bytes;) {
+        disable_preemption();
+        uint64_t ctr=0;
+        __asm__ volatile("mrs %0, ctr_el0":"=r"(ctr));
+        const size_t line=static_cast<size_t>(4)<<((ctr>>16)&15);
+        if(line>NativeMaliVmGranule) {
+            enable_preemption();return kIOReturnUnsupported;
+        }
+        __asm__ volatile("dsb sy":::"memory");
+        // Bound preemption-off time even for a large fragmented surface.
+        for(unsigned run=0;run<64 && offset<bytes;++run,offset+=NativeMaliVmGranule) {
+            vm_size_t length=NativeMaliVmGranule;
+            const uintptr_t alias=phystokv_range(physical+offset,&length);
+            if(!alias || length<NativeMaliVmGranule || (alias&mask)) {
+                __asm__ volatile("dsb sy":::"memory");
+                enable_preemption();return kIOReturnUnsupported;
+            }
+            for(uintptr_t at=alias,end=alias+NativeMaliVmGranule;at<end;at+=line) {
+                if(operation==NativeMaliCacheClean)
+                    __asm__ volatile("dc cvac, %0"::"r"(at):"memory");
+                else if(operation==NativeMaliCacheInvalidate)
+                    __asm__ volatile("dc ivac, %0"::"r"(at):"memory");
+                else __asm__ volatile("dc civac, %0"::"r"(at):"memory");
+            }
+        }
+        __asm__ volatile("dsb sy":::"memory");
+        enable_preemption();
+    }
+    return kIOReturnSuccess;
 }
 
 IOReturn NativeMaliXnuCache::maintain(void *cpu, size_t bytes,

@@ -193,22 +193,39 @@ IOReturn NativeMaliMemory::unmap()
 
 IOReturn NativeMaliMemory::cleanForDevice(size_t offset, size_t bytes)
 {
-    if(!prepared_)return kIOReturnNotReady;
-    IOReturn result = checkBufferRange(bytes_, offset, bytes);
-    if(result != kIOReturnSuccess)return result;
-    /* dma_map_sgtable() is a no-op on a coherent device (panfrost_device.c:269
-     * decides which one this is). */
-    if(!bytes || coherent_)return kIOReturnSuccess;
-    return maintainer_->maintain(static_cast<uint8_t *>(cpu_) + offset, bytes,
-        NativeMaliCacheClean);
+    return maintainRange(offset,bytes,NativeMaliCacheClean);
 }
 
 IOReturn NativeMaliMemory::invalidateForCpu(size_t offset, size_t bytes)
+{
+    return maintainRange(offset,bytes,NativeMaliCacheInvalidate);
+}
+
+IOReturn NativeMaliMemory::maintainRange(size_t offset, size_t bytes,
+    NativeMaliCacheOperation operation)
 {
     if(!prepared_)return kIOReturnNotReady;
     IOReturn result = checkBufferRange(bytes_, offset, bytes);
     if(result != kIOReturnSuccess)return result;
     if(!bytes || coherent_)return kIOReturnSuccess;
-    return maintainer_->maintain(static_cast<uint8_t *>(cpu_) + offset, bytes,
-        NativeMaliCacheInvalidate);
+    const size_t mask=NativeMaliVmGranule-1;
+    if(operation==NativeMaliCacheInvalidate && ((offset|bytes)&mask))
+        return kIOReturnBadArgument;
+    // The BO and every span are 4K multiples, so outward clean rounding
+    // remains inside prepared storage and cannot touch another allocation.
+    if(offset+bytes>SIZE_MAX-mask)return kIOReturnBadArgument;
+    const size_t end=(offset+bytes+mask)&~mask;
+    size_t next=offset&~mask;
+    for(size_t i=0;i<spans_ && next<end;++i) {
+        const auto &span=span_[i];
+        const uint64_t limit=span.offset+span.bytes;
+        if(next>=limit)continue;
+        if(next<span.offset)return kIOReturnBadArgument;
+        const size_t length=static_cast<size_t>(limit<end?limit-next:end-next);
+        result=maintainer_->maintainPhysical(span.physical+next-span.offset,
+            length,operation);
+        if(result!=kIOReturnSuccess)return result;
+        next+=length;
+    }
+    return next==end?kIOReturnSuccess:kIOReturnBadArgument;
 }

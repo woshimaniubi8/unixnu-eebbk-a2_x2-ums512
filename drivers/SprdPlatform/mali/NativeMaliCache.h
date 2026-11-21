@@ -29,6 +29,7 @@
 #define NATIVE_MALI_CACHE_H
 #include <IOKit/IOTypes.h>
 #include <stddef.h>
+#include <stdint.h>
 
 enum NativeMaliCacheOperation {
     NativeMaliCacheClean,          /* clean to PoC: before the GPU reads */
@@ -47,5 +48,11 @@ public:
 
     virtual IOReturn maintain(void *cpu, size_t bytes,
         NativeMaliCacheOperation operation) = 0;
+
+    // BOs have prepared physical spans. Their exported kernel aliases can
+    // fault, so DMA synchronization must not depend on those aliases being
+    // resident while cache instructions run with preemption disabled.
+    virtual IOReturn maintainPhysical(uint64_t, size_t,
+        NativeMaliCacheOperation) { return kIOReturnUnsupported; }
 };
 #endif

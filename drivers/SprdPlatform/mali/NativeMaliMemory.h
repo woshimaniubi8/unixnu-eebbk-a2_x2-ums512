@@ -98,6 +98,7 @@ class NativeMaliMemory final {
     bool mapped_ = false;
     IOReturn prepareFrom(NativeMaliMemorySource *, size_t, uint64_t,
         bool, NativeMaliCacheMaintainer *);
+    IOReturn maintainRange(size_t, size_t, NativeMaliCacheOperation);
 public:
     NativeMaliMemory() = default;
     ~NativeMaliMemory();
@@ -151,7 +152,8 @@ public:
     /* Clean before the GPU reads [offset, offset + bytes); invalidate after it
      * writes. Both are no-ops on a coherent device, where panfrost's
      * dma_map_sgtable() does nothing either. The range is checked against the
-     * buffer; the maintainer sees the unchanged length. */
+     * buffer. Cache operations use prepared physical spans, never the
+     * potentially faultable kernel alias exported to a client. */
     IOReturn cleanForDevice(size_t offset, size_t bytes);
     IOReturn invalidateForCpu(size_t offset, size_t bytes);
 };

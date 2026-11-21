@@ -53,6 +53,7 @@ class Buffers final : public NativeMaliMemorySource {
 public:
     unsigned live=0;
     void *external=nullptr;
+    uint64_t lastPhysical=0;
     unsigned imported=0,released=0;
     bool failImport=false,malformedImport=false;
     IOReturn importUser(uint64_t address,size_t bytes,void **cpu,
@@ -66,7 +67,7 @@ public:
     IOReturn alloc(size_t bytes,void **cpu,NativeMaliMemorySpan *spans,size_t *count) override {
         *cpu=std::aligned_alloc(4096,bytes);
         if(!*cpu)return kIOReturnNoMemory;
-        memset(*cpu,0,bytes);spans[0]={0,next_,bytes};next_+=bytes;
+        memset(*cpu,0,bytes);spans[0]={0,next_,bytes};lastPhysical=next_;next_+=bytes;
         *count=1;++live;return kIOReturnSuccess;
     }
     void release(void *cpu,const NativeMaliMemorySpan *,size_t) override {
@@ -80,6 +81,9 @@ public:
     const void *watch=nullptr;
     unsigned watchClean=0,watchInvalidate=0;
     bool failNextInvalidate=false;
+    IOReturn maintainPhysical(uint64_t physical,size_t bytes,NativeMaliCacheOperation op) override {
+        return maintain(reinterpret_cast<void *>(physical),bytes,op);
+    }
     IOReturn maintain(void *address,size_t,NativeMaliCacheOperation op) override {
         if(op==NativeMaliCacheClean) {
             ++clean;
@@ -96,7 +100,73 @@ public:
         return kIOReturnSuccess;
     }
 };
+
+static void physicalCacheRangeTests()
+{
+    class UnmappedAlias final : public NativeMaliMemorySource {
+    public:
+        unsigned live=0;
+        IOReturn alloc(size_t bytes,void **cpu,NativeMaliMemorySpan *spans,size_t *count) override {
+            assert(bytes==0x4000 && !live);
+            // Deliberately not dereferenceable: synchronization must use the
+            // prepared PA list, not touch a CPU alias just to prefault it.
+            *cpu=reinterpret_cast<void *>(0x4000);
+            spans[0]={0,0x3a000000,0x1000};
+            spans[1]={0x1000,0x3b000000,0x1000};
+            spans[2]={0x2000,0x3c000000,0x2000};
+            *count=3;++live;return kIOReturnSuccess;
+        }
+        void release(void *cpu,const NativeMaliMemorySpan *,size_t count) override {
+            assert(cpu==reinterpret_cast<void *>(0x4000) && live==1 && count==3);--live;
+        }
+    } source;
+    class PhysicalCache final : public NativeMaliCacheMaintainer {
+    public:
+        struct Record {uint64_t address;size_t bytes;NativeMaliCacheOperation operation;};
+        std::vector<Record> calls;
+        unsigned fail=0;
+        IOReturn maintain(void *,size_t,NativeMaliCacheOperation) override {
+            std::abort(); // A return to virtual cache synchronization is a regression.
+        }
+        IOReturn maintainPhysical(uint64_t pa,size_t bytes,NativeMaliCacheOperation op) override {
+            calls.push_back({pa,bytes,op});
+            return calls.size()==fail?kIOReturnIOError:kIOReturnSuccess;
+        }
+    } cache;
+    auto memory=std::make_unique<NativeMaliMemory>();
+    assert(memory->prepare(&source,0x4000,false,&cache)==0);
+    assert(memory->cleanForDevice(0x800,0x1800)==0 && cache.calls.size()==2);
+    assert(cache.calls[0].address==0x3a000000 && cache.calls[0].bytes==0x1000);
+    assert(cache.calls[1].address==0x3b000000 && cache.calls[1].bytes==0x1000);
+    cache.calls.clear();
+    assert(memory->cleanForDevice(0x1800,0x1000)==0 && cache.calls.size()==2);
+    assert(cache.calls[0].address==0x3b000000 && cache.calls[0].bytes==0x1000);
+    assert(cache.calls[1].address==0x3c000000 && cache.calls[1].bytes==0x1000);
+    cache.calls.clear();
+    assert(memory->invalidateForCpu(64,64)==kIOReturnBadArgument && cache.calls.empty());
+    assert(memory->cleanForDevice(0x3fff,2)==kIOReturnBadArgument && cache.calls.empty());
+    assert(memory->cleanForDevice(SIZE_MAX,2)==kIOReturnBadArgument && cache.calls.empty());
+    assert(memory->invalidateForCpu(0,0x4000)==0 && cache.calls.size()==3);
+    assert(cache.calls[2].address==0x3c000000 && cache.calls[2].bytes==0x2000);
+    for(const auto &record:cache.calls)assert(record.operation==NativeMaliCacheInvalidate);
+    cache.calls.clear();cache.fail=2;
+    assert(memory->cleanForDevice(0,0x4000)==kIOReturnIOError && cache.calls.size()==2);
+    assert(memory->prepared() && source.live==1);
+    assert(memory->release()==0 && source.live==0);
+    assert(memory->prepare(&source,0x4000,true,nullptr)==0);
+    assert(memory->cleanForDevice(0,0x4000)==0 && memory->invalidateForCpu(0,0x4000)==0);
+    assert(memory->release()==0 && source.live==0);
+    class Unsupported final : public NativeMaliCacheMaintainer {
+        IOReturn maintain(void *,size_t,NativeMaliCacheOperation) override {std::abort();}
+    } unsupported;
+    assert(memory->prepare(&source,0x4000,false,&unsupported)==0);
+    assert(memory->cleanForDevice(0,0x4000)==kIOReturnUnsupported);
+    assert(memory->release()==0 && source.live==0);
+    puts("PASS: unmapped CPU alias, discontiguous PA cache ranges, partial clean rounding, whole-page invalidate and exact error propagation; no GPU execution asserted.");
+}
+
 int main() {
+    physicalCacheRangeTests();
     RegisterFile regs;NativeMaliPower power;NativeMaliMmu mmu;NativeMaliGpuCore gpu;
     NativeMaliJobSlot jobs;Pages pages;Buffers buffers;Cache cache;
     assert(mmu.prepare(&regs,&power)==0 && mmu.setPresent(0xff)==0);
@@ -143,7 +213,7 @@ int main() {
     NativeMaliAbiBoAllocReply input{};
     assert(a->allocBo(req,&input)==0);
     assert(a->mapBo({input.handle,0x1100000,NativeMaliBoRead,0},&mapped)==0);
-    cache.watch=a->memoryForHandle(input.handle)->cpu();
+    cache.watch=reinterpret_cast<void *>(buffers.lastPhysical);
     NativeMaliAbiSubmit submit{0x1000000,0,0,0,0};NativeMaliAbiSubmitReply reply{};
     auto writeHeader=[&](unsigned type,uint64_t next=0) {
         NativeMaliJobHeader h;h.type=type;h.index=1;h.next=next;
