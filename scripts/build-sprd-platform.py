@@ -65,7 +65,7 @@ for source in sources:
             'bindings':{name:hex(address) for name,address in bindings.items() if name in used},
             'original_instructions_modified':False,
             'initializer_deferred_until_iogpufamily_load':True,
-            'system_process_grants':['backboardd','SpringBoard']},indent=2)+'\n')
+            'system_process_grants':['backboardd','SpringBoard','WidgetRenderer_D']},indent=2)+'\n')
     else:objects.append(str(obj))
 # The reused kernel-control/Skywalk transport is C, not a C++ IOKit object.
 # Use the kernel's real C record. The C++ record contains compact -xc++ and

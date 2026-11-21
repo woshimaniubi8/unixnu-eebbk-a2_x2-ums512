@@ -7,6 +7,7 @@ int main()
     using NativeMaliSystemPolicy::allowsProcess;
     assert(allowsProcess("backboardd"));
     assert(allowsProcess("SpringBoard"));
+    assert(allowsProcess("WidgetRenderer_D"));
     assert(!allowsProcess("backboard"));
     assert(!allowsProcess("backboardd-helper"));
     assert(!allowsProcess("SpringBoardTest"));
@@ -14,5 +15,5 @@ int main()
     assert(!allowsProcess(""));
     assert(!allowsProcess(nullptr));
     assert(strcmp(NativeMaliSystemPolicy::GrantProcessList,
-        "backboardd,SpringBoard") == 0);
+        "backboardd,SpringBoard,WidgetRenderer_D") == 0);
 }
