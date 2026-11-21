@@ -22,9 +22,18 @@ assert entry['ProgramArguments']==[
 assert entry['LimitLoadToSessionType']=='System'
 assert entry['MachServices']=={'org.unixnu.bbk.mali-metal.surface':True}
 assert 'UserName' not in entry and 'GroupName' not in entry
+for path in m.STATS_JOBS:
+    assert config['LaunchDaemons'][path]['EnvironmentVariables'][m.STATS_ENV]=='1'
+assert config['LaunchDaemons'][m.STATS_JOBS[1]]['EnvironmentVariables']['CA_ASSERT_MAIN_THREAD_TRANSACTIONS']=='1'
+assert 'EnvironmentVariables' not in entry  # owner qualification job is unchanged
 tampered=copy.deepcopy(config)
 tampered['LaunchDaemons'][next(iter(previous['LaunchDaemons']))]['RunAtLoad']='modified'
 try:m.validate(tampered,True)
 except ValueError:pass
 else:raise AssertionError('A system service policy change was accepted')
-print('PASS: the real xpc cache contains one owner Metal job; all 561 existing services and other keys are intact.')
+tampered=copy.deepcopy(config)
+tampered['LaunchDaemons'][m.STATS_JOBS[0]]['EnvironmentVariables'][m.STATS_ENV]='0'
+try:m.validate(tampered,True)
+except ValueError:pass
+else:raise AssertionError('An unqualified statistics setting was accepted')
+print('PASS: owner job intact; only two UI statistics environment keys added; all other system configuration intact.')
