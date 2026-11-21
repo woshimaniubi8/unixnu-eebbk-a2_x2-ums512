@@ -7,7 +7,7 @@ def run(args):return subprocess.run(list(map(str,args)),check=True,capture_outpu
 def main(path):
     s=importlib.util.spec_from_file_location('packer',ROOT/'scripts/make-mali-metal-addon.py');packer=importlib.util.module_from_spec(s);s.loader.exec_module(packer)
     probe=path/'viva-gpu/ios/out/tests/native-metal-probe';bundle=path/'viva-gpu/ios/out/VivaMTLDriver.bundle';binary=bundle/'VivaMTLDriver'
-    old_sha=hashlib.sha256(probe.read_bytes()).hexdigest();assert old_sha=='022ac8915952ca011a14586afbc80e6c36e0460c74296aa4a7cc19ae28f2eb46'
+    old_sha=hashlib.sha256(probe.read_bytes()).hexdigest();assert old_sha=='faae7a4650c48faecc5fab352f9728367b01993723c17fc0458728f45b4b2342'
     original=packer.code_directory(probe.read_bytes(),True)
     bundle_sha=hashlib.sha256(binary.read_bytes()).hexdigest();assert bundle_sha=='bb14ae745801838d447d8e5ce0cfec1768d3e45bd1787f38e22fd3065e31bdbd'
     source=ROOT/'drivers/SprdPlatform/userspace/native-metal-probe.m';ent=source.with_suffix('.entitlements')
@@ -28,7 +28,7 @@ def main(path):
         probe_sha256=hashlib.sha256(probe.read_bytes()).hexdigest(),probe_signature=signed,
         bundle_sha256=bundle_sha,bundle_bytes_unchanged=True,shader_bytes_unchanged=True,
         unchanged_shader_sha256=hashlib.sha256(probe.with_suffix('.metallib').read_bytes()).hexdigest(),
-        diagnostics='original IOSurface metadata, private temporary-fd contract and direct native14 pin/free before unchanged Mesa/Metal pipelines',command=list(map(str,command)))
+        diagnostics='same original IOSurface: metadata, direct Viva import, real PRIME fd size/import and Mesa import counter delta; no temporary-directory override',command=list(map(str,command)))
     (path/'probe-trace-build.json').write_text(json.dumps(record,indent=2)+'\n')
     files=[*bundle.rglob('*'),probe,probe.with_suffix('.metallib'),path/'viva-gpu/g52-source-receipt.json',path/'probe-trace-build.json']
     (path/'SHA256SUMS').write_text('\n'.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.relative_to(path).as_posix() for p in sorted(files) if p.is_file())+'\n')

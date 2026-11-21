@@ -119,7 +119,7 @@ static int surfaceChild(id<MTLDevice> device,id<MTLLibrary> library,id<MTLComman
     return 0;
 }
 static int surfaceParent(id<MTLDevice> device,id<MTLCommandQueue> queue,
-    id<MTLRenderPipelineState> pipeline,const char *program,const char *bundle,const char *metallib)
+    id<MTLRenderPipelineState> pipeline,void *image,const char *program,const char *bundle,const char *metallib)
 {
     NSDictionary *properties=@{(__bridge id)kIOSurfaceWidth:@64,(__bridge id)kIOSurfaceHeight:@64,
         (__bridge id)kIOSurfaceBytesPerElement:@4,(__bridge id)kIOSurfaceBytesPerRow:@256,
@@ -130,9 +130,13 @@ static int surfaceParent(id<MTLDevice> device,id<MTLCommandQueue> queue,
     if(bytes<32768 || !base || IOSurfaceGetBytesPerRow(surface)!=256 ||
         IOSurfaceLock(surface,0,NULL)!=KERN_SUCCESS){CFRelease(surface);return 25;}
     memset(base,0x6b,bytes);IOSurfaceUnlock(surface,0,NULL);
+    surfaceBridgePreflight(image,surface);
     MTLTextureDescriptor *td=[MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:64 height:64 mipmapped:NO];
     td.storageMode=MTLStorageModeShared;td.usage=MTLTextureUsageRenderTarget|MTLTextureUsageShaderRead;
+    uint64_t beforeImport=surfaceImportCalls(image);
     id<MTLTexture> texture=[device newTextureWithDescriptor:td iosurface:surface plane:0];
+    printf("nm surface-bridge: Mesa import calls=%llu->%llu texture=%d\n",
+        (unsigned long long)beforeImport,(unsigned long long)surfaceImportCalls(image),texture?1:0);
     if(!texture){CFRelease(surface);fprintf(stderr,"nm surface: zero-copy import rejected\n");return 26;}
     MTLRenderPassDescriptor *rp=[MTLRenderPassDescriptor renderPassDescriptor];
     rp.colorAttachments[0].texture=texture;rp.colorAttachments[0].loadAction=MTLLoadActionClear;
