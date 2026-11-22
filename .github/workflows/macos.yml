@@ -441,7 +441,7 @@ jobs:
           report=json.load(open(sys.argv[1]))
           assert report['initializer_deferred_until_iogpufamily_load']
           assert report['original_instructions_modified'] is False
-          assert report['system_process_grants']==['backboardd','SpringBoard','WidgetRenderer_D']
+          assert report['system_process_grants']==['backboardd','SpringBoard','WidgetRenderer_','WidgetRenderer_D']
           assert set(report['bindings'])=={
               '__ZN15IOAcceleratorESC2EPK11OSMetaClass',
               '__ZN15IOAcceleratorESD2Ev',
@@ -523,7 +523,7 @@ jobs:
           report=json.load(open(sys.argv[1]))
           assert report['initializer_deferred_until_iogpufamily_load']
           assert report['original_instructions_modified'] is False
-          assert report['system_process_grants']==['backboardd','SpringBoard','WidgetRenderer_D']
+          assert report['system_process_grants']==['backboardd','SpringBoard','WidgetRenderer_','WidgetRenderer_D']
           assert set(report['bindings'])=={
               '__ZN15IOAcceleratorESC2EPK11OSMetaClass',
               '__ZN15IOAcceleratorESD2Ev',

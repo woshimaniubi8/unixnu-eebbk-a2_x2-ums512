@@ -87,7 +87,8 @@ for address, digest in reference["original_entry_sha256"].items():
 if not reference_only:
     for value in (b"IOAcceleratorES", b"NativeSprdMaliService", b"MetalPluginName",
                   b"MetalPluginClassName", b"VivaMTLDriver", b"VMDevice",
-                  b"NativeSandboxGrantProcess", b"backboardd,SpringBoard,WidgetRenderer_D"):
+                  b"NativeSandboxGrantProcess",
+                  b"backboardd,SpringBoard,WidgetRenderer_,WidgetRenderer_D"):
         assert value in data, f"System accelerator publication marker absent: {value!r}"
     # A linked constructor and correct base ABI do not prove registration.
     # Audit the final executable call sequence: this caught M194, whose
