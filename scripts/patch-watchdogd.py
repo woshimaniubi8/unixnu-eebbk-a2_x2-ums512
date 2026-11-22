@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
-"""Patch the one verified watchdogd gate that prevents -wdt_no_pmu parsing.
+"""Patch the verified watchdogd gates for the offline BBK A2 port.
 
 The original IPSW watchdogd (SHA-256 below) checks
 os_variant_has_internal_diagnostics() before reading -wdt_no_pmu from
 kern.bootargs.  The 119.log run proved the argument is present but not
 consumed, so the exact CBZ at RVA 0xA114 is replaced with NOP.
 
-This changes only the configuration-read gate.  The PMU lookup result check
-(0x9EC8) and the 0xB160 assertion remain, as do the watchdog service,
-type-1 user client and selector checks.  Re-signing with the original
-entitlements (notably com.apple.private.iowatchdog.user-access) is a separate
-macOS step and is mandatory before deployment.
+The same binary carries the names of services that the watchdogd monitors.
+This board has no cellular/audio userspace contract, so CommCenter and
+audiomxd are renamed in the binary's own service-name table; they are not
+reported as unresponsive and are not killed by the userspace watchdog.  The
+SpringBoard/backboardd GPU services remain monitored.  This is not a fake
+checkin and does not change the kernel IOWatchdog assertions.
+
+Re-signing with the original entitlements (notably
+com.apple.private.iowatchdog.user-access) is a separate macOS step and is
+mandatory before deployment.
 """
 import hashlib
 import pathlib
@@ -20,6 +25,10 @@ EXPECTED_SHA256 = "ded4c688e1c2add74acf3e7f9eea5fe2c2c569180ce81492221877944d913
 OFFSET = 0xA114
 OLD = bytes.fromhex("40010034")  # cbz w0, 0x10000a13c
 NEW = bytes.fromhex("1f2003d5")  # nop
+SERVICE_RENAMES = (
+    (b"CommCenter", b"XommCenter"),
+    (b"audiomxd", b"Xudiomxd"),
+)
 
 
 def main():
@@ -35,9 +44,15 @@ def main():
     if before != OLD:
         raise SystemExit(f"unexpected bytes at 0x{OFFSET:x}: {before.hex()} (want {OLD.hex()})")
     data[OFFSET:OFFSET + len(NEW)] = NEW
+    print(f"watchdogd: 0x{OFFSET:x} {OLD.hex()} -> {NEW.hex()}")
+    for old, new in SERVICE_RENAMES:
+        count = data.count(old)
+        if count == 0:
+            raise SystemExit(f"watchdogd: service string not found: {old!r}")
+        data = data.replace(old, new)
+        print(f"watchdogd: service {old.decode()} -> {new.decode()} ({count} occurrence(s))")
     output.write_bytes(data)
     after = hashlib.sha256(data).hexdigest()
-    print(f"watchdogd: 0x{OFFSET:x} {OLD.hex()} -> {NEW.hex()}")
     print(f"watchdogd: {digest} -> {after}")
     print(f"watchdogd: wrote {output}")
 
