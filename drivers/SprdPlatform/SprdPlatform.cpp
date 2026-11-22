@@ -879,14 +879,20 @@ bool NativeSprdPlatform::start(IOService *p) {
     if(!prepare()){IOLog("bbk platform: hardware prepare failed\n");stop(p);return false;}
     prepareFuelGauge();
     identifyRadioGpu();
-    mali=sprd_mali_service_create(maliFactorySupplyMicrovolts);
-    if(mali && mali->attach(this)) {
-        maliStarted=mali->start(this);
-        IOLog("M150 mali: child attach/start=%u\n",maliStarted ? 1u : 0u);
-        if(!maliStarted){mali->detach(this);mali->release();mali=nullptr;}
+    uint32_t maliSystem=0;
+    PE_parse_boot_argn("bbk-mali-system",&maliSystem,sizeof(maliSystem));
+    if(maliSystem==1) {
+        mali=sprd_mali_service_create(maliFactorySupplyMicrovolts);
+        if(mali && mali->attach(this)) {
+            maliStarted=mali->start(this);
+            IOLog("M150 mali: child attach/start=%u\n",maliStarted ? 1u : 0u);
+            if(!maliStarted){mali->detach(this);mali->release();mali=nullptr;}
+        } else {
+            IOLog("M149 mali: child service allocation/attach failed\n");
+            OSSafeReleaseNULL(mali);
+        }
     } else {
-        IOLog("M149 mali: child service allocation/attach failed\n");
-        OSSafeReleaseNULL(mali);
+        IOLog("M150 mali: system accelerator disabled (enable with bbk-mali-system=1)\n");
     }
     identifyTouch();recoverTouchReset();
     if(!publishInput()){IOLog("bbk platform: HID publication failed\n");stop(p);return false;}
