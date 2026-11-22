@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import plistlib
+import plistlib
 import re
 import shutil
 import struct
@@ -133,6 +134,8 @@ def main():
     parser.add_argument("--data-uuid", default=DATA_UUID)
     parser.add_argument("--watchdogd", type=Path, default=None,
                         help="patched/re-signed watchdogd to place under /private/var/ngpu/usr-libexec")
+    parser.add_argument("--disable-services", default="com.apple.CommCenter,com.apple.audiomxd",
+                        help="comma-separated launchd labels to disable in the seed")
     parser.add_argument("--thermal-profile", type=Path, default=None)
     parser.add_argument("--output", type=Path, default=None,
                         help="report path (default: seed.with_name('preboot.json'))")
@@ -173,6 +176,20 @@ def main():
             destination.chmod(0o755)
             digest = hashlib.sha256(destination.read_bytes()).hexdigest()
             print(f"patched watchdogd: {destination} sha256 {digest}")
+
+        if args.disable_services:
+            labels = [label.strip() for label in args.disable_services.split(",") if label.strip()]
+            disabled = mount / "db" / "com.apple.xpc.launchd" / "disabled.plist"
+            disabled.parent.mkdir(parents=True, exist_ok=True)
+            entries = plistlib.loads(disabled.read_bytes()) if disabled.exists() else {}
+            for label in labels:
+                entries[label] = True
+                if label == "com.apple.CommCenter":
+                    entries["com.apple.commcenter"] = True
+                if label == "com.apple.audiomxd":
+                    entries["com.apple.audio.audiomxd"] = True
+            disabled.write_bytes(plistlib.dumps(entries, fmt=plistlib.FMT_BINARY))
+            print(f"launchd disabled services: {', '.join(labels)} -> {disabled}")
 
         if args.thermal_profile is not None:
             model = plistlib.loads(args.thermal_profile.read_bytes())
