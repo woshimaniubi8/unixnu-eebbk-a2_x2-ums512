@@ -1,7 +1,7 @@
 diff --git a/bsd/kern/kern_exit.c b/bsd/kern/kern_exit.c
 --- a/bsd/kern/kern_exit.c
 +++ b/bsd/kern/kern_exit.c
-@@ -1944,5 +1944,9 @@ proc_prepareexit(proc_t p, int rv, boolean_t perf_notify)
+@@ -1944,5 +1944,11 @@ proc_prepareexit(proc_t p, int rv, boolean_t perf_notify)
  		if (p->p_pid <= exception_log_max_pid) {
  			char *proc_name = proc_best_name(p);
 +			if (strcmp(proc_name, "CommCenter") == 0 ||
