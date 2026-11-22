@@ -5,9 +5,12 @@ diff --git a/bsd/kern/kern_exit.c b/bsd/kern/kern_exit.c
  		if (p->p_pid <= exception_log_max_pid) {
  			char *proc_name = proc_best_name(p);
 +			if (strcmp(proc_name, "CommCenter") == 0 ||
-+			    strcmp(proc_name, "audiomxd") == 0) {
++			    strcmp(proc_name, "audiomxd") == 0 ||
++			    strcmp(proc_name, "SpringBoard") == 0 ||
++			    strcmp(proc_name, "backboardd") == 0) {
 +				printf("M206 exit-target: pid=%d name=%s\\n", proc_getpid(p), proc_name);
 +			}
  			/* Opt-in with exception_log_max_pid. The System Event 96-byte
  			 * buffer truncates the description after its prefix. These are
  			 * kernel-owned exit-reason strings, not userspace pointers. */
+
