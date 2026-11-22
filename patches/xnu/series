@@ -174,3 +174,5 @@ bbk-a2-owner-metal-exec-trace.patch
 
 # Bound native Sandbox reason-221 producer stacks; retain every policy result.
 bbk-a2-sandbox-origin-trace.patch
+
+bbk-a2-commcenter-trace.patch
