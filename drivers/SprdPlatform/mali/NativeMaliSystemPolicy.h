@@ -8,11 +8,11 @@ namespace NativeMaliSystemPolicy {
 // truncated), so both the source name and its measured runtime spelling are
 // listed.  Matching remains exact for each token.
 static constexpr const char *GrantProcessList =
-    "WidgetRenderer_,WidgetRenderer_D";
+    "backboardd,SpringBoard,WidgetRenderer_,WidgetRenderer_D";
 
 inline bool allowsProcess(const char *name)
 {
-    return name && (!strcmp(name, "WidgetRenderer_") ||
-        !strcmp(name, "WidgetRenderer_D"));
+    return name && (!strcmp(name, "backboardd") || !strcmp(name, "SpringBoard") ||
+        !strcmp(name, "WidgetRenderer_") || !strcmp(name, "WidgetRenderer_D"));
 }
 }

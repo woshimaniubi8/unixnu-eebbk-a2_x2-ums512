@@ -88,7 +88,7 @@ if not reference_only:
     for value in (b"IOAcceleratorES", b"NativeSprdMaliService", b"MetalPluginName",
                   b"MetalPluginClassName", b"VivaMTLDriver", b"VMDevice",
                   b"NativeSandboxGrantProcess",
-                  b"WidgetRenderer_,WidgetRenderer_D"):
+                  b"backboardd,SpringBoard,WidgetRenderer_,WidgetRenderer_D"):
         assert value in data, f"System accelerator publication marker absent: {value!r}"
     # A linked constructor and correct base ABI do not prove registration.
     # Audit the final executable call sequence: this caught M194, whose
@@ -128,4 +128,3 @@ print("PASS: original IOGPUFamily text unchanged")
 if not reference_only:
     print("PASS: system Metal and scoped grant markers linked")
     print("PASS: final Mali factory brackets constructors with preModLoad/postModLoad")
-

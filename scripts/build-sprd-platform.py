@@ -65,7 +65,7 @@ for source in sources:
             'bindings':{name:hex(address) for name,address in bindings.items() if name in used},
             'original_instructions_modified':False,
             'initializer_deferred_until_iogpufamily_load':True,
-            'system_process_grants':['WidgetRenderer_','WidgetRenderer_D']},indent=2)+'\n')
+            'system_process_grants':['backboardd','SpringBoard','WidgetRenderer_','WidgetRenderer_D']},indent=2)+'\n')
     else:objects.append(str(obj))
 # The reused kernel-control/Skywalk transport is C, not a C++ IOKit object.
 # Use the kernel's real C record. The C++ record contains compact -xc++ and
@@ -104,4 +104,3 @@ if r.returncode:raise SystemExit((r.stdout+r.stderr)[-7000:])
 objects.append(str(obj))
 subprocess.run(['xcrun','ar','r',str(OUT/'libSprdPlatform.a'),*objects],check=True)
 print('PASS: SprdPlatform + pinned Mali VM/MMU/job objects + factory SC2355 WCN image')
-
