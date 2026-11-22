@@ -136,6 +136,8 @@ def main():
                         help="patched/re-signed watchdogd to place under /private/var/ngpu/usr-libexec")
     parser.add_argument("--disable-services", default="com.apple.CommCenter,com.apple.audiomxd",
                         help="comma-separated launchd labels to disable in the seed")
+    parser.add_argument("--daemons-dir", type=Path, default=None,
+                        help="OS /System/Library/LaunchDaemons used to build disabled overrides")
     parser.add_argument("--thermal-profile", type=Path, default=None)
     parser.add_argument("--output", type=Path, default=None,
                         help="report path (default: seed.with_name('preboot.json'))")
@@ -190,6 +192,20 @@ def main():
                     entries["com.apple.audio.audiomxd"] = True
             disabled.write_bytes(plistlib.dumps(entries, fmt=plistlib.FMT_BINARY))
             print(f"launchd disabled services: {', '.join(labels)} -> {disabled}")
+
+        if args.daemons_dir is not None:
+            daemons = mount / "ngpu" / "daemons"
+            daemons.mkdir(parents=True, exist_ok=True)
+            for name in ("com.apple.CommCenter.plist", "com.apple.audiomxd.plist"):
+                source = args.daemons_dir / name
+                if not source.is_file():
+                    print(f"launchd override skipped (absent in OS): {source}")
+                    continue
+                data = plistlib.loads(source.read_bytes())
+                data["Disabled"] = True
+                destination = daemons / name
+                destination.write_bytes(plistlib.dumps(data, fmt=plistlib.FMT_BINARY))
+                print(f"launchd override: {destination} Disabled=true")
 
         if args.thermal_profile is not None:
             model = plistlib.loads(args.thermal_profile.read_bytes())

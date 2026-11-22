@@ -363,7 +363,8 @@ def main():
                  "--seed", str(output), "--firmware-dir", str(firmware),
                  "--boot-manifest-hash", preboot_hash,
                  "--watchdogd", str(watchdogd),
-                 "--thermal-profile", str(thermal_profile)], tree)
+                 "--thermal-profile", str(thermal_profile),
+                 "--daemons-dir", str(mountpoint / "System/Library/LaunchDaemons")], tree)
         finally:
             shutil.rmtree(firmware, ignore_errors=True)
         build_trust_bundle(tree, device, output.parent / "trustcache.bundle", watchdogd)
