@@ -281,9 +281,13 @@ public:
         setProperty("service-ready", 1, 32);
         setName("NativeMaliGpuService");
         setProperty("model","Mali-G52");
-        setProperty("MetalPluginName","VivaMTLDriver");
-        setProperty("MetalPluginClassName","VMDevice");
-        setProperty("NativeSandboxGrantProcess",NativeMaliSystemPolicy::GrantProcessList);
+        uint32_t systemMetal=0;
+        PE_parse_boot_argn("bbk-mali-system",&systemMetal,sizeof(systemMetal));
+        if(systemMetal==1) {
+            setProperty("MetalPluginName","VivaMTLDriver");
+            setProperty("MetalPluginClassName","VMDevice");
+            setProperty("NativeSandboxGrantProcess",NativeMaliSystemPolicy::GrantProcessList);
+        }
         ready_ = true;
         setProperty("NativeMaliABI",NativeMaliAbiVersion,32);
         IOLog("M150 mali: service published ready=1 id=0x%x js=0x%x\n",
