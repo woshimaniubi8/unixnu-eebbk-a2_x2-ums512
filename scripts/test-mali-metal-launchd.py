@@ -7,7 +7,9 @@ from pathlib import Path
 root=Path(__file__).resolve().parents[1]
 s=importlib.util.spec_from_file_location('metal_cache',root/'scripts/prepare-mali-metal-launchd.py')
 m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
-patch=root/'patches/xnu/bbk-a2-splashboard-prewarm.patch'\nm.prepare(patch)\ntext=patch.read_text()
+patch=root/'patches/xnu/bbk-a2-splashboard-prewarm.patch'
+m.prepare(patch)
+text=patch.read_text()
 packed,raw,config=m.verified_cache(text)
 previous=m.validate(config,True)
 assert len(previous['LaunchDaemons'])==561 and len(config['LaunchDaemons'])==562
@@ -37,5 +39,6 @@ try:m.validate(tampered,True)
 except ValueError:pass
 else:raise AssertionError('An unqualified statistics setting was accepted')
 print('PASS: owner job intact; only two UI statistics environment keys added; all other system configuration intact.')
+
 
 
