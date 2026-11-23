@@ -77,12 +77,12 @@ def recount_patch(text):
         delta+=after-before
     return ''.join(lines)
 
-def verified_cache(text):
+def verified_cache(text,require_job=True):
     packed=array(text,'packed');raw=zlib.decompress(packed)
     if hashlib.sha256(raw).digest()!=array(text,'modified_sha'):raise ValueError('Cache digest mismatch')
     size=int(re.search(r'configuration_size = (\d+);',text)[1])
     if size!=len(raw):raise ValueError('Cache size mismatch')
-    config=plistlib.loads(raw);validate(config,True)
+    config=plistlib.loads(raw);validate(config,require_job)
     return packed,raw,config
 
 def c_array(name,data,fixed=False):
@@ -90,20 +90,25 @@ def c_array(name,data,fixed=False):
     for i in range(0,len(data),16):lines.append('+\t'+', '.join('0x%02x'%b for b in data[i:i+16])+',')
     return '\n'.join([*lines,'+    };'])
 
-def prepare(path):
+def prepare(path, remove_job=False):
     before=path.read_text();raw=zlib.decompress(array(before,'packed'))
     if hashlib.sha256(raw).digest()!=array(before,'modified_sha'):raise ValueError('Previous cache pin mismatch')
     config=plistlib.loads(raw);baseline=validate(config,False)
     desired=copy.deepcopy(config)
-    desired['LaunchDaemons'][JOB_PATH]=job()
+    if remove_job:
+        # The kernel stage spawns the owner probe before launchd; a cached job
+        # for the same tmpfs path only adds an EPERM from MACF.
+        desired['LaunchDaemons'].pop(JOB_PATH,None)
+    else:
+        desired['LaunchDaemons'][JOB_PATH]=job()
     for target in STATS_JOBS:
         # Viva's own opt-out prevents its optional Manager statistics page
         # from calling umask(0) inside Apple's restricted UI services.
         desired['LaunchDaemons'][target].setdefault('EnvironmentVariables',{})[STATS_ENV]='1'
     if desired==config:
-        verified_cache(before);return dict(already_configured=True,sha256=hashlib.sha256(raw).hexdigest())
+        verified_cache(before,not remove_job);return dict(already_configured=True,sha256=hashlib.sha256(raw).hexdigest())
     config=desired
-    validate(config,True)
+    validate(config,not remove_job)
     modified=plistlib.dumps(config,fmt=plistlib.FMT_BINARY,sort_keys=True)
     after=before
     for name,data,fixed in [('packed',compress_cache(modified),False),('modified_sha',hashlib.sha256(modified).digest(),True)]:
@@ -117,7 +122,7 @@ def prepare(path):
     after=after.replace('+ * cache. The existing SplashBoard warm-up and one owned Mali Metal test are\n+ * declared here; system jobs, executable trust and watchdog policy stay intact. */',
         '+ * cache. The existing SplashBoard warm-up and owned Mali Metal test remain;\n+ * two UI jobs opt out of optional Viva shared statistics. Trust and watchdog policy stay intact. */')
     after=recount_patch(after)
-    verified_cache(after)
+    verified_cache(after,not remove_job)
     if array(after,'original_sha')!=array(before,'original_sha'):raise ValueError('Original OS cache pin changed')
     path.write_text(after,newline='\n')
     subprocess.run(['git','apply','--numstat',str(path.resolve())],cwd=ROOT,check=True,capture_output=True)
@@ -129,5 +134,7 @@ if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--patch',type=Path,default=ROOT/'patches/xnu/bbk-a2-splashboard-prewarm.patch')
     p.add_argument('--report',type=Path,required=True)
-    a=p.parse_args();record=prepare(a.patch);a.report.write_text(json.dumps(record,indent=2)+'\n');print(json.dumps(record,indent=2))
+    p.add_argument('--remove-job',action='store_true',help='drop the cached owner Metal job; the kernel stage spawns the probe')
+    a=p.parse_args();record=prepare(a.patch,a.remove_job);a.report.write_text(json.dumps(record,indent=2)+'\n');print(json.dumps(record,indent=2))
+
 
