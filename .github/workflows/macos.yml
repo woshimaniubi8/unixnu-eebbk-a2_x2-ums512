@@ -577,9 +577,12 @@ jobs:
           command -v mcopy >/dev/null || brew install mtools
           mcopy -o -i "$img" ::/EFI/UniXNU/Payloads/kernel.macho "$KERNEL_DIR/kernel.macho"
           mcopy -o -i "$img" ::/EFI/UniXNU/Payloads/kernel.macho.adt "$KERNEL_DIR/kernel.macho.adt"
-          mcopy -o -i "$img" ::/EFI/UniXNU/Payloads/kernel.macho.gpuaddon "$KERNEL_DIR/kernel.macho.gpuaddon"
+          if mcopy -o -i "$img" ::/EFI/UniXNU/Payloads/kernel.macho.gpuaddon "$KERNEL_DIR/kernel.macho.gpuaddon"; then
+            cp "$KERNEL_DIR/kernel.macho.gpuaddon" "$PAYLOAD_DIR/kernel.macho.gpuaddon"
+          else
+            echo "M220 payload has no separate kernel.macho.gpuaddon; keeping the qualified M220 kernel"
+          fi
           cp "$KERNEL_DIR/kernel.macho.adt" "$PAYLOAD_DIR/kernel.macho.adt"
-          cp "$KERNEL_DIR/kernel.macho.gpuaddon" "$PAYLOAD_DIR/kernel.macho.gpuaddon"
 
       - name: Build payload
         if: ${{ contains(inputs.steps, 'payload') || inputs.steps == 'seed only' }}
