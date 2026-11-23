@@ -19,6 +19,7 @@ on:
         options:
           - kernel
           - kernel payload
+          - seed only
           - kernel payload metal
           - mali probe
           - mali metal
@@ -421,6 +422,7 @@ jobs:
           ./unixnu status -D "$GITHUB_WORKSPACE/device" | tee "$GITHUB_WORKSPACE/status.txt"
 
       - name: Build kernel
+        if: inputs.steps != 'seed only'
         working-directory: UniXNU
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -429,6 +431,7 @@ jobs:
           ./unixnu build kernel 2>&1 | tee "$GITHUB_WORKSPACE/kernel.log"
 
       - name: Verify original accelerator ABI and system Metal publication
+        if: inputs.steps != 'seed only'
         working-directory: UniXNU
         run: |
           set -euxo pipefail
@@ -450,7 +453,7 @@ jobs:
           PY
 
       - name: Rebuild with bindings derived from the current link
-        if: ${{ inputs.refresh_bindings }}
+        if: ${{ inputs.refresh_bindings && inputs.steps != 'seed only' }}
         working-directory: UniXNU
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -475,7 +478,7 @@ jobs:
         # stale; fail here instead of publishing a kernel with bad dispatch slots.
         # A run with skip_bindings_check=true is the derivation run: it publishes
         # the kernel whose dispatch table the new storage-bindings.json comes from.
-        if: ${{ !inputs.skip_bindings_check }}
+        if: ${{ !inputs.skip_bindings_check && inputs.steps != 'seed only' }}
         working-directory: UniXNU
         run: |
           set -euxo pipefail
@@ -485,6 +488,7 @@ jobs:
             "$GITHUB_WORKSPACE/device/drivers/SdhciBlock/storage-bindings.json"
 
       - name: Check original mobile display ABI and GOP archive
+        if: inputs.steps != 'seed only'
         working-directory: UniXNU
         run: |
           set -euxo pipefail
@@ -492,6 +496,7 @@ jobs:
           python3 "$GITHUB_WORKSPACE/device/scripts/check-a2-gop-display.py" "$KERNEL" --prelink-tools kits/XnuPrelink
 
       - name: Apply BBK A2 bring-up kernel patches
+        if: inputs.steps != 'seed only'
         working-directory: UniXNU
         run: |
           set -euxo pipefail
@@ -511,6 +516,7 @@ jobs:
           python3 "$GITHUB_WORKSPACE/device/scripts/patch-hid-family-load.py" "$KERNEL" --prelink-tools kits/XnuPrelink
 
       - name: Verify final Mali system accelerator image
+        if: inputs.steps != 'seed only'
         working-directory: UniXNU
         run: |
           set -euxo pipefail
@@ -546,8 +552,39 @@ jobs:
           python3 "$GITHUB_WORKSPACE/device/scripts/test-trust-bundle.py"
           python3 "$GITHUB_WORKSPACE/device/scripts/prepare-data-seed.py" --tree "$PWD"
 
+      - name: Fetch the qualified M220 kernel, ADT and GPU addon
+        if: inputs.steps == 'seed only'
+        uses: actions/download-artifact@v4
+        with:
+          name: payload
+          run-id: 45007633961
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: m220
+
+      - name: Stage the M220 kernel, ADT and GPU addon
+        if: inputs.steps == 'seed only'
+        working-directory: UniXNU
+        run: |
+          set -euxo pipefail
+          img=$(find "$GITHUB_WORKSPACE/m220" -name payload.img -print -quit)
+          test -n "$img"
+          KERNEL_DIR=$(dirname "$(ls out/*/*/*/kernel/kernel.macho 2>/dev/null | head -n1)" 2>/dev/null || true)
+          PAYLOAD_DIR=$(dirname "$(ls out/*/*/*/payload/payload.img 2>/dev/null | head -n1)" 2>/dev/null || true)
+          if [ -z "$KERNEL_DIR" ] || [ "$KERNEL_DIR" = "." ]; then
+            WORK=$(ls -d out/*/*/* | head -n1)
+            KERNEL_DIR="$WORK/kernel"
+            PAYLOAD_DIR="$WORK/payload"
+          fi
+          mkdir -p "$KERNEL_DIR" "$PAYLOAD_DIR"
+          command -v mcopy >/dev/null || brew install mtools
+          mcopy -o -i "$img" ::/EFI/UniXNU/Payloads/kernel.macho "$KERNEL_DIR/kernel.macho"
+          mcopy -o -i "$img" ::/EFI/UniXNU/Payloads/kernel.macho.adt "$KERNEL_DIR/kernel.macho.adt"
+          mcopy -o -i "$img" ::/EFI/UniXNU/Payloads/kernel.macho.gpuaddon "$KERNEL_DIR/kernel.macho.gpuaddon"
+          cp "$KERNEL_DIR/kernel.macho.adt" "$PAYLOAD_DIR/kernel.macho.adt"
+          cp "$KERNEL_DIR/kernel.macho.gpuaddon" "$PAYLOAD_DIR/kernel.macho.gpuaddon"
+
       - name: Build payload
-        if: contains(inputs.steps, 'payload')
+        if: ${{ contains(inputs.steps, 'payload') || inputs.steps == 'seed only' }}
         working-directory: UniXNU
         run: |
           set -euxo pipefail
@@ -583,7 +620,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Verify the boot image would fit the 35 MiB boot partition
-        if: always() && contains(inputs.steps, 'payload')
+        if: ${{ always() && (contains(inputs.steps, 'payload') || inputs.steps == 'seed only') }}
         run: |
           set -eux
           WORK=$(ls -d UniXNU/out/*/*/* 2>/dev/null | head -n 1 || true)
