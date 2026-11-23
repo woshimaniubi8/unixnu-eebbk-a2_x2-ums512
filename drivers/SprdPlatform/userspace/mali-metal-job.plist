@@ -17,7 +17,7 @@
 	</dict>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/System/Library/Extensions/mali-user-probe</string>
+		<string>/private/var/ngpu/mali-user/mali-user-probe</string>
 		<string>/System/Library/Extensions/VivaMTLDriver.bundle</string>
 		<string>/System/Library/Extensions/native-metal-probe.metallib</string>
 	</array>
@@ -29,3 +29,4 @@
 	<string>/dev/null</string>
 </dict>
 </plist>
+
