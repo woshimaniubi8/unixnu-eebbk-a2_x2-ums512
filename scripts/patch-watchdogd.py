@@ -8,10 +8,12 @@ consumed, so the exact CBZ at RVA 0xA114 is replaced with NOP.
 
 The same binary carries the names of services that the watchdogd monitors.
 This board has no cellular/audio userspace contract, so CommCenter and
-audiomxd are renamed in the binary's own service-name table; they are not
-reported as unresponsive and are not killed by the userspace watchdog.  The
-SpringBoard/backboardd GPU services remain monitored.  This is not a fake
-checkin and does not change the kernel IOWatchdog assertions.
+audiomxd never check in.  Renaming those strings was tried and proved wrong:
+the kernel kept watching the renamed service and reported
+"XommCenter appears to not exist in launchd", which panicked the board 465 s
+after boot (M220 hardware log).  The names are left untouched and the
+userspace monitor is disabled through the kernel boot-args instead
+(wdt=0 -wdt-no-iokit defang_watchdogd=1 in board.toml).
 
 Re-signing with the original entitlements (notably
 com.apple.private.iowatchdog.user-access) is a separate macOS step and is
@@ -25,10 +27,6 @@ EXPECTED_SHA256 = "ded4c688e1c2add74acf3e7f9eea5fe2c2c569180ce81492221877944d913
 OFFSET = 0xA114
 OLD = bytes.fromhex("40010034")  # cbz w0, 0x10000a13c
 NEW = bytes.fromhex("1f2003d5")  # nop
-SERVICE_RENAMES = (
-    (b"CommCenter", b"XommCenter"),
-    (b"audiomxd", b"Xudiomxd"),
-)
 
 
 def main():
@@ -45,12 +43,6 @@ def main():
         raise SystemExit(f"unexpected bytes at 0x{OFFSET:x}: {before.hex()} (want {OLD.hex()})")
     data[OFFSET:OFFSET + len(NEW)] = NEW
     print(f"watchdogd: 0x{OFFSET:x} {OLD.hex()} -> {NEW.hex()}")
-    for old, new in SERVICE_RENAMES:
-        count = data.count(old)
-        if count == 0:
-            raise SystemExit(f"watchdogd: service string not found: {old!r}")
-        data = data.replace(old, new)
-        print(f"watchdogd: service {old.decode()} -> {new.decode()} ({count} occurrence(s))")
     output.write_bytes(data)
     after = hashlib.sha256(data).hexdigest()
     print(f"watchdogd: {digest} -> {after}")
