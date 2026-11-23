@@ -45,7 +45,7 @@ def validate(config,require_job):
     old=copy.deepcopy(config)
     entry=old['LaunchDaemons'].pop(JOB_PATH,None)
     if require_job and entry!=job():raise ValueError('Owner Metal job differs or is absent')
-    if entry is not None and entry!=job():raise ValueError('Conflicting owner label')
+    if require_job and entry is not None and entry!=job():raise ValueError('Conflicting owner label')
     for path in STATS_JOBS:
         target=old['LaunchDaemons'][path]
         env=target.get('EnvironmentVariables',{})
@@ -130,3 +130,4 @@ if __name__=='__main__':
     p.add_argument('--patch',type=Path,default=ROOT/'patches/xnu/bbk-a2-splashboard-prewarm.patch')
     p.add_argument('--report',type=Path,required=True)
     a=p.parse_args();record=prepare(a.patch);a.report.write_text(json.dumps(record,indent=2)+'\n');print(json.dumps(record,indent=2))
+
