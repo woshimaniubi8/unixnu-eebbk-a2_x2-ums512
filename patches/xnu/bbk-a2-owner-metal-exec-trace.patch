@@ -1,6 +1,6 @@
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -1189,3 +1189,14 @@
+@@ -1189,3 +1189,16 @@
 +static bool
 +native_owner_metal_image(const struct image_params *imgp)
 +{
@@ -67,7 +67,7 @@
  
  		switch (error) {
  		/* case -1: not claimed: continue */
-@@ -3587,6 +3604,19 @@
+@@ -3587,6 +3604,20 @@
  		struct vnode_attr origva;
  	} *__spawn_data;
  
@@ -134,5 +134,3 @@
 +	    native_gpu_addon_files, native_gpu_addon_written, native_gpu_addon_same,
 +	    native_gpu_addon_failed, native_gpu_addon_error);
  	int cache_env_error = init_envp ? copyin(init_envp, &cache_env_after, sizeof(cache_env_after)) : 0;
-
-
