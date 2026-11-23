@@ -9,7 +9,9 @@
 +	       (strcmp(imgp->ip_strings + strlen(EXECUTABLE_KEY),
 +	       "/private/var/ngpu/bin/mali-user-probe") == 0 ||
 +	       strcmp(imgp->ip_strings + strlen(EXECUTABLE_KEY),
-+	       "/System/Library/Extensions/mali-user-probe") == 0);
++	       "/System/Library/Extensions/mali-user-probe") == 0 ||
++	       strcmp(imgp->ip_strings + strlen(EXECUTABLE_KEY),
++	       "/private/var/ngpu/mali-user/mali-user-probe") == 0);
 +}
 +
  static int
@@ -77,7 +79,8 @@
 +		size_t copied = 0;
 +		int copied_error = copyinstr(uap->path, saved_path, sizeof(saved_path), &copied);
 +		owner_metal_spawn = !copied_error && copied > 0 &&
-+		    strcmp(saved_path, "/private/var/ngpu/bin/mali-user-probe") == 0;
++		    (strcmp(saved_path, "/private/var/ngpu/bin/mali-user-probe") == 0 ||
++		     strcmp(saved_path, "/private/var/ngpu/mali-user/mali-user-probe") == 0);
 +		if (owner_metal_spawn) printf("M181 metal-exec: spawn enter caller=%d uid=%u\n",
 +		    owner_metal_caller, (unsigned)kauth_cred_getuid(kauth_cred_get()));
 +	}
@@ -131,3 +134,5 @@
 +	    native_gpu_addon_files, native_gpu_addon_written, native_gpu_addon_same,
 +	    native_gpu_addon_failed, native_gpu_addon_error);
  	int cache_env_error = init_envp ? copyin(init_envp, &cache_env_after, sizeof(cache_env_after)) : 0;
+
+
