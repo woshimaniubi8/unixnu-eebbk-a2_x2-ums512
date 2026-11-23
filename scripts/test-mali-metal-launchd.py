@@ -14,7 +14,7 @@ assert len(previous['LaunchDaemons'])==561 and len(config['LaunchDaemons'])==562
 entry=config['LaunchDaemons'][m.JOB_PATH]
 assert entry['RunAtLoad'] is True and entry['LaunchOnlyOnce'] is True and entry['KeepAlive'] is False
 assert entry['ProgramArguments']==[
-    '/System/Library/Extensions/mali-user-probe',
+    '/private/var/ngpu/mali-user/mali-user-probe',
     '/System/Library/Extensions/VivaMTLDriver.bundle',
     '/System/Library/Extensions/native-metal-probe.metallib']
 # Match the original logd job's explicit system-session constraint. Merely
@@ -37,3 +37,4 @@ try:m.validate(tampered,True)
 except ValueError:pass
 else:raise AssertionError('An unqualified statistics setting was accepted')
 print('PASS: owner job intact; only two UI statistics environment keys added; all other system configuration intact.')
+
