@@ -235,8 +235,8 @@ def build_trust_bundle(tree, device, output, signed_watchdogd=None):
     if signed_watchdogd is not None:
         cdhash = _cdhash(signed_watchdogd)
         modules.insert(0, _watchdog_trust_module(cdhash))
-    probe = Path(device) / "build/mali-user-probe/mali-user-probe"
-    if probe.is_file():
+    probe = Path(device) / "build/mali-user-probe/mali-user-probe" if device else None
+    if probe is not None and probe.is_file():
         modules.insert(0, _metal_probe_trust_module(_cdhash(probe)))
     bundle = _pack_trust_modules(modules)
     digest = hashlib.sha256(bundle).hexdigest()
