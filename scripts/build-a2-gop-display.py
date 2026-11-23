@@ -230,7 +230,15 @@ cmd+=['-Wall','-Wextra','-Werror','-Wno-unused-parameter','-Wno-unnecessary-virt
 run(cmd,cwd=r['directory'])
 archive=OUT/'libNativeLegacyDisplay.late.a'
 archive.unlink(missing_ok=True)
-run(['xcrun','ar','rcs',archive,late,OUT/'original-bindings.o',OUT/'LegacyDisplayProbe.o'])\n# The base archive already carries the complete class/lifecycle symbols; keep\n# the late output as an empty link placeholder so the component's legacy output\n# resolves without duplicating the base members.\narchive.unlink()\nempty=OUT/'empty.o'\nsdk=run(['xcrun','--sdk','iphoneos','--show-sdk-path'],text=True).strip()\nrun([llvm/'clang','-target','arm64-apple-ios17.0','-isysroot',sdk,'-c','-x','c','/dev/null','-o',empty])\nrun(['xcrun','ar','rcs',archive,empty])
+run(['xcrun','ar','rcs',archive,late,OUT/'original-bindings.o',OUT/'LegacyDisplayProbe.o'])
+# The base archive already carries the complete class/lifecycle symbols; keep
+# the late output as an empty link placeholder so the component's legacy output
+# resolves without duplicating the base members.
+archive.unlink()
+empty=OUT/'empty.o'
+sdk=run(['xcrun','--sdk','iphoneos','--show-sdk-path'],text=True).strip()
+run([llvm/'clang','-target','arm64-apple-ios17.0','-isysroot',sdk,'-c','-x','c','/dev/null','-o',empty])
+run(['xcrun','ar','rcs',archive,empty])
 sources=[ROOT/'drivers/GopFramebuffer'/name for name in ('NativeLegacyDisplay.cpp','NativeLegacyRequest.h','NativeGOPWire.h','NativeHalfCodes.h','NativeGpuTrace.h')]+[source,SOURCE/'original-abi.json',Path(__file__).resolve()]
 (OUT/'build-report.json').write_text(json.dumps(dict(source_sha256={str(p.relative_to(ROOT)) if p.is_relative_to(ROOT) else str(p):sha(p) for p in sources},generated_abi_sha256=sha(OUT/'OriginalLegacyFramebufferABI.h'),compiled_object_sha256=sha(obj),late_object_sha256=sha(late),archive_sha256=sha(archive),bindings={n:hex(v) for n,v in bindings.items()},virtual_entries=358,owned_entries=owned,inherited_native_entries=native,original_instructions_modified=False,cpu_gop_only=True,hardware_tested=False),indent=2)+'\n')
 print('BBK display: original Legacy dispatch qualified; CPU GOP archive built')
