@@ -554,12 +554,10 @@ jobs:
 
       - name: Fetch the qualified M220 kernel, ADT and GPU addon
         if: inputs.steps == 'seed only'
-        uses: actions/download-artifact@v4
-        with:
-          name: payload
-          run-id: 45007633961
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: m220
+        run: |
+          set -euxo pipefail
+          mkdir -p m220
+          cp "$GITHUB_WORKSPACE/device/seed-m220/payload.img" m220/payload.img
 
       - name: Stage the M220 kernel, ADT and GPU addon
         if: inputs.steps == 'seed only'
