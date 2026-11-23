@@ -211,6 +211,16 @@ def _watchdog_trust_module(cdhash):
             + bytes([2, 0, WATCHDOG_LAUNCH_CONSTRAINT_CATEGORY, 0]))
 
 
+def _metal_probe_trust_module(cdhash):
+    """Admit the owner Mali probe so MACF lets the cached launchd job exec it."""
+    if len(cdhash) != 20:
+        raise ValueError("Mali probe CDHash must be 20 bytes")
+    identifier = uuid.uuid5(uuid.NAMESPACE_URL,
+                           "org.unixnu.bbk.mali-metal:" + cdhash.hex()).bytes
+    return (struct.pack("<I16sI", 2, identifier, 1) + cdhash
+            + bytes([2, 0, WATCHDOG_LAUNCH_CONSTRAINT_CATEGORY, 0]))
+
+
 def build_trust_bundle(tree, device, output, signed_watchdogd=None):
     """Build the static + System trust bundle plus the owner watchdogd entry."""
     ipsw, board = open_ipsw(tree, device)
@@ -225,6 +235,9 @@ def build_trust_bundle(tree, device, output, signed_watchdogd=None):
     if signed_watchdogd is not None:
         cdhash = _cdhash(signed_watchdogd)
         modules.insert(0, _watchdog_trust_module(cdhash))
+    probe = Path(device) / "build/mali-user-probe/mali-user-probe"
+    if probe.is_file():
+        modules.insert(0, _metal_probe_trust_module(_cdhash(probe)))
     bundle = _pack_trust_modules(modules)
     digest = hashlib.sha256(bundle).hexdigest()
     allowed = board.get("payload", {}).get("trust_cache_sha256", [])
