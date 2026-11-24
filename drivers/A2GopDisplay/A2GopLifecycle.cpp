@@ -512,6 +512,18 @@ void native_legacy_display_probe(void) {
     if(PE_current_console(&video) || !video.v_baseAddr || !video.v_width || !video.v_height || video.v_depth!=32
         || video.v_rotate || video.v_width>16384 || video.v_height>16384 || video.v_rowBytes<video.v_width*4
         || video.v_rowBytes>UINT64_MAX/video.v_height){native_legacy_display_checkpoint();return;}
+    // M260: paint the boot console framebuffer once so the scanout path is
+    // visible on the panel before any UI client connects.
+    unsigned fillColor=0;
+    if(PE_parse_boot_argn("bbk-display-fill",&fillColor,sizeof(fillColor)) && fillColor) {
+        volatile uint32_t *fb=reinterpret_cast<volatile uint32_t *>(static_cast<uintptr_t>(video.v_baseAddr));
+        const uint64_t words=uint64_t(video.v_rowBytes)*video.v_height/4;
+        for(uint64_t i=0;i<words;i++)fb[i]=fillColor;
+        __asm__ volatile("dsb sy" ::: "memory");
+        printf("M260 display: fill %ux%u stride=%u words=%llu color=0x%08x\n",
+            unsigned(video.v_width),unsigned(video.v_height),unsigned(video.v_rowBytes),
+            (unsigned long long)words,fillColor);
+    }
     IOService *display=native_legacy_display_allocate();native_legacy_object=(uintptr_t)display;
     if(!display){native_legacy_display_checkpoint();return;}
     native_legacy_object_size=display->getMetaClass()->getClassSize();
