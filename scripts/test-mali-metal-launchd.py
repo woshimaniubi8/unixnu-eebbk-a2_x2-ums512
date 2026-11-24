@@ -12,7 +12,8 @@ m.prepare(patch)
 text=patch.read_text()
 packed,raw,config=m.verified_cache(text)
 previous=m.validate(config,True)
-assert len(previous['LaunchDaemons'])==561 and len(config['LaunchDaemons'])==562
+assert len(previous['LaunchDaemons'])==560 and len(config['LaunchDaemons'])==561
+assert '/System/Library/LaunchDaemons/com.apple.splashboardd.plist' not in config['LaunchDaemons']
 entry=config['LaunchDaemons'][m.JOB_PATH]
 assert entry['RunAtLoad'] is True and entry['LaunchOnlyOnce'] is True and entry['KeepAlive'] is False
 assert entry['ProgramArguments']==[
@@ -36,3 +37,4 @@ try:m.validate(tampered,True)
 except ValueError:pass
 else:raise AssertionError('An unqualified statistics setting was accepted')
 print('PASS: cached Metal probe job present; only two UI statistics environment keys added; all other system configuration intact.')
+

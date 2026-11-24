@@ -17,7 +17,8 @@ import zlib
 ROOT=Path(__file__).resolve().parents[1]
 LABEL='org.unixnu.bbk.mali-metal'
 JOB_PATH='/System/Library/LaunchDaemons/'+LABEL+'.plist'
-BASELINE_CANONICAL_SHA='4e8ccab53acfae99eef9231197cea63e8d27d48bebd643487edafa1b9f59bdc9'
+SPLASH_PATH='/System/Library/LaunchDaemons/com.apple.splashboardd.plist'
+BASELINE_CANONICAL_SHA='ddec952be22294ab86f26cccaf4df2748cf8f0c60e2ab42ef2d3247058d70d8e'
 STATS_ENV='VMG_NO_SHM_STATS'
 STATS_JOBS=('/System/Library/LaunchDaemons/com.apple.backboardd.plist',
             '/System/Library/LaunchDaemons/com.apple.SpringBoard.plist')
@@ -44,6 +45,7 @@ def job():
 def validate(config,require_job):
     old=copy.deepcopy(config)
     entry=old['LaunchDaemons'].pop(JOB_PATH,None)
+    old['LaunchDaemons'].pop(SPLASH_PATH,None)
     if require_job and entry!=job():raise ValueError('Owner Metal job differs or is absent')
     if require_job and entry is not None and entry!=job():raise ValueError('Conflicting owner label')
     for path in STATS_JOBS:
@@ -95,6 +97,7 @@ def prepare(path, remove_job=False):
     if hashlib.sha256(raw).digest()!=array(before,'modified_sha'):raise ValueError('Previous cache pin mismatch')
     config=plistlib.loads(raw);baseline=validate(config,False)
     desired=copy.deepcopy(config)
+    desired['LaunchDaemons'].pop(SPLASH_PATH,None)
     if remove_job:
         # The kernel stage spawns the owner probe before launchd; a cached job
         # for the same tmpfs path only adds an EPERM from MACF.
@@ -136,5 +139,6 @@ if __name__=='__main__':
     p.add_argument('--report',type=Path,required=True)
     p.add_argument('--remove-job',action='store_true',help='drop the cached owner Metal job; the kernel stage spawns the probe')
     a=p.parse_args();record=prepare(a.patch,a.remove_job);a.report.write_text(json.dumps(record,indent=2)+'\n');print(json.dumps(record,indent=2))
+
 
 
