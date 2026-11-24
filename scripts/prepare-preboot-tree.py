@@ -134,7 +134,7 @@ def main():
     parser.add_argument("--data-uuid", default=DATA_UUID)
     parser.add_argument("--watchdogd", type=Path, default=None,
                         help="patched/re-signed watchdogd to place under /private/var/ngpu/usr-libexec")
-    parser.add_argument("--disable-services", default="com.apple.CommCenter,com.apple.audiomxd",
+    parser.add_argument("--disable-services", default="com.apple.CommCenter,com.apple.audiomxd,com.apple.splashboardd",
                         help="comma-separated launchd labels to disable in the seed")
     parser.add_argument("--daemons-dir", type=Path, default=None,
                         help="OS /System/Library/LaunchDaemons used to build disabled overrides")
@@ -264,3 +264,4 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
