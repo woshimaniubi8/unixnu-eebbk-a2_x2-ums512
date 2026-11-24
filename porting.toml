@@ -108,17 +108,17 @@ evidence = []
 
 [[area]]
 id = "gpu"
-status = "hardware-probed"
+status = "hardware-active"
 components = ["SprdPlatform"]
-paths = ["drivers/SprdPlatform/SprdMali.h", "drivers/SprdPlatform/SprdMaliTest.cpp", "drivers/SprdPlatform/mali/**", "scripts/build-sprd-platform.py"]
+paths = ["drivers/SprdPlatform/SprdMali.h", "drivers/SprdPlatform/SprdMaliService.cpp", "drivers/SprdPlatform/SprdMaliTest.cpp", "drivers/SprdPlatform/mali/**", "scripts/build-sprd-platform.py", "scripts/tools/mali-user-probe.cpp"]
 inputs = ["Factory Mali Gondul/G52 MC2, GPU_ID 0x74021000; I/O memory at 0x60000000, job slots 0x60020000, MMU address spaces and local 4 GiB DRAM."]
 configuration = ["Reuse Dracen-W/Mali-G52 pinned commit 2f279e1c0213c2ec33ec9e0f2f643c04c65565ec for Bifrost v7 register/MMU/job logic; only the factory Sprd power domain and allocated local buffers are board-specific."]
 procedure = ["Use 16 KiB prepared/physically contiguous descriptors; map 8 KiB at GPU IOVA 0x01000000; submit Bifrost v7 WRITE_VALUE; require job completion, exact CPU readback and successful reset/AS teardown."]
-findings = ["M120 hardware log: GPU ID 0x74021000, shader=3, JS=7; WRITE_VALUE completed raw=0x2 and read back 0x4750554d313139 with AS fault=0, then teardown/reset succeeded."]
+findings = ["M120: WRITE_VALUE completed and returned the expected value on GPU 0x74021000.", "M245: at 768 MHz/800 mV the full-frame test rendered 1200x1920 twice with 0 mismatches, 0 faults and two retired fences; the compute test checked 4096 values with 0 mismatches; the display presenter set up with status 0 and presented every frame in about 10 ms.", "M249: the NGPUADD2 addon installs VivaMTLDriver.bundle into the 38 MiB Data seed (files=3 written=3 failed=0); Metal discovery then lets backboardd attach to the native Mali user client as a system client (type 0, system=1) and open a session while the GPU presenter scans out the UI frames. The CPU presenter is no longer used and a volume-key press produced a new GPU frame."]
 completion = ["GPU submissions complete, mapping/fence handling is correct, a known image renders, and the selected Metal client presents it."]
-limits = ["Only an owned-memory job is hardware-verified. No command submission frontend, renderer, PanVK integration, or Metal device/service has been published; image rendering is unverified."]
-next_action = ["Port the matching Mali-G52 userspace/kernel-facing service contract, then validate a rendered test image before advertising Metal support."]
-evidence = [{ kind = "hardware", reference = "build/diag/m120-sdio-adma/COM14-921600.log", result = "GPU owned-memory WRITE_VALUE and teardown passed on M120." }, { kind = "host", reference = "build/diag/m120-sdio-adma/ci-44039481627-job-133890300911.log", result = "ASan/UBSan Mali VM/job tests passed; storage binding guard 190/190 passed." }]
+limits = ["The UI compositor is a Metal client and the display is GPU-presented. The VivaMTLDriver bundle is produced outside this repository (CI g52-metal-frontend artifact) and packaged by scripts/make-mali-metal-addon.py --without-launchd-job; the payload must stay within the 96 MiB the loader reads, so the Data seed is 38 MiB. mediaserverd is denied by the type-0 grant policy by design."]
+next_action = ["Automate the VivaMTLDriver addon packaging in the macOS workflow so a clean CI run reproduces the M249 payload.", "Measure the compositor's GPU request and scanout stages under interactive load."]
+evidence = [{ kind = "hardware", reference = "build/diag/m120-sdio-adma/COM14-921600.log", result = "GPU owned-memory WRITE_VALUE and teardown passed on M120." }, { kind = "hardware", reference = "build/diag/m158-mali-pagezero/hardware-verification.json", result = "User-space exec passed; MACF denied open and cleanup returned sessions to zero. Eight full CPU transfers, no panic in 624 s." }, { kind = "hardware", reference = "build/diag/m245-gpufull/COM14-921600.log", result = "M161 two full 1200x1920 GPU frames and M163 two compute passes verified 0 mismatches at 768 MHz; M164 presented frames with fences." }, { kind = "hardware", reference = "build/diag/m249-metal38/COM14-921600.log", result = "NGPUADD2 wrote the VivaMTLDriver bundle (3/3 files), backboardd attached as a system Mali client, and the UI presented through M164 with no panic in 900 s." }, { kind = "host", reference = "build/diag/m158-mali-pagezero/ci-44496431575-job-135464668027.log", result = "ARM64 hard PAGEZERO and signed probe verified in CI; storage binding guard 190/190 passed." }]
 
 [[area]]
 id = "network"
