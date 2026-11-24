@@ -107,7 +107,7 @@ volume = "UNIXNU"
 # firmware kernel field: the payload is a separate artifact for now and needs
 # either a bigger boot partition (repartition) or a FAT partition delivered
 # through userdata (see docs/DUAL-BOOT.md).
-size_mib = 96
+size_mib = 128
 loader = "firmware"
 title = "UniXNU BBK A2/X2"
 dram_size = "0x100000000"

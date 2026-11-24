@@ -155,6 +155,7 @@ def main():
     p.add_argument('--source-commit',required=True);p.add_argument('--core',type=Path,required=True)
     p.add_argument('--adt',type=Path,required=True)
     p.add_argument('--kernel',type=Path,required=True)
+    p.add_argument('--without-launchd-job',action='store_true',help='skip the cached owner Metal job; the kernel stage spawns the probe')
     a=p.parse_args();a.output.mkdir(parents=True,exist_ok=True)
     record=json.loads(a.download_receipt.read_text())
     if record['conclusion']!='success' or record['commit']!=a.source_commit:raise ValueError('Wrong successful frontend run')
@@ -172,24 +173,28 @@ def main():
         'NativeMali type-0 connection, selectors 1-10/12-15'}:
         raise ValueError('Not the NativeMali frontend')
     probe=read(out/'tests/native-metal-probe');plugin=read(bundle/'VivaMTLDriver')
-    program_signature=code_directory(probe,True);plugin_signature=code_directory(plugin,False)
+    program_signature=code_directory(probe,True) if not a.without_launchd_job else None
+    plugin_signature=code_directory(plugin,False)
     if 'CDHash='+plugin_signature['cdhash'] not in read(artifact/'signature.txt').decode():raise ValueError('Bundle signing receipt mismatch')
     files=[]
     for path in sorted(bundle.rglob('*')):
         if path.is_dir():continue
         files.append(('addons/VivaMTLDriver.bundle/'+path.relative_to(bundle).as_posix(),0o755 if path.name=='VivaMTLDriver' else 0o644,read(path)))
-    # Match the existing diagnostic write tracer by basename, without altering
-    # the signed binary, its identifier, service class, or client permissions.
-    # This readonly bind view pins the APFS source before phase-2 covers /var
-    # with tmpfs. Execute the trusted file, not the later tmpfs template copy.
-    files.append(('addons/mali-user-probe',0o755,probe))
-    files.append(('addons/native-metal-probe.metallib',0o644,read(out/'tests/native-metal-probe.metallib')))
-    cache=module('owner_metal_cache',ROOT/'scripts/prepare-mali-metal-launchd.py')
-    packed_cache,raw_cache,_=cache.verified_cache((ROOT/'patches/xnu/bbk-a2-splashboard-prewarm.patch').read_text())
-    if packed_cache not in a.kernel.read_bytes():
-        raise ValueError('Kernel does not contain the merged owner Metal launchd job')
-    job=cache.job()
-    files.append(('daemons/org.unixnu.bbk.mali-metal.plist',0o644,plistlib.dumps(job,sort_keys=True)))
+    if not a.without_launchd_job:
+        # Match the existing diagnostic write tracer by basename, without altering
+        # the signed binary, its identifier, service class, or client permissions.
+        # This readonly bind view pins the APFS source before phase-2 covers /var
+        # with tmpfs. Execute the trusted file, not the later tmpfs template copy.
+        files.append(('addons/mali-user-probe',0o755,probe))
+        files.append(('addons/native-metal-probe.metallib',0o644,read(out/'tests/native-metal-probe.metallib')))
+    raw_cache=b''
+    if not a.without_launchd_job:
+        cache=module('owner_metal_cache',ROOT/'scripts/prepare-mali-metal-launchd.py')
+        packed_cache,raw_cache,_=cache.verified_cache((ROOT/'patches/xnu/bbk-a2-splashboard-prewarm.patch').read_text())
+        if packed_cache not in a.kernel.read_bytes():
+            raise ValueError('Kernel does not contain the merged owner Metal launchd job')
+        job=cache.job()
+        files.append(('daemons/org.unixnu.bbk.mali-metal.plist',0o644,plistlib.dumps(job,sort_keys=True)))
     upstream_packer=module('ngpu_packer',a.core/'scripts/make-gpu-addon.py')
     addon=encode(files,upstream_packer.pad)
     if decode(addon)!=files:raise ValueError('Addon roundtrip mismatch')
@@ -199,10 +204,10 @@ def main():
     if count!=4:raise ValueError('Require the qualified four-module baseline')
     offsets=[*struct.unpack_from('<4I',baseline,4),len(baseline)]
     modules=[baseline[start:end] for start,end in zip(offsets,offsets[1:])]
-    cdhashes=sorted({program_signature['cdhash'],plugin_signature['cdhash']})
-    if len(cdhashes)!=2:raise ValueError('Expected two separate signed owner images')
+    cdhashes=sorted({plugin_signature['cdhash']} if a.without_launchd_job else {program_signature['cdhash'],plugin_signature['cdhash']})
+    if len(cdhashes)!=(1 if a.without_launchd_job else 2):raise ValueError('Expected separate signed owner images')
     identity=uuid.uuid5(uuid.NAMESPACE_URL,'org.unixnu.bbk.mali-metal:'+','.join(cdhashes)).bytes
-    owner=struct.pack('<I16sI',2,identity,2)+b''.join(bytes.fromhex(h)+bytes([2,0,5,0]) for h in cdhashes)
+    owner=struct.pack('<I16sI',2,identity,len(cdhashes))+b''.join(bytes.fromhex(h)+bytes([2,0,5,0]) for h in cdhashes)
     trusted=seed._pack_trust_modules([owner,*modules])
     checked=[*struct.unpack_from('<5I',trusted,4),len(trusted)]
     if [trusted[s:e] for s,e in zip(checked[1:],checked[2:])]!=modules:raise ValueError('Original trust module changed')
@@ -221,3 +226,4 @@ def main():
     (a.output/'addon.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result,indent=2))
 
 if __name__=='__main__':main()
+

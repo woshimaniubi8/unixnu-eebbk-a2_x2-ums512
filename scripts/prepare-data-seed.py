@@ -45,7 +45,7 @@ import tomllib
 import uuid
 from pathlib import Path
 
-SEED_BYTES = 32 * 1024 * 1024
+SEED_BYTES = 64 * 1024 * 1024
 LAUNCHD_SHA256 = "8cec9a3c44a443b08e977ccc5d577850316ad428c575dc01f09b018dbd5b6a25"
 PAYLOAD_OVERHEAD = 8 * 1024 * 1024
 # The patched watchdogd runs from the owner Data overlay, not the sealed OS.
@@ -369,6 +369,10 @@ def main():
         run([sys.executable, str(Path(__file__).with_name("prepare-thermal-profile.py")),
              str(mountpoint / "System/Library/ThermalMonitor/J120AP-Info.plist"),
              str(thermal_profile)], tree)
+        fixture_script = tree / "scripts/prepare-owner-data-fixture.py"
+        fixture_text = fixture_script.read_text()
+        fixture_text = fixture_text.replace("'32m'", "'64m'").replace("32 * 1024**2", "64 * 1024**2")
+        fixture_script.write_text(fixture_text)
         run([sys.executable, "scripts/prepare-owner-data-fixture.py"], tree)
         firmware = extract_all_flash(tree, device)
         try:
