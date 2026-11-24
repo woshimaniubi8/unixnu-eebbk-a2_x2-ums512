@@ -386,21 +386,6 @@ def main():
         finally:
             shutil.rmtree(firmware, ignore_errors=True)
         build_trust_bundle(tree, device, output.parent / "trustcache.bundle", watchdogd)
-        # Mark Setup as done and turn off the SpringBoard launch watchdogs and
-        # idle dimming. A fresh seed otherwise starts PurpleBuddy and lets the
-        # BackBoard watchdog kill the slow first SpringBoard launch, which shows
-        # as a permanent boot logo with SpringBoard restarting every minute.
-        skip_tool = tree / "scripts/seed-data-skip-setup.py"
-        if skip_tool.is_file() and os.environ.get("BBK_SKIP_SETUP", "1") != "0":
-            staged = output.with_name(output.name + ".skip.dbr")
-            if staged.exists():
-                staged.unlink()
-            run([sys.executable, str(skip_tool), str(output), str(staged), "--no-auto-dim"], tree)
-            staged.replace(output)
-            print("skip-setup: applied (SetupDone, BKNoWatchdogs, no auto-dim)")
-        else:
-            print("warning: seed-data-skip-setup.py not found; the first boot may stop at Setup",
-                  file=sys.stderr)
     finally:
         if attached and not args.keep_mounted:
             run(["hdiutil", "detach", str(mountpoint)], tree, check=False)

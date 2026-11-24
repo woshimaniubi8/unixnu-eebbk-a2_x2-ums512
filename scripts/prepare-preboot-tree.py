@@ -122,6 +122,51 @@ def read_volume_group(image, volume_name):
     raise SystemExit(f"no APFS superblock named {volume_name!r} in {image}")
 
 
+def apply_skip_setup(mount):
+    """Boot straight to SpringBoard with the launch watchdogs and idle dim off."""
+    prefs = mount / "mobile" / "Library" / "Preferences"
+    prefs.mkdir(parents=True, exist_ok=True)
+
+    def merge(name, values):
+        path = prefs / (name + ".plist")
+        data = plistlib.loads(path.read_bytes()) if path.exists() else {}
+        data.update(values)
+        path.write_bytes(plistlib.dumps(data, fmt=plistlib.FMT_BINARY))
+        path.chmod(0o600)
+        try:
+            os.chown(path, 501, 501)
+        except OSError:
+            pass
+        print(f"skip-setup preference: {name} {sorted(values)}")
+
+    merge("com.apple.migration", {
+        "LastSystemVersion": "21H461",
+        "DMUserDataDisposition": {"SyntheticDidUpgrade": False, "buildVersion": "21H461"}})
+    merge("com.apple.springboard", {
+        "BKNoWatchdogs": True,
+        "FBLaunchWatchdogExceptions": {"com.apple.purplebuddy": 100.0},
+        "MCForceShowCloudConfigurationUI": False,
+        "SBDisableAutoDim": True,
+        "SBDontDimOrLockOnAC": True,
+        "SBDisableIdleSleep": True})
+    merge("com.apple.purplebuddy", {
+        "SetupDone": True, "SetupFinishedAllSteps": True, "SetupVersion": 11,
+        "daemonizeNeedsToRun": False})
+    merge("com.apple.purplebuddy.notbackedup", {
+        k: False for k in ("ShouldRunDiagnosticsMiniBuddy", "ShouldRunHSA2MiniBuddy",
+                           "ShouldRunKeychainSyncMiniBuddy", "ShouldRunMesaMiniBuddy",
+                           "ShouldRunPaymentMiniBuddy", "ShouldRunStandardMiniBuddy",
+                           "SilentICDPUpgrade")})
+    merge("com.apple.managedconfiguration.notbackedup", {
+        "LockdownActivationIndicatesCloudConfigurationAvailable": False})
+    for sub in ("Bundle", "Data/System", "Shared/SystemGroup", "Temp"):
+        directory = mount / "containers" / sub
+        if not directory.is_dir():
+            directory.mkdir(parents=True)
+            os.chmod(directory, 0o755)
+    print("skip-setup: SetupDone, BKNoWatchdogs and no auto-dim written")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -207,6 +252,8 @@ def main():
                 destination.write_bytes(plistlib.dumps(data, fmt=plistlib.FMT_BINARY))
                 print(f"launchd override: {destination} Disabled=true")
 
+        apply_skip_setup(mount)
+
         if args.thermal_profile is not None:
             model = plistlib.loads(args.thermal_profile.read_bytes())
             if len(model.get("Sensors", [])) != 15 or not all(
@@ -264,4 +311,6 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
 
