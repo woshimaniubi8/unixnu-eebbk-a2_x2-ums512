@@ -17,16 +17,17 @@
 	</dict>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/private/var/ngpu/mali-user/mali-user-probe</string>
+		<string>/System/Library/Extensions/native-metal-probe</string>
 		<string>/System/Library/Extensions/VivaMTLDriver.bundle</string>
 		<string>/System/Library/Extensions/native-metal-probe.metallib</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>StandardErrorPath</key>
-	<string>/dev/null</string>
+	<string>/dev/console</string>
 	<key>StandardOutPath</key>
-	<string>/dev/null</string>
+	<string>/dev/console</string>
 </dict>
 </plist>
+
 
