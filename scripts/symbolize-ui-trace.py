@@ -80,15 +80,31 @@ def scan_image(image, label, tempdir):
     subprocess.run(["hdiutil", "attach", "-nobrowse", "-readonly", "-mountpoint", str(mount), str(image)],
                    check=True, stdout=subprocess.DEVNULL)
     try:
+        for probe in ("System/Cryptexes/OS", "System/Cryptexes/App", "System/Library/Caches/com.apple.dyld"):
+            path = mount / probe
+            if path.is_dir():
+                try:
+                    entries = sorted(p.name for p in path.iterdir())
+                    print(f"{probe} ({len(entries)}): {entries[:40]}", flush=True)
+                except OSError as error:
+                    print(f"{probe}: unreadable {error}", flush=True)
         found = []
+        big = []
         for root, dirs, files in os.walk(mount):
             depth = len(Path(root).relative_to(mount).parts)
             if depth > 10:
                 dirs[:] = []
                 continue
             for name in files:
+                full = Path(root) / name
                 if name.startswith("dyld_shared_cache"):
-                    found.append(Path(root) / name)
+                    found.append(full)
+                try:
+                    if full.stat().st_size > 200 * 1024 * 1024:
+                        big.append((str(full.relative_to(mount)), full.stat().st_size))
+                except OSError:
+                    pass
+        print(f"large files: {big[:10]}", flush=True)
         print(f"{label}: {[str(p.relative_to(mount)) for p in found[:8]]}", flush=True)
         for path in found:
             if ".symbols" in path.name or ".map" in path.name or ".dyldlinkedit" in path.name:
