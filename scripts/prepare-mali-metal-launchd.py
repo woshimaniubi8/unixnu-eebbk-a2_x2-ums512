@@ -53,6 +53,10 @@ def validate(config,require_job):
     for path in STREAM_JOBS:
         old['LaunchDaemons'][path].pop('StandardOutPath',None)
         old['LaunchDaemons'][path].pop('StandardErrorPath',None)
+        env=old['LaunchDaemons'][path].get('EnvironmentVariables',{})
+        env.pop('OS_ACTIVITY_DT_MODE',None)
+        if 'EnvironmentVariables' in old['LaunchDaemons'][path] and not env:
+            del old['LaunchDaemons'][path]['EnvironmentVariables']
     for path in STATS_JOBS:
         target=old['LaunchDaemons'][path]
         env=target.get('EnvironmentVariables',{})
@@ -106,6 +110,10 @@ def prepare(path, remove_job=False):
     for job_path in STREAM_JOBS:
         desired['LaunchDaemons'][job_path]['StandardOutPath']='/dev/console'
         desired['LaunchDaemons'][job_path]['StandardErrorPath']='/dev/console'
+        env=desired['LaunchDaemons'][job_path].setdefault('EnvironmentVariables',{})
+        # Route os_log activity to stderr so the serial console sees the
+        # scene/render startup diagnostics instead of the unified log only.
+        env['OS_ACTIVITY_DT_MODE']='YES'
     if remove_job:
         # The kernel stage spawns the owner probe before launchd; a cached job
         # for the same tmpfs path only adds an EPERM from MACF.
