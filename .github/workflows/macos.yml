@@ -612,6 +612,12 @@ jobs:
         run: |
           python3 device/scripts/symbolize-ui-trace.py
 
+      - name: Stage the service probe with the payload
+        run: |
+          target=$(dirname "$(find UniXNU/out -name payload.img | head -n1)")
+          cp device/build/service-probe/service-probe "$target/service-probe"
+          ls -l "$target"
+
       - name: Report artifacts
         if: always()
         run: |
