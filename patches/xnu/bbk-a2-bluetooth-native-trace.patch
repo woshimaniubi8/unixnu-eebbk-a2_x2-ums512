@@ -135,7 +135,7 @@ diff --git a/bsd/dev/arm/systemcalls.c b/bsd/dev/arm/systemcalls.c
 +	if (strcmp(bbk_trace_name, "SpringBoard") == 0) {
 +		switch (code) {
 +		case 5: case 338: case 463: case 464: case 466:
-+			bbk_bt_observe = __atomic_fetch_add(&bbk_bt_syscalls, 1u, __ATOMIC_RELAXED) < 1024;
++			bbk_bt_observe = __atomic_fetch_add(&bbk_bt_syscalls, 1u, __ATOMIC_RELAXED) < 8192;
 +			break;
 +		default: break;
 +		}
