@@ -39,15 +39,18 @@ def cstring(buf, offset):
     return buf[offset:end if end >= 0 else offset + 256].decode("utf-8", "replace")
 
 
+FALLBACK_IPSW = ("https://updates.cdn-apple.com/2025SpringFCS/fullrestores/122-77166/"
+                 "DCA6CFE8-90E9-4B92-880D-3DE171798E40/iPad_Pro_HFR_17.7.11_21H461_Restore.ipsw")
+
+
 def ipsw_url():
-    profile = ROOT / "UniXNU/profiles/os/ipados-17.7.11-21H461/profile.toml"
-    if not profile.is_file():
-        return None
-    for line in profile.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if stripped.startswith("ipsw_url"):
-            return stripped.split("=", 1)[1].strip().strip('"').strip("'")
-    return None
+    for profile in sorted(ROOT.glob("UniXNU/**/profiles/os/ipados-17.7.11-21H461/profile.toml")):
+        for line in profile.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("ipsw_url"):
+                return stripped.split("=", 1)[1].strip().strip('"').strip("'")
+    print(f"profile not found; using fallback url", flush=True)
+    return FALLBACK_IPSW
 
 
 def ensure_ipsw(tempdir):
