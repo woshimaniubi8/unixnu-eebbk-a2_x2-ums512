@@ -203,3 +203,18 @@ completion = ["Actual bluetoothd connection, standard HCI traffic, discovery, pa
 limits = ["M137 implements the reused generic UART.SK frontend and real shared-SDIO H4 path; daemon channel creation, discovery and pairing require hardware verification. HCI probe success is not a pairing result."]
 next_action = ["Build with actual kernel headers and refreshed guarded bindings; verify native21H461 bluetoothd control connection, channel and real HCI traffic before discovery/pairing qualification."]
 evidence = [{ kind = "hardware", reference = "build/diag/m129-fast-clock/hardware-verification.json", result = "Factory HCI and disable passed in same scan/GPU boot; no private identity printed." }, { kind = "host", reference = "build/diag/m130-wifi-net/bt-skywalk-imports.json", result = "Target daemon control name and27 current kernel API symbols found. Symbol presence alone does not prove ABI or runtime success." }]
+
+[[area]]
+id = "ui"
+status = "blocked"
+components = ["Display", "Metal", "SpringBoard"]
+paths = ["patches/xnu/bbk-a2-splashboard-prewarm.patch", "scripts/prepare-preboot-tree.py", "drivers/A2GopDisplay/A2GopLifecycle.cpp"]
+inputs = ["iPadOS 17.7.11 21H461 userland, system cryptex mounted as disk3s1, dyld shared cache at /private/preboot/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64."]
+configuration = ["skip-setup preferences (SetupDone, BKNoWatchdogs, no auto-dim), /private/var/mobile owned by 501, SpringBoard cache directories pre-created, sheng-vsync=60, stock stdio on the cached UI jobs."]
+procedure = ["Boot the M280-class payload, confirm backboardd attaches to the Mali client and six CPU-presenter frames, then trace SpringBoard with the bounded open/stat tracer."]
+findings = ["SpringBoard starts once, reads its logging profile, SystemVersion, SBLastRestoreIdentifier, /var/mobile/Library/Caches, MappedImageCache/Session, FrontBoard applicationState.db, chronod and ColorSync, then stops.", "All of those stat/open calls return successfully except the chronod and ColorSync probes, which return ENOENT like stock framework probing.", "After the probes SpringBoard performs no further file syscalls and its main thread waits in mach_msg; the target service of that synchronous XPC is still unknown.", "Pointing the cached UI jobs at /dev/console stalls their exec and stops backboardd from checking in, so stdio must stay stock."]
+completion = ["SpringBoard commits its first scene and the panel leaves the boot logo."]
+limits = ["Symbolizing the blocked stack needs the on-device dyld cache, which is larger than the payload; the kernel write-capture hook starves launchd and cannot stay in a shipping build."]
+next_action = ["Trace SpringBoard mach sends (msgh_id and destination port) with a bounded kernel hook and identify the service it waits for.", "Check whether backboardd answers the display-services handshake under that trace."]
+evidence = [{ kind = "hardware", reference = "build/diag/m283-sbtrace2/COM14-921600.log", result = "SpringBoard paths reach FrontBoard applicationState.db, chronod and ColorSync; backboardd runs and six frames present." }, { kind = "hardware", reference = "build/diag/m280-clean/COM14-921600.log", result = "With the console redirect removed backboardd attaches as a Mali system client; without it launchd never starts backboardd." }]
+
