@@ -170,7 +170,13 @@ def main():
     def read(path):
         if path.is_symlink() or not path.is_file():raise ValueError('Require a regular artifact file')
         data=path.read_bytes()
-        if hashlib.sha256(data).hexdigest()!=hashes[path.relative_to(artifact).as_posix()]:raise ValueError('Artifact hash drift')
+        try:
+            relative=path.resolve().relative_to(artifact).as_posix()
+        except ValueError:
+            # Stand-alone binaries built by the workflow (the service probe)
+            # are outside the frontend artifact and carry no receipt hash.
+            return data
+        if hashlib.sha256(data).hexdigest()!=hashes[relative]:raise ValueError('Artifact hash drift')
         return data
     upstream=artifact/'viva-gpu';out=upstream/'ios/out';bundle=out/'VivaMTLDriver.bundle'
     receipt=json.loads(read(upstream/'g52-source-receipt.json'))
@@ -198,6 +204,9 @@ def main():
         # Diagnostic: run the owned Metal frontend test from the Extensions
         # union mount and print its verdict on the serial console.
         files.append(('addons/native-metal-probe',0o755,probe))
+        if a.probe_binary is not None:
+            # The prebuilt M220 kernel cache still names the older path.
+            files.append(('addons/mali-user-probe',0o755,probe))
         files.append(('addons/native-metal-probe.metallib',0o644,read(out/'tests/native-metal-probe.metallib')))
         job_plist={
             'Label':'org.unixnu.bbk.metal-probe',
