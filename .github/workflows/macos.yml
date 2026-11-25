@@ -544,6 +544,8 @@ jobs:
           PY
 
       - name: Prepare the Data seed
+        env:
+          BBK_SKIP_SETUP: "0"
         # The offline OS image has no writable Data volume: the OS window carries
         # only the read-only system volume.  The payload supplies the Data volume
         # as Payloads/scratch-data.img (ADT RAMDisk + ephemeral-storage), built

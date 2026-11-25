@@ -275,7 +275,11 @@ def main():
                 destination.write_bytes(plistlib.dumps(data, fmt=plistlib.FMT_BINARY))
                 print(f"launchd override: {destination} Disabled=true")
 
-        apply_skip_setup(mount)
+        import os as _os
+        if _os.environ.get("BBK_SKIP_SETUP", "1") != "0":
+            apply_skip_setup(mount)
+        else:
+            print("skip-setup: disabled by BBK_SKIP_SETUP=0 (Setup app will run)")
 
         if args.thermal_profile is not None:
             model = plistlib.loads(args.thermal_profile.read_bytes())
