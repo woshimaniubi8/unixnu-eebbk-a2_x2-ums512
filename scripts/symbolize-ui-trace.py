@@ -15,7 +15,19 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-DMG = ROOT / "UniXNU/out/ipsw/21H461/044-76040-038.dmg"
+
+
+def find_dmg():
+    fixed = [ROOT / "UniXNU/out/ipsw/21H461/044-76040-038.dmg"]
+    fixed += sorted(ROOT.glob("UniXNU/out/ipsw/*/044-*.dmg"))
+    fixed += sorted(ROOT.glob("UniXNU/.cache/**/044-*.dmg"))
+    for path in fixed:
+        if path.is_file():
+            return path
+    return None
+
+
+DMG = find_dmg()
 
 TRACES = {
     "m264-round14-tid1097": [
@@ -40,8 +52,11 @@ def cstring(buf, offset):
 
 
 def main():
-    if not DMG.is_file():
-        sys.exit(f"missing dmg: {DMG}")
+    print(f"cwd={Path.cwd()} root={ROOT} dmg={DMG}", flush=True)
+    if DMG is None or not DMG.is_file():
+        listing = sorted(str(p) for p in ROOT.glob("UniXNU/out/ipsw/*/*")[:8])
+        print(f"missing dmg; ipsw dir: {listing}", flush=True)
+        sys.exit(2)
     mount = Path(tempfile.mkdtemp(prefix="dyld-cache-"))
     subprocess.run(["hdiutil", "attach", "-nobrowse", "-readonly", "-mountpoint", str(mount), str(DMG)], check=True)
     try:
