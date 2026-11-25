@@ -164,6 +164,19 @@ def apply_skip_setup(mount):
         if not directory.is_dir():
             directory.mkdir(parents=True)
             os.chmod(directory, 0o755)
+
+    # The fixture is packed as root; the device expects /private/var/mobile to
+    # belong to mobile (501:501). A root-owned home makes cfprefsd, the cache
+    # writers and SpringBoard itself fail or block during launch.
+    changed = 0
+    for root, dirs, files in os.walk(mount / "mobile"):
+        for name in [root] + [os.path.join(root, item) for item in dirs + files]:
+            try:
+                os.chown(name, 501, 501, follow_symlinks=False)
+                changed += 1
+            except OSError:
+                pass
+    print(f"skip-setup: {changed} mobile paths re-owned to 501:501")
     print("skip-setup: SetupDone, BKNoWatchdogs and no auto-dim written")
 
 
