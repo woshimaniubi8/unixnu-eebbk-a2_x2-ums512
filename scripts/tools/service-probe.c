@@ -5,7 +5,7 @@
  * during launch exist in the bootstrap namespace.
  */
 #include <mach/mach.h>
-#include <servers/bootstrap.h>
+#include <bootstrap.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -54,3 +54,4 @@ int main(void) {
     fflush(stdout);
     return 0;
 }
+
