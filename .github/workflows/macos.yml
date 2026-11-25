@@ -622,9 +622,10 @@ jobs:
           test -n "$src"
           cp "$src" "$target/sys_generic.c"
           ls -l "$target/sys_generic.c"
-          for name in mach_msg.c syscall_sw.c; do
-            extra=$(find UniXNU/out -path "*xnu-work*/$name" | head -n1)
-            if [ -n "$extra" ]; then cp "$extra" "$target/$name"; fi
+          work=$(dirname "$(dirname "$src")")
+          find "$work" -maxdepth 3 -name "*.c" | sed "s|^$work/||" | sort > "$target/xnu-c-list.txt"
+          for name in osfmk/kern/mach_trap.c osfmk/ipc/mach_msg.c osfmk/kern/syscall_sw.c; do
+            if [ -f "$work/$name" ]; then cp "$work/$name" "$target/$(basename $name)"; fi
           done
           ls -l "$target" | tail -n 5
 
