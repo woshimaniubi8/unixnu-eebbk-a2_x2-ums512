@@ -165,6 +165,16 @@ def apply_skip_setup(mount):
             directory.mkdir(parents=True)
             os.chmod(directory, 0o755)
 
+    # SpringBoard's CoreUI MappedImageCache expects its session directory to
+    # exist; on a fresh seed the stat is the last thing SpringBoard does before
+    # it stops, so provide the tree up front.
+    for relative in ("Library/Caches/MappedImageCache/Session",
+                     "Library/Caches/com.apple.springboard",
+                     "Library/SpringBoard"):
+        directory = mount / "mobile" / relative
+        directory.mkdir(parents=True, exist_ok=True)
+        os.chmod(directory, 0o755)
+
     # The fixture is packed as root; the device expects /private/var/mobile to
     # belong to mobile (501:501). A root-owned home makes cfprefsd, the cache
     # writers and SpringBoard itself fail or block during launch.
