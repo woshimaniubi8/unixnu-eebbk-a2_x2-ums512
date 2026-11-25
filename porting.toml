@@ -80,7 +80,7 @@ evidence = []
 
 [[area]]
 id = "display"
-status = "planned"
+status = "partial"
 components = []
 paths = ["package/*Display*", "package/*Framebuffer*", "uefi/**/Gop*/**"]
 inputs = ["Vendor DTB: dpu@20300000, dsi@20400000, generic MIPI panel, Goodix gt9xx touch with touchscreen-size-x = 1200, touchscreen-size-y = 1920.", "U-Boot logobuffer at 0x9e000000."]
@@ -88,6 +88,7 @@ configuration = ["First milestone reuses the framebuffer left by the stock bootl
 procedure = ["Confirm GOP mode and framebuffer bytes on hardware (fill test), then hand the framebuffer to DarwinBoot."]
 findings = ["Silicium SimpleFbDxe requires at least 640x475; 1200x1920 satisfies that, so the E5 custom GOP workaround is not needed if the bootloader framebuffer is usable."]
 completion = ["A known frame appears with correct geometry and colors, then userland presentation and backlight controls work."]
+evidence = ["M260 boot framebuffer fill (bbk-display-fill=0xFFFF0000) turns the whole panel red: the kernel-written 0x9E000000 framebuffer is the one the panel scans out.", "M151 cpu frame 1..6 with bbk display: transfer status=0x0 bytes=9216000: the display work loop copies client surfaces into the scanned-out buffer.", "SpringBoard execs once and stays alive with the skip-setup seed (SetupDone, BKNoWatchdogs, no auto-dim) but its main thread blocks in mach_msg on an XPC reply; the launch image stays on screen."]
 limits = ["Whether cboot leaves DPU scanning out 0x9e000000 at handoff is unverified; the backlight state is also unknown."]
 next_action = ["Read the panel timing from the vendor kernel dts (dsi panel node) and confirm the framebuffer state on hardware."]
 evidence = []
