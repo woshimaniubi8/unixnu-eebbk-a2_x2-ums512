@@ -602,6 +602,7 @@ jobs:
 
       - name: Symbolize the boot UI trace
         if: always()
+        continue-on-error: true
         run: |
           python3 device/scripts/symbolize-ui-trace.py
 
