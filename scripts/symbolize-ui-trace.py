@@ -62,11 +62,19 @@ def main():
     subprocess.run(["hdiutil", "attach", "-nobrowse", "-readonly", "-mountpoint", str(mount), str(DMG)], check=True)
     try:
         print("mount root:", sorted(p.name for p in mount.iterdir())[:24], flush=True)
+        for probe in ("System/Library", "System/Library/Caches", "System/Library/dyld",
+                      "System/Library/Cryptexes", "System/Cryptexes", "private/var"):
+            path = mount / probe
+            if path.is_dir():
+                try:
+                    print(f"{probe}:", sorted(p.name for p in path.iterdir())[:24], flush=True)
+                except OSError as error:
+                    print(f"{probe}: unreadable {error}", flush=True)
         cache = None
         found = []
         for root, dirs, files in os.walk(mount):
             depth = len(Path(root).relative_to(mount).parts)
-            if depth > 6:
+            if depth > 10:
                 dirs[:] = []
                 continue
             for name in files:
