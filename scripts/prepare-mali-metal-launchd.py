@@ -18,7 +18,7 @@ ROOT=Path(__file__).resolve().parents[1]
 LABEL='org.unixnu.bbk.mali-metal'
 JOB_PATH='/System/Library/LaunchDaemons/'+LABEL+'.plist'
 SPLASH_PATH='/System/Library/LaunchDaemons/com.apple.splashboardd.plist'
-BASELINE_CANONICAL_SHA='ddec952be22294ab86f26cccaf4df2748cf8f0c60e2ab42ef2d3247058d70d8e'
+BASELINE_CANONICAL_SHA='8f911a4c7962658dda66f93f2d5cebe76d2f16b1f6c05ff221a66d724912a56d'
 STATS_ENV='VMG_NO_SHM_STATS'
 STREAM_JOBS=('/System/Library/LaunchDaemons/com.apple.SpringBoard.plist',
               '/System/Library/LaunchDaemons/com.apple.backboardd.plist')
@@ -65,6 +65,8 @@ def validate(config,require_job):
             raise ValueError('Unexpected Viva statistics environment policy')
         if 'EnvironmentVariables' in target and not env:
             del target['EnvironmentVariables']
+    for label in list(old['LaunchDaemons']):
+        old['LaunchDaemons'][label]=collapse(old['LaunchDaemons'][label])
     if canonical(old)!=BASELINE_CANONICAL_SHA:raise ValueError('Unrelated system cache configuration changed')
     return old
 
@@ -101,6 +103,25 @@ def c_array(name,data,fixed=False):
     for i in range(0,len(data),16):lines.append('+\t'+', '.join('0x%02x'%b for b in data[i:i+16])+',')
     return '\n'.join([*lines,'+    };'])
 
+def collapse(value):
+    """Resolve launchd feature-flag conditionals to their disabled-flag branch.
+
+    The cached jobs carry entries such as {"#IfFeatureFlagDisabled": X, "#Then": true}
+    or {"#IfFeatureFlagEnabled": X, "#Then": A, "#Else": B}. A launchd that cannot
+    evaluate the flag database leaves the job partially configured (services not
+    registered, user names unresolved), which blocks every client of those ports.
+    """
+    if isinstance(value, dict):
+        if '#IfFeatureFlagEnabled' in value:
+            return collapse(value.get('#Else', True))
+        if '#IfFeatureFlagDisabled' in value:
+            return collapse(value.get('#Then', True))
+        return {key: collapse(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [collapse(item) for item in value]
+    return value
+
+
 def prepare(path, remove_job=False):
     before=path.read_text();raw=zlib.decompress(array(before,'packed'))
     if hashlib.sha256(raw).digest()!=array(before,'modified_sha'):raise ValueError('Previous cache pin mismatch')
@@ -114,6 +135,8 @@ def prepare(path, remove_job=False):
         # Route os_log activity to stderr so the serial console sees the
         # scene/render startup diagnostics instead of the unified log only.
         env['OS_ACTIVITY_DT_MODE']='YES'
+    for label in list(desired['LaunchDaemons']):
+        desired['LaunchDaemons'][label]=collapse(desired['LaunchDaemons'][label])
     if remove_job:
         # The kernel stage spawns the owner probe before launchd; a cached job
         # for the same tmpfs path only adds an EPERM from MACF.
