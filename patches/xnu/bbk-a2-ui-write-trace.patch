@@ -1,0 +1,42 @@
+diff --git a/bsd/kern/sys_generic.c b/bsd/kern/sys_generic.c
+index c438eb0..e38d283 100644
+--- a/bsd/kern/sys_generic.c
++++ b/bsd/kern/sys_generic.c
+@@ -727,12 +727,37 @@ bbk_bluetooth_write_trace(struct proc *p, int fd, user_addr_t address, user_size
+ 	printf("M139 bt native: pid=%d fd=%d bytes=%u copy=%d text=%s\n",
+ 	    proc_getpid(p), fd, bytes, error, text);
+ }
+ 
++static void
++bbk_ui_write_trace(struct proc *p, int fd, user_addr_t buf, size_t len)
++{
++	static uint32_t writes;
++	const char *name = proc_best_name(p);
++	if (name == NULL || (fd != 1 && fd != 2) || len == 0 || len > 512) {
++		return;
++	}
++	if (strcmp(name, "SpringBoard") != 0 && strcmp(name, "backboardd") != 0 &&
++	    strcmp(name, "mali-user-probe") != 0) {
++		return;
++	}
++	if (__atomic_fetch_add(&writes, 1u, __ATOMIC_RELAXED) >= 512) {
++		return;
++	}
++	char text[513] = {0};
++	if (copyin(buf, text, len) != 0) {
++		return;
++	}
++	text[len] = '\0';
++	printf("M270 ui write: pid=%d name=%s fd=%d len=%llu text=%s\n",
++	    proc_getpid(p), name, fd, (unsigned long long)len, text);
++}
++
+ int
+ write_nocancel(struct proc *p, struct write_nocancel_args *uap, user_ssize_t *retval)
+ {
+ 	bbk_bluetooth_write_trace(p, uap->fd, uap->cbuf, uap->nbyte);
++	bbk_ui_write_trace(p, uap->fd, uap->cbuf, uap->nbyte);
+ 	return write_internal(p, uap->fd, uap->cbuf, uap->nbyte, (off_t)-1, 0,
+ 	           NULL, retval);
+ }
+ 

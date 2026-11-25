@@ -176,3 +176,6 @@ bbk-a2-owner-metal-exec-trace.patch
 bbk-a2-sandbox-origin-trace.patch
 
 bbk-a2-commcenter-trace.patch
+
+# Forward bounded SpringBoard/backboardd/probe stdio to UART without changing writes.
+bbk-a2-ui-write-trace.patch
