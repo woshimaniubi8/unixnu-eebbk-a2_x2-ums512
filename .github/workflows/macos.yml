@@ -544,8 +544,6 @@ jobs:
           PY
 
       - name: Prepare the Data seed
-        env:
-          BBK_SKIP_SETUP: "0"
         # The offline OS image has no writable Data volume: the OS window carries
         # only the read-only system volume.  The payload supplies the Data volume
         # as Payloads/scratch-data.img (ADT RAMDisk + ephemeral-storage), built
@@ -619,6 +617,7 @@ jobs:
         run: |
           target=$(dirname "$(find UniXNU/out -name payload.img | head -n1)")
           src=$(find UniXNU/out -path "*/xnu-work/bsd/kern/sys_generic.c" | head -n1)
+          if [ -z "$src" ]; then echo "no xnu-work in this run; skipping"; exit 0; fi
           if [ -z "$src" ]; then src=$(find UniXNU -name sys_generic.c | head -n1); fi
           test -n "$src"
           cp "$src" "$target/sys_generic.c"
