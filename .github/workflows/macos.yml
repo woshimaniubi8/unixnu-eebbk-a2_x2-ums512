@@ -622,8 +622,8 @@ jobs:
           test -n "$src"
           cp "$src" "$target/sys_generic.c"
           ls -l "$target/sys_generic.c"
-          for name in mach_trap.c ipc_kmsg.c; do
-            extra=$(find UniXNU/out -path "*/xnu-work/*/$name" | head -n1)
+          for name in mach_msg.c syscall_sw.c; do
+            extra=$(find UniXNU/out -path "*xnu-work*/$name" | head -n1)
             if [ -n "$extra" ]; then cp "$extra" "$target/$name"; fi
           done
           ls -l "$target" | tail -n 5
