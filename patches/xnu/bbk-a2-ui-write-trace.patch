@@ -1,12 +1,27 @@
 diff --git a/bsd/kern/sys_generic.c b/bsd/kern/sys_generic.c
-index e8011a0..fadce16 100644
+index e8011a0..dfed08c 100644
 --- a/bsd/kern/sys_generic.c
 +++ b/bsd/kern/sys_generic.c
-@@ -729,12 +729,39 @@ bbk_bluetooth_write_trace(struct proc *p, int fd, user_addr_t address, user_size
+@@ -729,12 +729,54 @@ bbk_bluetooth_write_trace(struct proc *p, int fd, user_addr_t address, user_size
  	    "M139 bt native: pid=%d fd=%d bytes=%u copy=%d text=%s\n",
  	    proc_getpid(p), fd, bytes, error, text);
  }
  
++static int
++bbk_ui_contains(const char *haystack, const char *needle)
++{
++	size_t length = strlen(needle);
++	if (length == 0) {
++		return 1;
++	}
++	for (const char *at = haystack; *at != '\0'; ++at) {
++		if (strncmp(at, needle, length) == 0) {
++			return 1;
++		}
++	}
++	return 0;
++}
++
 +static void
 +bbk_ui_write_trace(struct proc *p, int fd, user_addr_t buf, size_t len)
 +{
@@ -22,8 +37,8 @@ index e8011a0..fadce16 100644
 +	const char *name = proc_best_name(p);
 +	int named = name != NULL && (strcmp(name, "SpringBoard") == 0 ||
 +	    strcmp(name, "backboardd") == 0 || strcmp(name, "mali-user-probe") == 0);
-+	if (!named && strstr(text, "SpringBoard") == NULL &&
-+	    strstr(text, "BackBoard") == NULL && strstr(text, "FBSScene") == NULL) {
++	if (!named && !bbk_ui_contains(text, "SpringBoard") &&
++	    !bbk_ui_contains(text, "BackBoard") && !bbk_ui_contains(text, "FBSScene")) {
 +		return;
 +	}
 +	if (__atomic_fetch_add(&writes, 1u, __ATOMIC_RELAXED) >= 4096) {
