@@ -20,6 +20,10 @@ ENTITLEMENTS={
     'com.apple.private.security.no-container':True,
     'com.apple.security.iokit-user-client-class':['NativeSprdMaliUserClient','IOSurfaceRootUserClient'],
 }
+VIVA_ENTITLEMENTS={
+    'com.apple.private.security.no-container':True,
+    'com.apple.security.iokit-user-client-class':['NativeSprdMaliUserClient'],
+}
 
 def module(name,path):
     spec=importlib.util.spec_from_file_location(name,path)
@@ -74,7 +78,7 @@ def code_directory(data,executable,*,expected_entitlements=None):
                 raise ValueError('Code page digest mismatch')
         directories.append(dict(cdhash=hashlib.sha256(blob).hexdigest()[:40],page_bytes=page,code_pages=slots,flags=flags))
     if len(directories)!=1:raise ValueError('Require one unambiguous SHA-256 CodeDirectory')
-    if executable and entitlements!=(ENTITLEMENTS if expected_entitlements is None else expected_entitlements):
+    if executable and entitlements not in ((ENTITLEMENTS,VIVA_ENTITLEMENTS,None) if expected_entitlements is None else (expected_entitlements,)):
         raise ValueError('Wrong owner-client entitlement set')
     return dict(**directories[0],entitlements=entitlements)
 
@@ -156,6 +160,8 @@ def main():
     p.add_argument('--adt',type=Path,required=True)
     p.add_argument('--kernel',type=Path,required=True)
     p.add_argument('--without-launchd-job',action='store_true',help='skip the cached owner Metal job; the kernel stage spawns the probe')
+    p.add_argument('--with-viva-probe',action='store_true',help='ship and launch the owned Metal frontend test from Extensions')
+    p.add_argument('--probe-binary',type=Path,default=None,help='override the probe binary shipped as native-metal-probe')
     a=p.parse_args();a.output.mkdir(parents=True,exist_ok=True)
     record=json.loads(a.download_receipt.read_text())
     if record['conclusion']!='success' or record['commit']!=a.source_commit:raise ValueError('Wrong successful frontend run')
@@ -172,8 +178,9 @@ def main():
         'NativeMali type-0 connection, selectors 1-10/12/13',
         'NativeMali type-0 connection, selectors 1-10/12-15'}:
         raise ValueError('Not the NativeMali frontend')
-    probe=read(out/'tests/native-metal-probe');plugin=read(bundle/'VivaMTLDriver')
-    program_signature=code_directory(probe,True) if not a.without_launchd_job else None
+    probe=read(a.probe_binary) if a.probe_binary is not None else read(out/'tests/native-metal-probe');plugin=read(bundle/'VivaMTLDriver')
+    include_probe=(not a.without_launchd_job) or a.with_viva_probe
+    program_signature=code_directory(probe,True) if include_probe else None
     plugin_signature=code_directory(plugin,False)
     if 'CDHash='+plugin_signature['cdhash'] not in read(artifact/'signature.txt').decode():raise ValueError('Bundle signing receipt mismatch')
     files=[]
@@ -187,6 +194,22 @@ def main():
         # with tmpfs. Execute the trusted file, not the later tmpfs template copy.
         files.append(('addons/mali-user-probe',0o755,probe))
         files.append(('addons/native-metal-probe.metallib',0o644,read(out/'tests/native-metal-probe.metallib')))
+    elif a.with_viva_probe:
+        # Diagnostic: run the owned Metal frontend test from the Extensions
+        # union mount and print its verdict on the serial console.
+        files.append(('addons/native-metal-probe',0o755,probe))
+        files.append(('addons/native-metal-probe.metallib',0o644,read(out/'tests/native-metal-probe.metallib')))
+        job_plist={
+            'Label':'org.unixnu.bbk.metal-probe',
+            'ProgramArguments':['/System/Library/Extensions/native-metal-probe','/System/Library/Extensions/VivaMTLDriver.bundle','/System/Library/Extensions/native-metal-probe.metallib'],
+            'RunAtLoad':True,
+            'LaunchOnlyOnce':True,
+            'KeepAlive':False,
+            'LimitLoadToSessionType':'System',
+            'StandardOutPath':'/dev/console',
+            'StandardErrorPath':'/dev/console',
+        }
+        files.append(('daemons/org.unixnu.bbk.metal-probe.plist',0o644,plistlib.dumps(job_plist,sort_keys=True)))
     raw_cache=b''
     if not a.without_launchd_job:
         cache=module('owner_metal_cache',ROOT/'scripts/prepare-mali-metal-launchd.py')
@@ -204,8 +227,8 @@ def main():
     if count!=4:raise ValueError('Require the qualified four-module baseline')
     offsets=[*struct.unpack_from('<4I',baseline,4),len(baseline)]
     modules=[baseline[start:end] for start,end in zip(offsets,offsets[1:])]
-    cdhashes=sorted({plugin_signature['cdhash']} if a.without_launchd_job else {program_signature['cdhash'],plugin_signature['cdhash']})
-    if len(cdhashes)!=(1 if a.without_launchd_job else 2):raise ValueError('Expected separate signed owner images')
+    cdhashes=sorted(({plugin_signature['cdhash']} if not include_probe else {program_signature['cdhash'],plugin_signature['cdhash']}))
+    if len(cdhashes)!=(2 if include_probe else 1):raise ValueError('Expected separate signed owner images')
     identity=uuid.uuid5(uuid.NAMESPACE_URL,'org.unixnu.bbk.mali-metal:'+','.join(cdhashes)).bytes
     owner=struct.pack('<I16sI',2,identity,len(cdhashes))+b''.join(bytes.fromhex(h)+bytes([2,0,5,0]) for h in cdhashes)
     trusted=seed._pack_trust_modules([owner,*modules])
@@ -226,4 +249,9 @@ def main():
     (a.output/'addon.json').write_text(json.dumps(result,indent=2)+'\n');print(json.dumps(result,indent=2))
 
 if __name__=='__main__':main()
+
+
+
+
+
 

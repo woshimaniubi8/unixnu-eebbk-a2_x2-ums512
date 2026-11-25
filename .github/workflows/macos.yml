@@ -305,6 +305,12 @@ jobs:
             --report device/build/mali-user-probe/probe-stage.json
           printf '\nbbk-a2-mali-user-stage.patch\n' >> device/patches/xnu/series
 
+      - name: Build the launchd service probe
+        run: |
+          mkdir -p device/build/service-probe
+          xcrun clang -target arm64-apple-ios17.0 -isysroot "$(xcrun --sdk iphoneos --show-sdk-path)" \
+            -O2 -Wall -Wextra device/scripts/tools/service-probe.c -o device/build/service-probe/service-probe
+          codesign -s - -f device/build/service-probe/service-probe
       - name: Check inputs
         run: |
           set -eux
