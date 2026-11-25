@@ -7,6 +7,7 @@ cache image that contains it plus the offset inside that image.
 """
 import json
 import mmap
+import os
 import plistlib
 import struct
 import subprocess
@@ -60,11 +61,27 @@ def main():
     mount = Path(tempfile.mkdtemp(prefix="dyld-cache-"))
     subprocess.run(["hdiutil", "attach", "-nobrowse", "-readonly", "-mountpoint", str(mount), str(DMG)], check=True)
     try:
-        cache_dir = mount / "System/Library/Caches/com.apple.dyld"
-        candidates = sorted(cache_dir.glob("dyld_shared_cache_arm64*"))
-        cache = next((p for p in candidates if p.suffix not in (".symbols", ".map") and ".dyldlinkedit" not in p.name), None)
+        print("mount root:", sorted(p.name for p in mount.iterdir())[:24], flush=True)
+        cache = None
+        found = []
+        for root, dirs, files in os.walk(mount):
+            depth = len(Path(root).relative_to(mount).parts)
+            if depth > 6:
+                dirs[:] = []
+                continue
+            for name in files:
+                if name.startswith("dyld_shared_cache"):
+                    found.append(Path(root) / name)
+            if len(found) > 40:
+                break
+        print("dyld cache candidates:", [str(p) for p in found[:12]], flush=True)
+        for path in found:
+            if ".symbols" in path.name or ".map" in path.name or ".dyldlinkedit" in path.name:
+                continue
+            cache = path
+            break
         if cache is None:
-            sys.exit(f"no dyld shared cache under {cache_dir}: {[p.name for p in candidates][:8]}")
+            sys.exit("no dyld shared cache found under the mounted OS image")
         print(f"cache: {cache} ({cache.stat().st_size} bytes)")
         with cache.open("rb") as handle:
             buf = mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ)
