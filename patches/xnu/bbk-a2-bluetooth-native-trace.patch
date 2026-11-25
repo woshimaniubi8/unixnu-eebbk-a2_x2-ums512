@@ -83,7 +83,7 @@ diff --git a/bsd/kern/sys_generic.c b/bsd/kern/sys_generic.c
 diff --git a/bsd/dev/arm/systemcalls.c b/bsd/dev/arm/systemcalls.c
 --- a/bsd/dev/arm/systemcalls.c
 +++ b/bsd/dev/arm/systemcalls.c
-@@ -219,7 +219,83 @@
+@@ -219,7 +219,84 @@
  		}
  	}
  
