@@ -294,7 +294,7 @@ jobs:
             -Wl,-pagezero_size,0x100000000 -o device/build/mali-user-probe/mali-user-probe
           codesign --force --sign - --pagesize 4096 --identifier org.unixnu.bbk.mali-probe \
             --entitlements device/scripts/tools/mali-user-probe.entitlements.plist \
-            device/build/mali-user-probe/
+            device/build/mali-user-probe/mali-user-probe
           python3 device/scripts/test-mali-probe-boot.py device/build/mali-user-probe/mali-user-probe
           python3 device/scripts/tests/test-mali-probe-trust.py
           python3 device/scripts/test-owner-data-scratch.py
@@ -774,5 +774,6 @@ jobs:
           path: frontend/
           if-no-files-found: error
           retention-days: 7
+
 
 
