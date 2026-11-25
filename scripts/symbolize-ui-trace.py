@@ -39,6 +39,31 @@ def cstring(buf, offset):
     return buf[offset:end if end >= 0 else offset + 256].decode("utf-8", "replace")
 
 
+def ipsw_url():
+    profile = ROOT / "UniXNU/profiles/os/ipados-17.7.11-21H461/profile.toml"
+    if not profile.is_file():
+        return None
+    for line in profile.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("ipsw_url"):
+            return stripped.split("=", 1)[1].strip().strip('"').strip("'")
+    return None
+
+
+def ensure_ipsw(tempdir):
+    existing = sorted(ROOT.glob("UniXNU/out/ipsw/*/*.ipsw")) + sorted(ROOT.glob("UniXNU/.cache/**/*.ipsw"))
+    if existing:
+        return existing[0]
+    url = ipsw_url()
+    if not url:
+        return None
+    target = Path(tempdir) / "restore.ipsw"
+    print(f"downloading {url}", flush=True)
+    subprocess.run(["curl", "-sSL", "--retry", "3", "-o", str(target), url], check=True)
+    print(f"ipsw: {target} ({target.stat().st_size} bytes)", flush=True)
+    return target
+
+
 def find_candidates():
     found = []
     found += sorted(ROOT.glob("UniXNU/out/ipsw/*/*.ipsw"))
@@ -119,6 +144,8 @@ def main():
                 if cache:
                     symbolize(cache)
                     return
+        if ensure_ipsw(tempdir) is not None:
+            candidates = candidates + [ensure_ipsw(tempdir)]
         for ipsw in candidates:
             if ipsw.suffix.lower() != ".ipsw":
                 continue
