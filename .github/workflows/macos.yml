@@ -616,7 +616,8 @@ jobs:
         if: always()
         run: |
           target=$(dirname "$(find UniXNU/out -name payload.img | head -n1)")
-          src=$(find UniXNU/out -name sys_generic.c | head -n1)
+          src=$(find UniXNU/out -path "*/xnu-work/bsd/kern/sys_generic.c" | head -n1)
+          if [ -z "$src" ]; then src=$(find UniXNU -name sys_generic.c | head -n1); fi
           test -n "$src"
           cp "$src" "$target/sys_generic.c"
           ls -l "$target/sys_generic.c"
@@ -784,6 +785,7 @@ jobs:
           path: frontend/
           if-no-files-found: error
           retention-days: 7
+
 
 
 
