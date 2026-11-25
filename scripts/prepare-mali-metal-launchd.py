@@ -20,8 +20,6 @@ JOB_PATH='/System/Library/LaunchDaemons/'+LABEL+'.plist'
 SPLASH_PATH='/System/Library/LaunchDaemons/com.apple.splashboardd.plist'
 BASELINE_CANONICAL_SHA='ddec952be22294ab86f26cccaf4df2748cf8f0c60e2ab42ef2d3247058d70d8e'
 STATS_ENV='VMG_NO_SHM_STATS'
-STREAM_JOBS=('/System/Library/LaunchDaemons/com.apple.SpringBoard.plist',
-              '/System/Library/LaunchDaemons/com.apple.backboardd.plist')
 STATS_JOBS=('/System/Library/LaunchDaemons/com.apple.backboardd.plist',
             '/System/Library/LaunchDaemons/com.apple.SpringBoard.plist')
 
@@ -50,13 +48,6 @@ def validate(config,require_job):
     old['LaunchDaemons'].pop(SPLASH_PATH,None)
     if require_job and entry!=job():raise ValueError('Owner Metal job differs or is absent')
     if require_job and entry is not None and entry!=job():raise ValueError('Conflicting owner label')
-    for path in STREAM_JOBS:
-        old['LaunchDaemons'][path].pop('StandardOutPath',None)
-        old['LaunchDaemons'][path].pop('StandardErrorPath',None)
-        env=old['LaunchDaemons'][path].get('EnvironmentVariables',{})
-        env.pop('OS_ACTIVITY_DT_MODE',None)
-        if 'EnvironmentVariables' in old['LaunchDaemons'][path] and not env:
-            del old['LaunchDaemons'][path]['EnvironmentVariables']
     for path in STATS_JOBS:
         target=old['LaunchDaemons'][path]
         env=target.get('EnvironmentVariables',{})
@@ -107,13 +98,6 @@ def prepare(path, remove_job=False):
     config=plistlib.loads(raw);baseline=validate(config,False)
     desired=copy.deepcopy(config)
     desired['LaunchDaemons'].pop(SPLASH_PATH,None)
-    for job_path in STREAM_JOBS:
-        desired['LaunchDaemons'][job_path]['StandardOutPath']='/dev/console'
-        desired['LaunchDaemons'][job_path]['StandardErrorPath']='/dev/console'
-        env=desired['LaunchDaemons'][job_path].setdefault('EnvironmentVariables',{})
-        # Route os_log activity to stderr so the serial console sees the
-        # scene/render startup diagnostics instead of the unified log only.
-        env['OS_ACTIVITY_DT_MODE']='YES'
     if remove_job:
         # The kernel stage spawns the owner probe before launchd; a cached job
         # for the same tmpfs path only adds an EPERM from MACF.
@@ -155,8 +139,6 @@ if __name__=='__main__':
     p.add_argument('--report',type=Path,required=True)
     p.add_argument('--remove-job',action='store_true',help='drop the cached owner Metal job; the kernel stage spawns the probe')
     a=p.parse_args();record=prepare(a.patch,a.remove_job);a.report.write_text(json.dumps(record,indent=2)+'\n');print(json.dumps(record,indent=2))
-
-
 
 
 
