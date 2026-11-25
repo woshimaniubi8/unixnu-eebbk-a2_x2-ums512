@@ -28,7 +28,7 @@ assert entry['MachServices']=={'org.unixnu.bbk.mali-metal.surface':True}
 assert entry['StandardOutPath']=='/dev/console' and entry['StandardErrorPath']=='/dev/console'
 for path in m.STATS_JOBS:
     assert config['LaunchDaemons'][path]['EnvironmentVariables'][m.STATS_ENV]=='1'
-assert 'CA_ASSERT_MAIN_THREAD_TRANSACTIONS' not in config['LaunchDaemons'][m.STATS_JOBS[1]].get('EnvironmentVariables',{})
+assert config['LaunchDaemons'][m.STATS_JOBS[1]]['EnvironmentVariables']['CA_ASSERT_MAIN_THREAD_TRANSACTIONS']=='1'
 tampered=copy.deepcopy(config)
 tampered['LaunchDaemons'][next(iter(previous['LaunchDaemons']))]['RunAtLoad']='modified'
 try:m.validate(tampered,True)
@@ -40,6 +40,7 @@ try:m.validate(tampered,True)
 except ValueError:pass
 else:raise AssertionError('An unqualified statistics setting was accepted')
 print('PASS: cached Metal probe job present; only two UI statistics environment keys added; all other system configuration intact.')
+
 
 
 

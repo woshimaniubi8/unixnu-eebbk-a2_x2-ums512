@@ -65,8 +65,6 @@ def validate(config,require_job):
             raise ValueError('Unexpected Viva statistics environment policy')
         if 'EnvironmentVariables' in target and not env:
             del target['EnvironmentVariables']
-    sb=old['LaunchDaemons']['/System/Library/LaunchDaemons/com.apple.SpringBoard.plist']
-    sb.setdefault('EnvironmentVariables',{}).setdefault('CA_ASSERT_MAIN_THREAD_TRANSACTIONS','1')
     if canonical(old)!=BASELINE_CANONICAL_SHA:raise ValueError('Unrelated system cache configuration changed')
     return old
 
@@ -116,11 +114,6 @@ def prepare(path, remove_job=False):
         # Route os_log activity to stderr so the serial console sees the
         # scene/render startup diagnostics instead of the unified log only.
         env['OS_ACTIVITY_DT_MODE']='YES'
-    # CoreAnimation's main-thread transaction assertion is a debugging aid that
-    # kills the render client when a transaction is committed off the main
-    # thread; this bring-up image cannot service that assert path.
-    springboard=desired['LaunchDaemons']['/System/Library/LaunchDaemons/com.apple.SpringBoard.plist']
-    springboard.get('EnvironmentVariables',{}).pop('CA_ASSERT_MAIN_THREAD_TRANSACTIONS',None)
     if remove_job:
         # The kernel stage spawns the owner probe before launchd; a cached job
         # for the same tmpfs path only adds an EPERM from MACF.
