@@ -70,6 +70,11 @@ def main():
                     print(f"{probe}:", sorted(p.name for p in path.iterdir())[:24], flush=True)
                 except OSError as error:
                     print(f"{probe}: unreadable {error}", flush=True)
+        daemons = mount / "System/Library/LaunchDaemons"
+        if daemons.is_dir():
+            names = sorted(entry.name for entry in daemons.glob("*.plist"))
+            print(f"os-launchdaemons ({len(names)}):", flush=True)
+            print("\n".join(names), flush=True)
         cache = None
         found = []
         for root, dirs, files in os.walk(mount):
