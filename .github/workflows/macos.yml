@@ -612,6 +612,15 @@ jobs:
         run: |
           python3 device/scripts/symbolize-ui-trace.py
 
+      - name: Stage the patched syscall source with the payload
+        if: always()
+        run: |
+          target=$(dirname "$(find UniXNU/out -name payload.img | head -n1)")
+          src=$(find UniXNU/out -name sys_generic.c | head -n1)
+          test -n "$src"
+          cp "$src" "$target/sys_generic.c"
+          ls -l "$target/sys_generic.c"
+
       - name: Stage the service probe with the payload
         run: |
           target=$(dirname "$(find UniXNU/out -name payload.img | head -n1)")
@@ -682,6 +691,7 @@ jobs:
           path: |
             UniXNU/out/*/*/*/payload/payload.img
             UniXNU/out/*/*/*/payload/payload.json
+            UniXNU/out/*/*/*/payload/sys_generic.c
             UniXNU/out/*/*/*/kernel/kernel.macho
             storage-bindings.json
             UniXNU/build/owner-data-fixture/owner-data-32.cdr
@@ -774,6 +784,8 @@ jobs:
           path: frontend/
           if-no-files-found: error
           retention-days: 7
+
+
 
 
 
