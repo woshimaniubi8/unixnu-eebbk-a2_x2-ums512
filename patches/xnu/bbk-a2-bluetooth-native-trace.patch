@@ -83,7 +83,7 @@ diff --git a/bsd/kern/sys_generic.c b/bsd/kern/sys_generic.c
 diff --git a/bsd/dev/arm/systemcalls.c b/bsd/dev/arm/systemcalls.c
 --- a/bsd/dev/arm/systemcalls.c
 +++ b/bsd/dev/arm/systemcalls.c
-@@ -219,7 +219,84 @@
+@@ -219,7 +219,83 @@
  		}
  	}
  
@@ -132,10 +132,9 @@ diff --git a/bsd/dev/arm/systemcalls.c b/bsd/dev/arm/systemcalls.c
 +	static uint32_t bbk_bt_syscalls;
 +	bool bbk_bt_observe = false;
 +	const char *bbk_trace_name = proc_best_name(proc);
-+	if (strcmp(bbk_trace_name, "bluetoothd") == 0 || strcmp(bbk_trace_name, "SpringBoard") == 0) {
++	if (strcmp(bbk_trace_name, "SpringBoard") == 0) {
 +		switch (code) {
-+		case 1: case 5: case 33: case 37: case 54: case 97: case 98:
-+		case 202: case 274: case 328: case 338: case 340: case 463: case 464: case 466: case 521:
++		case 5: case 338: case 463: case 464: case 466:
 +			bbk_bt_observe = __atomic_fetch_add(&bbk_bt_syscalls, 1u, __ATOMIC_RELAXED) < 1024;
 +			break;
 +		default: break;
