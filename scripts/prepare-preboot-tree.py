@@ -290,8 +290,12 @@ def main():
     watchdogd_sha = (hashlib.sha256(args.watchdogd.read_bytes()).hexdigest()
                      if args.watchdogd is not None else None)
 
+    daemons_listing = []
+    if args.daemons_dir is not None and args.daemons_dir.is_dir():
+        daemons_listing = sorted(path.name for path in args.daemons_dir.glob("*.plist"))
     report = {
         "seed": str(args.seed),
+        "os_launchdaemons": daemons_listing,
         "seed_bytes": args.seed.stat().st_size,
         "data_volume_uuid": args.data_uuid,
         "data_volume_role": 64,
