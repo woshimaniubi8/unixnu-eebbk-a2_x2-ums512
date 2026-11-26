@@ -235,6 +235,13 @@ extern "C" {uint64_t *native_legacy_vsync_ring;volatile uint32_t native_legacy_v
 void native_legacy_vsync_observed(unsigned event,unsigned hz) {
     if(event<6)vsyncEvents[event]=vsyncEvents[event]+1;
     vsyncHz=hz;
+    // M152: one line when the vsync source starts, arms or stops, and a slow
+    // heartbeat while it runs, so the bring-up log shows whether CoreAnimation
+    // ever gets a display link on this panel.
+    if(event==4)IOLog("M152 display: vsync timer start hz=%u\n",hz);
+    else if(event==0)IOLog("M152 display: vsync armed hz=%u\n",hz);
+    else if(event==2)IOLog("M152 display: vsync stop hz=%u\n",hz);
+    else if(event==1 && (vsyncEvents[1]%300)==0)IOLog("M152 display: vsync ticks=%llu\n",(unsigned long long)vsyncEvents[1]);
     if(uint64_t *ring=native_legacy_vsync_ring) {
         const uint32_t n=__atomic_fetch_add(&native_legacy_vsync_count,1u,__ATOMIC_RELAXED);
         ring[n&65535]=(mach_absolute_time()<<3)|(event&7);
