@@ -16,7 +16,7 @@ assert len(previous['LaunchDaemons'])==560 and len(config['LaunchDaemons'])==561
 assert '/System/Library/LaunchDaemons/com.apple.splashboardd.plist' not in config['LaunchDaemons']
 entry=config['LaunchDaemons'][m.JOB_PATH]
 assert entry['RunAtLoad'] is True and entry['LaunchOnlyOnce'] is True and entry['KeepAlive'] is False
-assert entry['ProgramArguments']==['/System/Library/Extensions/native-metal-probe']
+assert entry['ProgramArguments']==['/private/var/ngpu/addons/native-metal-probe']
 assert entry['LimitLoadToSessionType']=='System'
 for path in m.STATS_JOBS:
     assert config['LaunchDaemons'][path]['EnvironmentVariables'][m.STATS_ENV]=='1'

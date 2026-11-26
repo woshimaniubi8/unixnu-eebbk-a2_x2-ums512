@@ -12,7 +12,7 @@
 	<string>System</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/System/Library/Extensions/native-metal-probe</string>
+		<string>/private/var/ngpu/addons/native-metal-probe</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
