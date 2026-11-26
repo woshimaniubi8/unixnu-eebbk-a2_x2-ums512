@@ -1,0 +1,21 @@
+--- a/osfmk/ipc/mach_msg.c
++++ b/osfmk/ipc/mach_msg.c
+@@ -728,6 +728,18 @@
+ 		return mr;
+ 	}
+ 
++	/* bbk: bounded send trace, osfmk-only (task pointer, id, flags). */
++	{
++		static unsigned bbk_mach_sends = 0;
++		unsigned bbk_n = __atomic_fetch_add(&bbk_mach_sends, 1u, __ATOMIC_RELAXED);
++		if (bbk_n < 512) {
++			mach_msg_header_t *bbk_hdr = &kmsg->ikm_header;
++			printf("M160 mach send: n=%u task=%p id=0x%x bits=0x%x size=%u\n",
++			    bbk_n, (void *)current_task(), bbk_hdr->msgh_id,
++			    bbk_hdr->msgh_bits, bbk_hdr->msgh_size);
++		}
++	}
++
+ 	mr = ipc_kmsg_send(kmsg, options, msg_timeout);
+ 
+ 	if (mr != MACH_MSG_SUCCESS) {
