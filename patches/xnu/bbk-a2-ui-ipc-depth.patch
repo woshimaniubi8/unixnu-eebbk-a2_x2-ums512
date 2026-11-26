@@ -36,7 +36,7 @@
  #include <mach/arm/traps.h>
  #include <mach/vm_types.h>
  extern void proc_selfname(char *buf, int size);
-@@ -1970,102 +1971,108 @@
+@@ -1970,102 +1971,107 @@
  
  extern void syscall_trace(struct arm_saved_state * regs);
  
@@ -210,13 +210,12 @@
  		lck_spin_unlock(&bbk_ui_lock);
 -		printf("M91 sb-exec: pid=%d main_tid=%llu\n", pid,
 -		    (unsigned long long)thread_tid(current_thread()));
-+		printf("M93 ui-exec: name=%s pid=%d task=%p main_tid=%llu exec_context_tid=%llu\n",
-+		    name, pid, (void *)current_task(), (unsigned long long)target_tid,
-+		    (unsigned long long)thread_tid(current_thread()));
++		printf("M93 ui-exec: name=%s pid=%d main_tid=%llu exec_context_tid=%llu\n",
++		    name, pid, (unsigned long long)target_tid, (unsigned long long)thread_tid(current_thread()));
  	}
  	if (pid == 1 && os_atomic_cmpxchg(&bbk_ui_started, 0, 1, relaxed)) {
  		bbk_ui_call = thread_call_allocate(bbk_ui_snapshot, NULL);
-@@ -2075,7 +2082,7 @@
+@@ -2075,7 +2081,7 @@
  			clock_interval_to_deadline(30, NSEC_PER_SEC, &deadline);
  			thread_call_enter_delayed(bbk_ui_call, deadline);
  		} else {
@@ -225,7 +224,7 @@
  		}
  	}
  }
-@@ -2084,37 +2091,35 @@
+@@ -2084,37 +2090,35 @@
  bbk_ui_svc_entry(arm_saved_state_t *state, int trap)
  {
  	if (!os_atomic_load(&bbk_ui_enabled, acquire)) return;
