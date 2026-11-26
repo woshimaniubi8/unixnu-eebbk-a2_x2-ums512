@@ -1,0 +1,11 @@
+--- a/NativeLegacyDisplay.cpp
++++ b/NativeLegacyDisplay.cpp
+@@ -488,6 +488,8 @@
+     }
+     void startVsync() {
+         unsigned hz=native_legacy_refresh_hz();
++        IOLog("M152 display: vsync start hz=%u primary=%d mapping=%d timer=%d\n",hz,
++            primary?1:0,bootMapping?1:0,vsyncTimer?1:0);
+         if(!hz || hz>240 || !primary || !bootMapping || vsyncTimer)return;
+         IOWorkLoop *loop=getWorkLoop();
+         if(!loop)return;
