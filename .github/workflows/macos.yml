@@ -627,6 +627,10 @@ jobs:
           for name in osfmk/kern/mach_trap.c osfmk/ipc/mach_msg.c osfmk/kern/syscall_sw.c; do
             if [ -f "$work/$name" ]; then cp "$work/$name" "$target/$(basename $name)"; fi
           done
+          for name in NativeLegacyDisplay.cpp NativeGOPPresenter.cpp NativeGOPWire.h; do
+            extra=$(find UniXNU/out -name "$name" | head -n1)
+            if [ -n "$extra" ]; then cp "$extra" "$target/$name"; fi
+          done
           ls -l "$target" | tail -n 5
 
       - name: Stage the service probe with the payload
