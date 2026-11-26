@@ -16,13 +16,8 @@ assert len(previous['LaunchDaemons'])==560 and len(config['LaunchDaemons'])==561
 assert '/System/Library/LaunchDaemons/com.apple.splashboardd.plist' not in config['LaunchDaemons']
 entry=config['LaunchDaemons'][m.JOB_PATH]
 assert entry['RunAtLoad'] is True and entry['LaunchOnlyOnce'] is True and entry['KeepAlive'] is False
-assert entry['ProgramArguments']==[
-    '/System/Library/Extensions/native-metal-probe',
-    '/System/Library/Extensions/VivaMTLDriver.bundle',
-    '/System/Library/Extensions/native-metal-probe.metallib']
+assert entry['ProgramArguments']==['/System/Library/Extensions/native-metal-probe']
 assert entry['LimitLoadToSessionType']=='System'
-assert entry['MachServices']=={'org.unixnu.bbk.mali-metal.surface':True}
-assert entry['StandardOutPath']=='/dev/console' and entry['StandardErrorPath']=='/dev/console'
 for path in m.STATS_JOBS:
     assert config['LaunchDaemons'][path]['EnvironmentVariables'][m.STATS_ENV]=='1'
 assert config['LaunchDaemons'][m.STATS_JOBS[1]]['EnvironmentVariables']['CA_ASSERT_MAIN_THREAD_TRANSACTIONS']=='1'

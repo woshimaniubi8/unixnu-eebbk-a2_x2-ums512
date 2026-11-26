@@ -10,24 +10,11 @@
 	<true/>
 	<key>LimitLoadToSessionType</key>
 	<string>System</string>
-	<key>MachServices</key>
-	<dict>
-		<key>org.unixnu.bbk.mali-metal.surface</key>
-		<true/>
-	</dict>
 	<key>ProgramArguments</key>
 	<array>
 		<string>/System/Library/Extensions/native-metal-probe</string>
-		<string>/System/Library/Extensions/VivaMTLDriver.bundle</string>
-		<string>/System/Library/Extensions/native-metal-probe.metallib</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
-	<key>StandardErrorPath</key>
-	<string>/dev/console</string>
-	<key>StandardOutPath</key>
-	<string>/dev/console</string>
 </dict>
 </plist>
-
-
