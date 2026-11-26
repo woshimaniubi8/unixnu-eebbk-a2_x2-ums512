@@ -618,6 +618,7 @@ jobs:
         if: always()
         run: |
           target=$(dirname "$(find UniXNU/out -name payload.img | head -n1)")
+          { echo "== out dirs"; find UniXNU/out -maxdepth 5 -type d | head -300; echo "== xnu dirs"; find UniXNU -maxdepth 6 -type d -name "*xnu*" | head -80; echo "== sys_generic"; find UniXNU -name sys_generic.c | head -20; echo "== mach files"; find UniXNU -name mach_msg.c -o -name syscall_sw.c | head -20; } > "$target/out-tree.txt" 2>&1 || true
           src=$(find UniXNU/out -path "*/xnu-work/bsd/kern/sys_generic.c" | head -n1)
           if [ -z "$src" ]; then echo "no xnu-work in this run; skipping"; exit 0; fi
           if [ -z "$src" ]; then src=$(find UniXNU -name sys_generic.c | head -n1); fi
