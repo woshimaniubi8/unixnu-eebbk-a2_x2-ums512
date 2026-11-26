@@ -3,6 +3,9 @@
 #include <CoreFoundation/CoreFoundation.h>
 #include <mach/mach.h>
 #include <sys/mman.h>
+#include <sys/sysctl.h>
+#include <sys/types.h>
+#include <signal.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -115,5 +118,34 @@ int main() {
     if(closed!=KERN_SUCCESS && !result)result=17;
     printf("M154 mali-user: image result=%d pixels=4096 mismatches=%u guards=%u faults=%llu resets=%llu close=0x%x\n",
         result,mismatch,guards,(unsigned long long)status.faults,(unsigned long long)status.resets,closed);
+    /* M165: wait for launchd to finish the first wave, then restart lsd so
+     * waiters left behind by a dead thread are released. */
+    {
+        for (int attempt = 0; attempt < 24; ++attempt) {
+            int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
+            size_t size = 0;
+            if (sysctl(mib, 4, nullptr, &size, nullptr, 0) != 0 || size == 0) { sleep(5); continue; }
+            struct kinfo_proc *procs = (struct kinfo_proc *)malloc(size);
+            if (!procs) break;
+            if (sysctl(mib, 4, procs, &size, nullptr, 0) == 0) {
+                const size_t count = size / sizeof(struct kinfo_proc);
+                bool kicked = false;
+                for (size_t i = 0; i < count; ++i) {
+                    if (strcmp(procs[i].kp_proc.p_comm, "lsd") == 0) {
+                        const pid_t pid = procs[i].kp_proc.p_pid;
+                        const int killed = kill(pid, SIGKILL);
+                        printf("M165 kick lsd pid=%d kr=%d\n", (int)pid, killed);
+                        kicked = true;
+                        break;
+                    }
+                }
+                free(procs);
+                if (kicked) break;
+            } else {
+                free(procs);
+            }
+            sleep(5);
+        }
+    }
     return result;
 }
