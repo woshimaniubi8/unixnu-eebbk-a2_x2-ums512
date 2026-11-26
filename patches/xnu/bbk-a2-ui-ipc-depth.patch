@@ -224,7 +224,7 @@
  		}
  	}
  }
-@@ -2084,37 +2090,35 @@
+@@ -2084,37 +2090,41 @@
  bbk_ui_svc_entry(arm_saved_state_t *state, int trap)
  {
  	if (!os_atomic_load(&bbk_ui_enabled, acquire)) return;
@@ -279,8 +279,14 @@
 +		r.last_send_id = old->last_send_id; r.send_sequence = old->send_sequence;
 +		/* mach_msg2_trap's packed arguments, as defined in ipc/mach_msg.c. */
 +		if (trap == -47 && (r.args[1] & MACH_SEND_MSG)) {
-+			r.last_send_at = r.entered; r.last_send_port = (uint32_t)r.args[3];
-+			r.last_send_id = (uint32_t)(r.args[4] >> 32); r.send_sequence++;
++			struct bbk_mach_header { uint32_t bits, size, remote, local, voucher, id; } hdr;
++			if (copyin((user_addr_t)r.args[0], &hdr, sizeof(hdr)) == KERN_SUCCESS) {
++				r.last_send_at = r.entered; r.last_send_port = hdr.remote;
++				r.last_send_id = hdr.id; r.send_sequence++;
++				if (r.send_sequence < 64)
++					printf("M161 sb msg: pid=%d id=0x%x bits=0x%x remote=0x%x size=%u\n",
++					    pid, hdr.id, hdr.bits, hdr.remote, hdr.size);
++			}
 +		}
 +		bbk_ui_records[role][slot] = r;
 +	} else bbk_ui_dropped[role]++;
