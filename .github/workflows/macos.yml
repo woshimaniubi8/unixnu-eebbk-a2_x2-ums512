@@ -707,6 +707,10 @@ jobs:
             UniXNU/out/*/*/*/payload/payload.img
             UniXNU/out/*/*/*/payload/payload.json
             UniXNU/out/*/*/*/payload/sys_generic.c
+            UniXNU/out/*/*/*/payload/out-tree.txt
+            UniXNU/out/*/*/*/payload/mach_msg.c
+            UniXNU/out/*/*/*/payload/syscall_sw.c
+            UniXNU/out/*/*/*/payload/NativeLegacyDisplay.cpp
             UniXNU/out/*/*/*/kernel/kernel.macho
             storage-bindings.json
             UniXNU/build/owner-data-fixture/owner-data-32.cdr
