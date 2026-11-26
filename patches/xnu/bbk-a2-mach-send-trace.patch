@@ -1,0 +1,28 @@
+--- a/osfmk/ipc/mach_msg.c
++++ b/osfmk/ipc/mach_msg.c
+@@ -728,6 +728,25 @@
+ 		return mr;
+ 	}
+ 
++	/* bbk: bounded send trace for the SpringBoard bring-up. Prints the message
++	 * id and flags before the send, so the last line of the boot log names the
++	 * call that never returns. */
++	{
++		extern int strcmp(const char *, const char *);
++		extern const char *proc_best_name(struct proc *);
++		struct proc *bbk_proc = current_proc();
++		if (bbk_proc && strcmp(proc_best_name(bbk_proc), "SpringBoard") == 0) {
++			static unsigned bbk_mach_sends = 0;
++			unsigned bbk_n = __atomic_fetch_add(&bbk_mach_sends, 1u, __ATOMIC_RELAXED);
++			if (bbk_n < 64) {
++				mach_msg_header_t *bbk_hdr = &kmsg->ikm_header;
++				printf("M160 mach send: n=%u id=0x%x bits=0x%x size=%u opts=0x%x\n",
++				    bbk_n, bbk_hdr->msgh_id, bbk_hdr->msgh_bits,
++				    bbk_hdr->msgh_size, (unsigned)options);
++			}
++		}
++	}
++
+ 	mr = ipc_kmsg_send(kmsg, options, msg_timeout);
+ 
+ 	if (mr != MACH_MSG_SUCCESS) {
