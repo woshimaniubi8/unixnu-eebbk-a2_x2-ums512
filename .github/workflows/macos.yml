@@ -557,8 +557,14 @@ jobs:
         working-directory: UniXNU
         run: |
           set -euxo pipefail
-          python3 "$GITHUB_WORKSPACE/device/scripts/test-trust-bundle.py"
-          python3 "$GITHUB_WORKSPACE/device/scripts/prepare-data-seed.py" --tree "$PWD"
+          mkdir -p "$GITHUB_WORKSPACE/device/build"
+          LOG="$GITHUB_WORKSPACE/device/build/seed-run.log"
+          {
+            date -u
+            df -h /
+            python3 "$GITHUB_WORKSPACE/device/scripts/test-trust-bundle.py"
+            python3 "$GITHUB_WORKSPACE/device/scripts/prepare-data-seed.py" --tree "$PWD"
+          } 2>&1 | tee -a "$LOG"
 
       - name: Fetch the qualified M220 kernel, ADT and GPU addon
         if: inputs.steps == 'seed only'
