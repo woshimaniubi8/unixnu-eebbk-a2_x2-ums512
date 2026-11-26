@@ -208,6 +208,7 @@ jobs:
           git -C UniXNU/drivers/GopFramebuffer apply "$GITHUB_WORKSPACE/device/patches/unixnu/gop-bbk-mali-present.patch"
           git -C UniXNU/drivers/GopFramebuffer apply "$GITHUB_WORKSPACE/device/patches/unixnu/gop-bbk-plane-stride.patch"
           git -C UniXNU/drivers/GopFramebuffer apply "$GITHUB_WORKSPACE/device/patches/unixnu/gop-bbk-vsync-start-trace.patch"
+          git -C UniXNU/drivers/GopFramebuffer apply "$GITHUB_WORKSPACE/device/patches/unixnu/gop-bbk-vsync-arm-trace.patch"
           du -sh UniXNU
 
       - uses: actions/setup-python@v5

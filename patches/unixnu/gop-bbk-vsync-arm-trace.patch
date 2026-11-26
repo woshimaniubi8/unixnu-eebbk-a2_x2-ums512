@@ -1,0 +1,17 @@
+--- a/NativeLegacyDisplay.cpp
++++ b/NativeLegacyDisplay.cpp
+@@ -470,7 +470,13 @@
+     // Selector 72's registration of a vsync client ends in kickSwapQueue (slot 290), which arms the tick; the tick stops by itself once
+     // the last client is removed.
+     void armVsync() {
+-        if(!vsyncTimer || vsyncArmed || !vsyncWanted())return;
++        static bool loggedNoClient=false,loggedArm=false;
++        if(!vsyncTimer || vsyncArmed)return;
++        if(!vsyncWanted()) {
++            if(!loggedNoClient) {loggedNoClient=true;IOLog("M152 display: vsync no client yet\n");}
++            return;
++        }
++        if(!loggedArm) {loggedArm=true;IOLog("M152 display: vsync armed with client hz=%u\n",vsyncHz);}
+         vsyncArmed=true;vsyncNext=mach_absolute_time()+vsyncInterval;
+         vsyncTimer->wakeAtTime(vsyncNext);native_legacy_vsync_observed(0,vsyncHz);
+     }
