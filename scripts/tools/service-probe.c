@@ -9,6 +9,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/sysctl.h>
+#include <sys/types.h>
+#include <signal.h>
+#include <stdlib.h>
 
 /* The iOS SDK does not ship the bootstrap header; declare the one call. */
 extern kern_return_t bootstrap_look_up(mach_port_t bp, const char *service_name, mach_port_t *sp);
@@ -84,5 +88,32 @@ int main(void) {
         }
     }
     emit("svc-probe: done");
+
+    /* M165: restart lsd once so waiters left behind by a dead thread are
+     * released. Bounded wait so the job still runs during the first wave. */
+    for (int attempt = 0; attempt < 12; ++attempt) {
+        int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
+        size_t size = 0;
+        if (sysctl(mib, 4, NULL, &size, NULL, 0) == 0 && size) {
+            struct kinfo_proc *procs = (struct kinfo_proc *)malloc(size);
+            if (procs) {
+                if (sysctl(mib, 4, procs, &size, NULL, 0) == 0) {
+                    size_t count = size / sizeof(struct kinfo_proc);
+                    for (size_t i = 0; i < count; ++i) {
+                        if (strcmp(procs[i].kp_proc.p_comm, "lsd") == 0) {
+                            pid_t pid = procs[i].kp_proc.p_pid;
+                            int killed = kill(pid, SIGKILL);
+                            emit("M165 kick lsd pid=%d kr=%d", (int)pid, killed);
+                            free(procs);
+                            return 0;
+                        }
+                    }
+                }
+                free(procs);
+            }
+        }
+        sleep(5);
+    }
+    emit("M165 kick lsd: not found");
     return 0;
 }
