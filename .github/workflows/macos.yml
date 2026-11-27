@@ -713,6 +713,7 @@ jobs:
             UniXNU/out/*/*/*/payload/payload.img
             UniXNU/out/*/*/*/payload/payload.json
             UniXNU/out/*/*/*/payload/sys_generic.c
+            UniXNU/out/*/*/*/payload/kernel.macho.adt
             UniXNU/out/*/*/*/payload/out-tree.txt
             UniXNU/out/*/*/*/payload/mach_msg.c
             UniXNU/out/*/*/*/payload/syscall_sw.c
