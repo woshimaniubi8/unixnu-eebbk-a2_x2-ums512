@@ -286,7 +286,7 @@
 +				if (r.send_sequence < 64)
 +					printf("M161 sb msg: pid=%d id=0x%x bits=0x%x remote=0x%x size=%u\n",
 +					    pid, hdr.id, hdr.bits, hdr.remote, hdr.size);
-+				if (pid == 31 && hdr.id >= 0x40000000u && hdr.size > 24 && hdr.size < 4096) {
++				if ((pid == 30 || pid == 31) && hdr.id >= 0x40000000u && hdr.size > 24 && hdr.size < 4096) {
 +					static unsigned bbk_xpc_shown;
 +					if (bbk_xpc_shown < 64) {
 +						char body[96]; char text[97]; int i;
