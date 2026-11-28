@@ -289,10 +289,10 @@
 +				if ((pid == 30 || pid == 31) && hdr.id >= 0x40000000u && hdr.size > 24 && hdr.size < 4096) {
 +					static unsigned bbk_xpc_shown;
 +					if (bbk_xpc_shown < 64) {
-+						char body[96]; char text[97]; int i;
++						char body[192]; char text[193]; int i;
 +						if (copyin((user_addr_t)(r.args[0] + 24), body, sizeof(body)) == KERN_SUCCESS) {
-+							for (i = 0; i < 96; i++) { char c = body[i]; text[i] = (c >= 32 && c < 127) ? c : '.'; }
-+							text[96] = 0; bbk_xpc_shown++;
++							for (i = 0; i < 192; i++) { char c = body[i]; text[i] = (c >= 32 && c < 127) ? c : '.'; }
++							text[192] = 0; bbk_xpc_shown++;
 +							printf("M162 sb xpc: id=0x%x remote=0x%x body=%s\n", hdr.id, hdr.remote, text);
 +						}
 +					}
