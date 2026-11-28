@@ -351,10 +351,15 @@ def main():
 
     dmg = extract_os_dmg(tree)
     print(f"os image: {dmg} ({dmg.stat().st_size >> 20} MiB)")
+    # A restored CI cache can leave a stale mount or a non-empty mountpoint
+    # behind; hdiutil then refuses with "Failed mount preflight".
+    run(["hdiutil", "detach", str(mountpoint), "-force"], tree, check=False)
+    if mountpoint.exists():
+        shutil.rmtree(mountpoint, ignore_errors=True)
     mountpoint.mkdir(parents=True, exist_ok=True)
     attached = False
     try:
-        run(["hdiutil", "attach", "-nobrowse", "-readonly",
+        run(["hdiutil", "attach", "-nobrowse", "-readonly", "-noverify",
              "-mountpoint", str(mountpoint), str(dmg)], tree)
         attached = True
         probe_mount_fstab_schema(mountpoint)
