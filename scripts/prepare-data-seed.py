@@ -37,6 +37,7 @@ import hashlib
 import json
 import os
 import re
+import plistlib
 import shutil
 import struct
 import subprocess
@@ -314,6 +315,33 @@ def probe_mount_fstab_schema(mount_root):
             print("   ---")
 
 
+def seed_launchservices_defaults(tree, seed):
+    """Pre-create the LaunchServices first-boot files inside the seed.
+
+    lsd builds these while seeding and its MobileInstallation syncup never
+    finishes on this port, so every LaunchServices client waits for the
+    database forever.  An empty but valid pair lets
+    -[LSDatabaseBuilder createAndSeedLocalDatabase:] take its already-seeded
+    path instead of entering the syncup that hangs.
+    """
+    mount = seed.parent / "seed-lsd-mount"
+    run(["hdiutil", "detach", str(mount), "-force"], tree, check=False)
+    if mount.exists():
+        shutil.rmtree(mount, ignore_errors=True)
+    mount.mkdir(parents=True, exist_ok=True)
+    run(["hdiutil", "attach", "-nobrowse", "-readwrite", "-noverify",
+         "-mountpoint", str(mount), str(seed)], tree)
+    try:
+        target = mount / "private/var/db/lsd"
+        target.mkdir(parents=True, exist_ok=True)
+        for name in ("com.apple.lsdidentifiers.plist", "com.apple.lsdschemes.plist"):
+            (target / name).write_bytes(plistlib.dumps({}, fmt=plistlib.FMT_BINARY))
+        for child in sorted(target.iterdir()):
+            print(f"seed lsd default: {child.relative_to(mount)}", flush=True)
+    finally:
+        run(["hdiutil", "detach", str(mount)], tree, check=False)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -391,6 +419,7 @@ def main():
         finally:
             shutil.rmtree(firmware, ignore_errors=True)
         build_trust_bundle(tree, device, output.parent / "trustcache.bundle", watchdogd)
+        seed_launchservices_defaults(tree, output)
     finally:
         if attached and not args.keep_mounted:
             run(["hdiutil", "detach", str(mountpoint)], tree, check=False)
