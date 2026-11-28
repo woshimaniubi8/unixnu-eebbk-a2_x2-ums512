@@ -23,6 +23,10 @@ STATS_ENV='VMG_NO_SHM_STATS'
 # Jobs that must be running before LaunchServices seeds its database:
 # launchd otherwise only spawns them on demand, and the on-demand lookup
 # path never reaches them on this port.
+# The container manager talks to a kernel upcall port that this port does
+# not provide; without it every container lookup from a client hangs.
+CONTAINER_JOB = '/System/Library/LaunchDaemons/com.apple.containermanagerd.plist'
+
 FORCE_START_JOBS = [
     '/System/Library/LaunchDaemons/com.apple.mobile.installd.plist',
     '/System/Library/LaunchDaemons/com.apple.mobile_installation_proxy.plist',
@@ -58,6 +62,11 @@ def validate(config,require_job):
     old['LaunchDaemons'].pop(SPLASH_PATH,None)
     if require_job and entry!=job():raise ValueError('Owner Metal job differs or is absent')
     if require_job and entry is not None and entry!=job():raise ValueError('Conflicting owner label')
+    container = old['LaunchDaemons'].get(CONTAINER_JOB)
+    if isinstance(container, dict):
+        args = container.get('ProgramArguments') or []
+        container['ProgramArguments'] = [
+            '--kernel-upcall=yes' if a == '--kernel-upcall=no' else a for a in args]
     for job_path in FORCE_START_JOBS:
         entry = old['LaunchDaemons'].get(job_path)
         if isinstance(entry, dict):
@@ -118,6 +127,11 @@ def prepare(path, remove_job=False):
         desired['LaunchDaemons'].pop(JOB_PATH,None)
     else:
         desired['LaunchDaemons'][JOB_PATH]=job()
+    container = desired['LaunchDaemons'].get(CONTAINER_JOB)
+    if isinstance(container, dict):
+        args = container.get('ProgramArguments') or []
+        container['ProgramArguments'] = [
+            '--kernel-upcall=no' if a == '--kernel-upcall=yes' else a for a in args]
     for job_path in FORCE_START_JOBS:
         entry = desired['LaunchDaemons'].get(job_path)
         if entry is not None:
