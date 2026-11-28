@@ -77,8 +77,15 @@ def find_candidates():
 
 def scan_image(image, label, tempdir):
     mount = Path(tempfile.mkdtemp(prefix="dmg-mount-", dir=tempdir))
-    subprocess.run(["hdiutil", "attach", "-nobrowse", "-readonly", "-mountpoint", str(mount), str(image)],
-                   check=True, stdout=subprocess.DEVNULL)
+    try:
+        subprocess.run(["hdiutil", "attach", "-nobrowse", "-readonly", "-mountpoint", str(mount), str(image)],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except subprocess.CalledProcessError:
+        # Not every dmg inside an IPSW is a mountable APFS volume (encrypted
+        # and firmware payloads are not); this pass only needs the one that
+        # carries the dyld shared cache.
+        print(f"{image.name}: not mountable, skipped", flush=True)
+        return None
     try:
         for probe in ("System/Cryptexes/OS", "System/Cryptexes/App", "System/Library/Caches/com.apple.dyld"):
             path = mount / probe
