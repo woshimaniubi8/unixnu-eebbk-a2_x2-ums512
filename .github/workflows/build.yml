@@ -277,6 +277,16 @@ jobs:
       - name: Clone UniXNU core with submodules (status resolves kits and drivers)
         run: git clone -q --depth 1 --recurse-submodules --shallow-submodules https://github.com/UniXNU/UniXNU.git UniXNU
 
+      # `unixnu status` resolves the components named by board.toml, so the
+      # device-owned component definitions must be part of UniXNU first.
+      - name: Wire device components into UniXNU
+        run: |
+          set -eux
+          for f in "$GITHUB_WORKSPACE"/components/*.toml; do
+            printf '\n' >> UniXNU/components.toml
+            cat "$f" >> UniXNU/components.toml
+          done
+
       - name: defconfig + status
         run: |
           set -eux
