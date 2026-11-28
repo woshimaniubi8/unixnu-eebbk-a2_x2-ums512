@@ -20,6 +20,16 @@ JOB_PATH='/System/Library/LaunchDaemons/'+LABEL+'.plist'
 SPLASH_PATH='/System/Library/LaunchDaemons/com.apple.splashboardd.plist'
 BASELINE_CANONICAL_SHA='ddec952be22294ab86f26cccaf4df2748cf8f0c60e2ab42ef2d3247058d70d8e'
 STATS_ENV='VMG_NO_SHM_STATS'
+# Jobs that must be running before LaunchServices seeds its database:
+# launchd otherwise only spawns them on demand, and the on-demand lookup
+# path never reaches them on this port.
+FORCE_START_JOBS = [
+    '/System/Library/LaunchDaemons/com.apple.mobile.installd.plist',
+    '/System/Library/LaunchDaemons/com.apple.mobile_installation_proxy.plist',
+    '/System/Library/LaunchDaemons/com.apple.installcoordinationd.plist',
+    '/System/Library/LaunchDaemons/com.apple.appstored.plist',
+]
+
 STATS_JOBS=('/System/Library/LaunchDaemons/com.apple.backboardd.plist',
             '/System/Library/LaunchDaemons/com.apple.SpringBoard.plist')
 
@@ -48,6 +58,10 @@ def validate(config,require_job):
     old['LaunchDaemons'].pop(SPLASH_PATH,None)
     if require_job and entry!=job():raise ValueError('Owner Metal job differs or is absent')
     if require_job and entry is not None and entry!=job():raise ValueError('Conflicting owner label')
+    for job_path in FORCE_START_JOBS:
+        entry = old['LaunchDaemons'].get(job_path)
+        if isinstance(entry, dict):
+            entry.pop('RunAtLoad', None)
     for path in STATS_JOBS:
         target=old['LaunchDaemons'][path]
         env=target.get('EnvironmentVariables',{})
@@ -104,6 +118,10 @@ def prepare(path, remove_job=False):
         desired['LaunchDaemons'].pop(JOB_PATH,None)
     else:
         desired['LaunchDaemons'][JOB_PATH]=job()
+    for job_path in FORCE_START_JOBS:
+        entry = desired['LaunchDaemons'].get(job_path)
+        if entry is not None:
+            entry['RunAtLoad'] = True
     for target in STATS_JOBS:
         # Viva's own opt-out prevents its optional Manager statistics page
         # from calling umask(0) inside Apple's restricted UI services.
